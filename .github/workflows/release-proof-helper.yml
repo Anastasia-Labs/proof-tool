@@ -1,0 +1,237 @@
+name: Release Proof Helper
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build
+        required: true
+        type: string
+      publish_release:
+        description: Publish instead of leaving the release as a draft
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  PROOF_TOOL_VERSION: 0.1.0
+  PROOF_HELPER_APP_DIR: apps/proof-helper-desktop
+  PROOF_HELPER_TAURI_DIR: apps/proof-helper-desktop/src-tauri
+
+jobs:
+  go-and-web-checks:
+    name: Go, client, and website checks
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            packages/client-ts/pnpm-lock.yaml
+            apps/ownership-proof-web/pnpm-lock.yaml
+            apps/proof-helper-desktop/pnpm-lock.yaml
+
+      - run: go test ./...
+
+      - name: Client package
+        working-directory: packages/client-ts
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm build
+
+      - name: Ownership website
+        working-directory: apps/ownership-proof-web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm typecheck
+          pnpm build
+
+      - name: Desktop frontend
+        working-directory: apps/proof-helper-desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm typecheck
+          pnpm build
+
+      - name: Desktop key-bundle core
+        run: cargo test --manifest-path apps/proof-helper-desktop/src-tauri/key-bundle-core/Cargo.toml
+
+      - name: Desktop sidecar core
+        run: cargo test --manifest-path apps/proof-helper-desktop/src-tauri/sidecar-core/Cargo.toml
+
+  build-sidecar:
+    name: Build sidecar (${{ matrix.target }})
+    needs: go-and-web-checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            binary: proof-tool-x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            binary: proof-tool-x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary: proof-tool-aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: proof-tool-x86_64-pc-windows-msvc.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build proof-tool sidecar
+        shell: bash
+        run: |
+          mkdir -p dist/sidecars
+          GOOS="$(echo "${{ matrix.target }}" | cut -d- -f3)"
+          case "${{ matrix.target }}" in
+            x86_64-unknown-linux-gnu) GOOS=linux GOARCH=amd64 ;;
+            x86_64-apple-darwin) GOOS=darwin GOARCH=amd64 ;;
+            aarch64-apple-darwin) GOOS=darwin GOARCH=arm64 ;;
+            x86_64-pc-windows-msvc) GOOS=windows GOARCH=amd64 ;;
+          esac
+          GOOS="$GOOS" GOARCH="$GOARCH" go build -trimpath -ldflags="-s -w" -o "dist/sidecars/${{ matrix.binary }}" ./cmd/proof-tool
+
+      - name: Checksums
+        shell: bash
+        run: |
+          cd dist/sidecars
+          shasum -a 256 "${{ matrix.binary }}" > "${{ matrix.binary }}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-${{ matrix.target }}
+          path: dist/sidecars/*
+
+  build-tauri:
+    name: Build Tauri app (${{ matrix.platform }})
+    needs: build-sidecar
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            os: ubuntu-22.04
+            sidecar_artifact: sidecar-x86_64-unknown-linux-gnu
+          - platform: macos-x64
+            os: macos-latest
+            sidecar_artifact: sidecar-x86_64-apple-darwin
+          - platform: macos-arm64
+            os: macos-latest
+            sidecar_artifact: sidecar-aarch64-apple-darwin
+          - platform: windows-x64
+            os: windows-latest
+            sidecar_artifact: sidecar-x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/proof-helper-desktop/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Linux Tauri prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl wget file pkg-config libssl-dev libdbus-1-dev libglib2.0-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.sidecar_artifact }}
+          path: apps/proof-helper-desktop/src-tauri/binaries
+
+      - name: Desktop dependencies
+        working-directory: apps/proof-helper-desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Check Linux Tauri prerequisites
+        if: runner.os == 'Linux'
+        working-directory: apps/proof-helper-desktop
+        run: pnpm check:tauri-prereqs
+
+      - name: Build Tauri installer
+        working-directory: apps/proof-helper-desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: pnpm tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proof-helper-${{ matrix.platform }}
+          path: |
+            apps/proof-helper-desktop/src-tauri/target/release/bundle/**
+
+  draft-release:
+    name: Draft release
+    needs: build-tauri
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Release notes
+        run: |
+          {
+            echo "Proof Helper ${{ inputs.tag }}"
+            echo
+            echo "- App version: ${PROOF_TOOL_VERSION}"
+            echo "- Sidecar version: ${PROOF_TOOL_VERSION}"
+            echo "- Circuit id: root-ownership-v1/bls12-381/groth16"
+            echo "- Key version: ownership-v1"
+            echo "- vk_hash: publish with the separately signed proving-key manifest"
+            echo
+            echo "Signing, notarization, updater metadata, and proving-key publication must be verified before this draft is published."
+          } > release-notes.md
+
+      - name: Create draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: Proof Helper ${{ inputs.tag }}
+          draft: ${{ inputs.publish_release != true }}
+          prerelease: true
+          body_path: release-notes.md
+          files: release-artifacts/**
