@@ -1,0 +1,25 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "web": {
+      "root": "apps/ownership-proof-web",
+      "framework": "nextjs",
+      "installCommand": "pnpm install --frozen-lockfile",
+      "buildCommand": "pnpm build"
+    },
+    "verifier": {
+      "root": ".",
+      "framework": "go"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": { "service": "verifier" }
+    },
+    {
+      "source": "/:path*",
+      "destination": { "service": "web" }
+    }
+  ]
+}

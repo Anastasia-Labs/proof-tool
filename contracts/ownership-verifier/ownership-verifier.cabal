@@ -1,0 +1,34 @@
+cabal-version: 3.0
+name:          ownership-verifier
+version:       0.1.0.0
+synopsis:      Plutus V3 ownership proof verifier for proof-tool artifacts
+license:       Apache-2.0
+
+common common-lang
+  ghc-options:      -Wall -Wno-unused-packages
+  default-language: Haskell2010
+
+library
+  import:          common-lang
+  hs-source-dirs:  src
+  exposed-modules: Ownership.Verify
+  build-depends:
+    , base              >= 4.17 && < 5
+    , plutus-tx         >= 1.30 && < 2
+    , plutus-tx-plugin  >= 1.30 && < 2
+    , plutus-core       >= 1.30 && < 2
+  ghc-options:
+    -fplugin PlutusTx.Plugin
+    -fplugin-opt PlutusTx.Plugin:defer-errors
+
+test-suite ownership-verifier-test
+  import:         common-lang
+  type:           exitcode-stdio-1.0
+  main-is:        VerifySpec.hs
+  hs-source-dirs: test
+  build-depends:
+    , base                >= 4.17 && < 5
+    , ownership-verifier
+    , plutus-tx           >= 1.30 && < 2
+    , tasty               >= 1.4
+    , tasty-hunit         >= 0.10
