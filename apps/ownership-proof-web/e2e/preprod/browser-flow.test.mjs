@@ -17,6 +17,7 @@ describe("preprod browser bootstrap", () => {
     const outputDir = tempDir();
     const fake = fakeBrowserStack();
     const walletHarness = fakeWalletHarness();
+    const fundingStageRunner = vi.fn(async () => fakeFundingStage(outputDir));
 
     const result = await runPreprodBrowserBootstrap({
       env: {},
@@ -26,6 +27,7 @@ describe("preprod browser bootstrap", () => {
       walletHarness,
       outputDir,
       browserLauncher: fake.launcher,
+      fundingStageRunner,
     });
 
     expect(result.ok).toBe(true);
@@ -36,8 +38,21 @@ describe("preprod browser bootstrap", () => {
       path: path.join(outputDir, "screenshots", "reclaim-initial.png"),
       fullPage: true,
     });
+    expect(fundingStageRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: fake.page,
+        walletHarness,
+        outputDir,
+      }),
+    );
     expect(fake.context.close).toHaveBeenCalledTimes(1);
     expect(fake.browser.close).toHaveBeenCalledTimes(1);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
+      "browser-bootstrap.json",
+      "reclaim-initial.png",
+      "fund-ada-only-reclaim.json",
+      "fund-ada-only-reclaim.png",
+    ]);
 
     const artifact = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
     expect(artifact).toMatchObject({
@@ -67,6 +82,7 @@ describe("preprod browser bootstrap", () => {
       walletHarness: fakeWalletHarness(),
       outputDir: tempDir(),
       browserLauncher: fake.launcher,
+      fundingStageRunner: async () => fakeFundingStage(tempDir()),
     });
 
     expect(fake.launcher.launch).toHaveBeenCalledWith({ headless: false });
@@ -84,6 +100,7 @@ describe("preprod browser bootstrap", () => {
         walletHarness: fakeWalletHarness(),
         outputDir: tempDir(),
         browserLauncher: fake.launcher,
+        fundingStageRunner: async () => fakeFundingStage(tempDir()),
       }),
     ).rejects.toMatchObject({
       code: "browser_bootstrap_failed",
@@ -136,6 +153,16 @@ function fakeWalletHarness() {
   return {
     roles: ["deployer", "reclaim_funder", "compromised_user", "safe_claim_destination"],
     installOnPage: vi.fn(async () => undefined),
+  };
+}
+
+function fakeFundingStage(outputDir) {
+  const jsonPath = path.join(outputDir, "fund-ada-only-reclaim.json");
+  const screenshotPath = path.join(outputDir, "screenshots", "fund-ada-only-reclaim.png");
+  mkdirSync(path.dirname(screenshotPath), { recursive: true });
+  return {
+    ok: true,
+    artifacts: [jsonPath, screenshotPath],
   };
 }
 

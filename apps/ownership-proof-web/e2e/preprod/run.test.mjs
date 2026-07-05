@@ -103,6 +103,8 @@ describe("Phase 9A preprod E2E runner", () => {
       "deploy-or-verify-preprod-manifest.json",
       "browser-bootstrap.json",
       "reclaim-initial.png",
+      "fund-ada-only-reclaim.json",
+      "fund-ada-only-reclaim.png",
     ]);
     const manifest = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
     expect(manifest.transactionSubmissionApproved).toBe(true);
@@ -377,6 +379,8 @@ function fakeAppTarget() {
 function fakeBrowserBootstrap(repo) {
   const jsonPath = path.join(repo, "browser-bootstrap.json");
   const screenshotPath = path.join(repo, "screenshots", "reclaim-initial.png");
+  const fundingJsonPath = path.join(repo, "fund-ada-only-reclaim.json");
+  const fundingScreenshotPath = path.join(repo, "screenshots", "fund-ada-only-reclaim.png");
   writeFile(
     jsonPath,
     JSON.stringify({
@@ -384,9 +388,16 @@ function fakeBrowserBootstrap(repo) {
     }),
   );
   writeFile(screenshotPath, "fake png");
+  writeFile(
+    fundingJsonPath,
+    JSON.stringify({
+      schema: "proof-tool-preprod-funding-stage-v1",
+    }),
+  );
+  writeFile(fundingScreenshotPath, "fake png");
   return {
     ok: true,
-    artifacts: [jsonPath, screenshotPath],
+    artifacts: [jsonPath, screenshotPath, fundingJsonPath, fundingScreenshotPath],
   };
 }
 
