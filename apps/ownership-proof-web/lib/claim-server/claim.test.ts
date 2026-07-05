@@ -6,7 +6,7 @@ import { makeCompromisedCredentialDatum } from "../reclaim-server/transactions";
 import { parseReclaimBaseDatum, tryParseReclaimBaseDatum } from "../claim/datum";
 import { ClaimValidationError } from "../claim/validation";
 import { createClaimDraft } from "./draft";
-import { UnsupportedClaimBuildError, UnsupportedClaimSubmitError, validateClaimBuildRequest, validateClaimSubmitRequest } from "./build-submit";
+import { UnsupportedClaimSubmitError, validateClaimBuildRequestShape, validateClaimSubmitRequest } from "./build-submit";
 
 const credentialA = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
 const credentialB = "22222222222222222222222222222222222222222222222222222222";
@@ -83,9 +83,9 @@ describe("claim drafts", () => {
 });
 
 describe("claim build and submit guardrails", () => {
-  it("validates destination proof artifacts before fail-closed unsupported build", () => {
+  it("validates basic build request shape before provider-backed preflight", () => {
     expect(() =>
-      validateClaimBuildRequest(deployment(), {
+      validateClaimBuildRequestShape(deployment(), {
         deploymentId: deployment().id,
         networkId: 0,
         draftId: "ab".repeat(32),
@@ -106,30 +106,18 @@ describe("claim build and submit guardrails", () => {
           },
         ],
       }),
-    ).toThrow(UnsupportedClaimBuildError);
+    ).not.toThrow();
 
     expect(() =>
-      validateClaimBuildRequest(deployment(), {
+      validateClaimBuildRequestShape(deployment(), {
         deploymentId: deployment().id,
-        networkId: 0,
+        networkId: 1,
         draftId: "ab".repeat(32),
         selectedOutrefs: [`${"a".repeat(64)}#0`],
         safeWalletChangeAddress: safeAddress,
         safeWalletAddresses: [safeAddress],
-        proofArtifacts: [
-          {
-            artifact: {
-              circuit_id: "root-ownership-destination-v1/bls12-381/groth16",
-              vk_hash: "wrong",
-              cardano: {
-                proof_hex: "aa",
-                public_input_digest_hex: "bb",
-              },
-            },
-          },
-        ],
       }),
-    ).toThrow(ClaimValidationError);
+    ).toThrow("expected testnet");
   });
 
   it("requires reviewed signed CBOR before fail-closed unsupported submit", () => {

@@ -17,6 +17,7 @@
     "@lucid-evolution/core-types": "0.2.1",
     "@lucid-evolution/lucid": "0.5.5",
     "@lucid-evolution/provider": "0.1.96",
+    "@noble/hashes": "1.8.0",
     "@proof-zk-recovery/proof-tool-client": "file:../../packages/client-ts",
     "bech32": "2.0.0",
     "lucide-react": "^0.468.0",

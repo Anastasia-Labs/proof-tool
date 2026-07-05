@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { blake2b } from "@noble/hashes/blake2b";
 import {
   Constr,
   Data,
@@ -10,7 +11,7 @@ import {
   type UTxO,
 } from "@lucid-evolution/lucid";
 import type { ReclaimDeployment } from "../reclaim/types";
-import { CLAIM_DEFAULT_BATCH_CAP, CLAIM_HARD_BATCH_CAP } from "../claim/types";
+import { CLAIM_DEFAULT_BATCH_CAP, CLAIM_HARD_BATCH_CAP, type ClaimDraftResponse } from "../claim/types";
 import { ClaimValidationError, outRefToString } from "../claim/validation";
 import { destinationAddressV1 } from "../claim/addresses";
 import { createClaimDraft } from "./draft";
@@ -236,32 +237,154 @@ describe("claim draft server helpers", () => {
 });
 
 describe("claim build and submit fail closed", () => {
-  it("validates proof shape and refuses unsupported live build", () => {
-    expect(() =>
-      validateClaimBuildRequest(DEPLOYMENT, {
+  it("requeries draft material, validates proofs, and refuses unsupported live build", async () => {
+    const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const provider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+    });
+    const draft = await selectedDraft(provider, selected);
+
+    await expect(
+      validateClaimBuildRequest(provider, DEPLOYMENT, {
         deploymentId: DEPLOYMENT.id,
         networkId: 0,
-        draftId: "aa".repeat(32),
-        selectedOutrefs: [`${"01".repeat(32)}#0`],
+        draftId: draft.draftId,
+        selectedOutrefs: [outRefToString(selected)],
         safeWalletChangeAddress: SAFE_ADDRESS,
         safeWalletAddresses: [SAFE_ADDRESS],
-        proofArtifacts: [proofArtifact()],
+        proofArtifacts: [proofArtifactForDraft(draft, 0)],
       }),
-    ).toThrow(UnsupportedClaimBuildError);
+    ).rejects.toMatchObject({
+      code: "claim_build_unsupported",
+      preflight: {
+        deploymentId: DEPLOYMENT.id,
+        selectedOutrefs: [outRefToString(selected)],
+        orderedPaymentCredentials: [CREDENTIAL_1],
+      },
+    });
   });
 
-  it("rejects wrong verifier hash before the unsupported build boundary", () => {
-    expect(() =>
-      validateClaimBuildRequest(DEPLOYMENT, {
+  it("rejects stale drafts before the unsupported build boundary", async () => {
+    const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const provider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+    });
+    const draft = await selectedDraft(provider, selected);
+
+    await expect(
+      validateClaimBuildRequest(provider, DEPLOYMENT, {
         deploymentId: DEPLOYMENT.id,
         networkId: 0,
         draftId: "aa".repeat(32),
-        selectedOutrefs: [`${"01".repeat(32)}#0`],
+        selectedOutrefs: [outRefToString(selected)],
         safeWalletChangeAddress: SAFE_ADDRESS,
         safeWalletAddresses: [SAFE_ADDRESS],
-        proofArtifacts: [proofArtifact({ vk_hash: "ff".repeat(32) })],
+        proofArtifacts: [proofArtifactForDraft(draft, 0)],
       }),
-    ).toThrow(ClaimValidationError);
+    ).rejects.toMatchObject({ code: "claim_draft_stale" });
+  });
+
+  it("rejects wrong verifier hash before the unsupported build boundary", async () => {
+    const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const provider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+    });
+    const draft = await selectedDraft(provider, selected);
+    const artifact = proofArtifactForDraft(draft, 0);
+    artifact.artifact.vk_hash = "ff".repeat(32);
+
+    await expect(
+      validateClaimBuildRequest(provider, DEPLOYMENT, {
+        deploymentId: DEPLOYMENT.id,
+        networkId: 0,
+        draftId: draft.draftId,
+        selectedOutrefs: [outRefToString(selected)],
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        proofArtifacts: [artifact],
+      }),
+    ).rejects.toMatchObject({ code: "proof_artifact_vk_hash" });
+  });
+
+  it("rejects reordered proof artifacts and changed destinations", async () => {
+    const first = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const second = reclaimUtxo("02", 0, CREDENTIAL_2, 2);
+    const provider = providerWith({
+      reclaimUtxos: [first, second],
+      selectedUtxos: [first, second],
+      safeUtxos: [safeUtxo()],
+    });
+    const draft = await selectedDraft(provider, first, second);
+
+    await expect(
+      validateClaimBuildRequest(provider, DEPLOYMENT, {
+        deploymentId: DEPLOYMENT.id,
+        networkId: 0,
+        draftId: draft.draftId,
+        selectedOutrefs: [outRefToString(first), outRefToString(second)],
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        proofArtifacts: [proofArtifactForDraft(draft, 1), proofArtifactForDraft(draft, 0)],
+      }),
+    ).rejects.toMatchObject({ code: "proof_artifact_outref_order" });
+
+    const wrongDestination = proofArtifactForDraft(draft, 0);
+    wrongDestination.artifact.destination_address = "00".repeat(58);
+    await expect(
+      validateClaimBuildRequest(provider, DEPLOYMENT, {
+        deploymentId: DEPLOYMENT.id,
+        networkId: 0,
+        draftId: draft.draftId,
+        selectedOutrefs: [outRefToString(first), outRefToString(second)],
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        proofArtifacts: [wrongDestination, proofArtifactForDraft(draft, 1)],
+      }),
+    ).rejects.toMatchObject({ code: "proof_artifact_destination" });
+  });
+
+  it("rejects proof artifacts with path metadata or wrong public input digest", async () => {
+    const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const provider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+    });
+    const draft = await selectedDraft(provider, selected);
+    const withPath = proofArtifactForDraft(draft, 0);
+    withPath.artifact.path = { account: 0, role: 0, index: 0 };
+
+    await expect(
+      validateClaimBuildRequest(provider, DEPLOYMENT, {
+        deploymentId: DEPLOYMENT.id,
+        networkId: 0,
+        draftId: draft.draftId,
+        selectedOutrefs: [outRefToString(selected)],
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        proofArtifacts: [withPath],
+      }),
+    ).rejects.toMatchObject({ code: "proof_artifact_path_metadata" });
+
+    const wrongDigest = proofArtifactForDraft(draft, 0);
+    wrongDigest.artifact.cardano.public_input_digest_hex = "00".repeat(32);
+    await expect(
+      validateClaimBuildRequest(provider, DEPLOYMENT, {
+        deploymentId: DEPLOYMENT.id,
+        networkId: 0,
+        draftId: draft.draftId,
+        selectedOutrefs: [outRefToString(selected)],
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        proofArtifacts: [wrongDigest],
+      }),
+    ).rejects.toMatchObject({ code: "proof_artifact_public_input_digest" });
   });
 
   it("does not act as a generic signed transaction relay", () => {
@@ -373,4 +496,50 @@ function proofArtifact(overrides: Record<string, unknown> = {}) {
       ...overrides,
     },
   };
+}
+
+async function selectedDraft(provider: Provider, ...selected: UTxO[]): Promise<ClaimDraftResponse> {
+  return createClaimDraft(provider, DEPLOYMENT, {
+    deploymentId: DEPLOYMENT.id,
+    networkId: 0,
+    safeWalletChangeAddress: SAFE_ADDRESS,
+    safeWalletAddresses: [SAFE_ADDRESS],
+    selectedOutrefs: selected.map(outRefToString),
+  });
+}
+
+function proofArtifactForDraft(draft: ClaimDraftResponse, index: number): any {
+  const input = draft.orderedInputs[index];
+  const output = draft.destinationOutputs[index];
+  if (!input || !output) {
+    throw new Error(`missing draft item ${index}`);
+  }
+  return {
+    out_ref: input.outRefId,
+    artifact: {
+      schema: "root-ownership-proof-artifact-v1",
+      circuit_id: "root-ownership-destination-v1/bls12-381/groth16",
+      vk_hash: VK_HASH,
+      target_credential: input.paymentCredential,
+      destination_address_encoding: "destination-address-v1",
+      destination_address: output.destinationAddress,
+      public_input_encoding: "single-credential-destination-v1",
+      public_input: "01",
+      proof: "encoded-proof",
+      cardano: {
+        format: "groth16-bls12-381-bsb22",
+        proof_hex: "aa",
+        public_input_digest_hex: destinationPublicInputDigest(input.paymentCredential, output.destinationAddress),
+      },
+    },
+  };
+}
+
+function destinationPublicInputDigest(credentialHex: string, destinationAddressHex: string): string {
+  const preimage = Buffer.concat([
+    Buffer.from("ROOT-OWNERSHIP-DESTINATION-v1", "utf8"),
+    Buffer.from(credentialHex, "hex"),
+    Buffer.from(destinationAddressHex, "hex"),
+  ]);
+  return Buffer.from(blake2b(new Uint8Array(preimage), { dkLen: 32 })).toString("hex");
 }

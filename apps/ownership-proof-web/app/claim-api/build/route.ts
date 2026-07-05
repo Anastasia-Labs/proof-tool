@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { ClaimBuildRequest } from "../../../lib/claim/types";
 import { ClaimValidationError } from "../../../lib/claim/validation";
-import { getReclaimDeployment } from "../../../lib/reclaim-server/config";
+import { getProvider, getReclaimDeployment } from "../../../lib/reclaim-server/config";
 import { ReclaimValidationError } from "../../../lib/reclaim/validation";
 import { UnsupportedClaimBuildError, validateClaimBuildRequest } from "../../../lib/claim-server/build-submit";
 
@@ -21,8 +21,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const providerConfig = getProvider(deploymentConfig.deployment);
+    if (!providerConfig.available) {
+      return NextResponse.json(
+        {
+          error: "Claim provider is not configured.",
+          code: "provider_unavailable",
+          missing: providerConfig.missing,
+        },
+        { status: 503 },
+      );
+    }
+
     const body = (await request.json()) as ClaimBuildRequest;
-    validateClaimBuildRequest(deploymentConfig.deployment, body);
+    await validateClaimBuildRequest(providerConfig.provider, deploymentConfig.deployment, body);
   } catch (error) {
     return errorResponse(error);
   }
@@ -30,7 +42,7 @@ export async function POST(request: NextRequest) {
 
 function errorResponse(error: unknown) {
   if (error instanceof UnsupportedClaimBuildError) {
-    return NextResponse.json({ error: error.message, code: error.code }, { status: 501 });
+    return NextResponse.json({ error: error.message, code: error.code, preflight: error.preflight }, { status: 501 });
   }
   if (error instanceof ClaimValidationError || error instanceof ReclaimValidationError) {
     return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
