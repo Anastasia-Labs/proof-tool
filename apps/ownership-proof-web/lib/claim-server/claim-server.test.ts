@@ -31,6 +31,9 @@ const CREDENTIAL_5 = "dd".repeat(28);
 const CREDENTIAL_6 = "ee".repeat(28);
 const SAFE_CREDENTIAL = "00000000000000000000000000000000000000000000000000000001";
 const RECLAIM_SCRIPT = "11111111111111111111111111111111111111111111111111111111";
+const PARAMS_POLICY = "55".repeat(28);
+const PARAMS_TOKEN_NAME = "5245434c41494d";
+const PARAMS_HOLDER_ADDRESS = credentialToAddress("Preprod", scriptHashToCredential("66".repeat(28)));
 const VK_HASH = "22".repeat(32);
 const SAFE_ADDRESS = credentialToAddress("Preprod", keyHashToCredential(SAFE_CREDENTIAL));
 const RECLAIM_ADDRESS = credentialToAddress("Preprod", scriptHashToCredential(RECLAIM_SCRIPT));
@@ -42,11 +45,19 @@ const DEPLOYMENT: ReclaimDeployment = {
   reclaimBaseScriptHash: RECLAIM_SCRIPT,
   reclaimGlobalCredential: "33".repeat(28),
   reclaimGlobalScriptHash: "44".repeat(28),
-  paramsCurrencySymbol: "55".repeat(28),
-  paramsTokenName: "00",
+  paramsCurrencySymbol: PARAMS_POLICY,
+  paramsTokenName: PARAMS_TOKEN_NAME,
   verifierVkHash: VK_HASH,
   contractVersion: "test",
   sourceCommit: "source",
+  paramsUtxo: {
+    tx_hash: "77".repeat(32),
+    output_index: 0,
+    policy_id: PARAMS_POLICY,
+    token_name: PARAMS_TOKEN_NAME,
+    holder_address: PARAMS_HOLDER_ADDRESS,
+    datum_reclaim_base_script_hash: RECLAIM_SCRIPT,
+  },
 };
 
 describe("claim draft server helpers", () => {
@@ -261,6 +272,10 @@ describe("claim build and submit fail closed", () => {
       preflight: {
         deploymentId: DEPLOYMENT.id,
         selectedOutrefs: [outRefToString(selected)],
+        paramsReferenceInput: {
+          outRefId: `${DEPLOYMENT.paramsUtxo?.tx_hash}#${DEPLOYMENT.paramsUtxo?.output_index}`,
+          holderAddress: PARAMS_HOLDER_ADDRESS,
+        },
         orderedPaymentCredentials: [CREDENTIAL_1],
       },
     });
@@ -387,6 +402,73 @@ describe("claim build and submit fail closed", () => {
     ).rejects.toMatchObject({ code: "proof_artifact_public_input_digest" });
   });
 
+  it("rejects missing or mismatched parameter reference UTxOs", async () => {
+    const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const baseInput = {
+      deploymentId: DEPLOYMENT.id,
+      networkId: 0,
+      selectedOutrefs: [outRefToString(selected)],
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+    };
+    const provider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+      paramsUtxo: null,
+    });
+    const draft = await selectedDraft(providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+    }), selected);
+
+    await expect(
+      validateClaimBuildRequest(provider, DEPLOYMENT, {
+        ...baseInput,
+        draftId: draft.draftId,
+        proofArtifacts: [proofArtifactForDraft(draft, 0)],
+      }),
+    ).rejects.toMatchObject({ code: "claim_params_not_found" });
+
+    const wrongDatumProvider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+      paramsUtxo: paramsUtxo({ datum: Data.to(new Constr(0, ["aa".repeat(28)])) }),
+    });
+    await expect(
+      validateClaimBuildRequest(wrongDatumProvider, DEPLOYMENT, {
+        ...baseInput,
+        draftId: draft.draftId,
+        proofArtifacts: [proofArtifactForDraft(draft, 0)],
+      }),
+    ).rejects.toMatchObject({ code: "claim_params_datum_mismatch" });
+  });
+
+  it("rejects unsupported deployments with no parameter reference in the manifest", async () => {
+    const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const provider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+    });
+    const draft = await selectedDraft(provider, selected);
+    const { paramsUtxo: _paramsUtxo, ...deploymentWithoutParams } = DEPLOYMENT;
+
+    await expect(
+      validateClaimBuildRequest(provider, deploymentWithoutParams, {
+        deploymentId: DEPLOYMENT.id,
+        networkId: 0,
+        draftId: draft.draftId,
+        selectedOutrefs: [outRefToString(selected)],
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        proofArtifacts: [proofArtifactForDraft(draft, 0)],
+      }),
+    ).rejects.toMatchObject({ code: "claim_params_missing" });
+  });
+
   it("does not act as a generic signed transaction relay", () => {
     expect(() =>
       validateClaimSubmitRequest(DEPLOYMENT, {
@@ -465,7 +547,18 @@ function safeUtxo(assets = { lovelace: 10_000_000n }): UTxO {
   };
 }
 
-function providerWith(input: { reclaimUtxos: UTxO[]; selectedUtxos: UTxO[]; safeUtxos: UTxO[] }): Provider {
+function paramsUtxo(overrides: Partial<UTxO> = {}): UTxO {
+  return {
+    txHash: DEPLOYMENT.paramsUtxo?.tx_hash ?? "77".repeat(32),
+    outputIndex: DEPLOYMENT.paramsUtxo?.output_index ?? 0,
+    address: PARAMS_HOLDER_ADDRESS,
+    assets: { lovelace: 2_000_000n, [`${PARAMS_POLICY}${PARAMS_TOKEN_NAME}`]: 1n },
+    datum: Data.to(new Constr(0, [RECLAIM_SCRIPT])),
+    ...overrides,
+  } as UTxO;
+}
+
+function providerWith(input: { reclaimUtxos: UTxO[]; selectedUtxos: UTxO[]; safeUtxos: UTxO[]; paramsUtxo?: UTxO | null }): Provider {
   return {
     getUtxos: async (addressOrCredential: string) => {
       if (addressOrCredential === RECLAIM_ADDRESS) {
@@ -478,7 +571,9 @@ function providerWith(input: { reclaimUtxos: UTxO[]; selectedUtxos: UTxO[]; safe
     },
     getUtxosByOutRef: async (outrefs: OutRef[]) => {
       const requested = new Set(outrefs.map(outRefToString));
-      return input.selectedUtxos.filter((utxo) => requested.has(outRefToString(utxo)));
+      return [...input.selectedUtxos, ...(input.paramsUtxo === null ? [] : [input.paramsUtxo ?? paramsUtxo()])].filter((utxo) =>
+        requested.has(outRefToString(utxo)),
+      );
     },
   } as unknown as Provider;
 }

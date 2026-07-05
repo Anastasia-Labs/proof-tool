@@ -1,5 +1,5 @@
 import { blake2b } from "@noble/hashes/blake2b";
-import { Constr, Data, type Provider } from "@lucid-evolution/lucid";
+import { Constr, Data, type Provider, type UTxO } from "@lucid-evolution/lucid";
 import type { ReclaimDeployment } from "../reclaim/types";
 import {
   DESTINATION_ADDRESS_V1_ENCODING,
@@ -31,6 +31,11 @@ export type ClaimBuildPreflight = {
   deploymentId: string;
   draftId: string;
   selectedOutrefs: string[];
+  paramsReferenceInput: {
+    outRefId: string;
+    holderAddress: string;
+    datumCbor: string;
+  };
   destinationOutputStartIndex: number;
   orderedPaymentCredentials: string[];
   destinationOutputs: ClaimDraftResponse["destinationOutputs"];
@@ -89,11 +94,13 @@ export async function prepareClaimBuildPreflight(
 
   const proofs = assertProofArtifacts(raw.proofArtifacts, draft, deployment.verifierVkHash);
   const proofHexes = proofs.map((proof) => proof.proofHex);
+  const paramsReferenceInput = await loadParamsReferenceInput(provider, deployment);
 
   return {
     deploymentId: deployment.id,
     draftId,
     selectedOutrefs: selectedOutrefs.map(outRefId),
+    paramsReferenceInput,
     destinationOutputStartIndex: draft.expectedDestinationOutputStartIndex,
     orderedPaymentCredentials: draft.orderedPaymentCredentials,
     destinationOutputs: draft.destinationOutputs,
@@ -221,6 +228,54 @@ function destinationPublicInputDigest(credentialHex: string, destinationAddressH
 
 function makeReclaimGlobalRedeemer(paramsIdx: number, destinationOutputStartIndex: number, proofs: string[]): string {
   return Data.to(new Constr(0, [BigInt(paramsIdx), BigInt(destinationOutputStartIndex), proofs]));
+}
+
+async function loadParamsReferenceInput(
+  provider: Provider,
+  deployment: ReclaimDeployment,
+): Promise<ClaimBuildPreflight["paramsReferenceInput"]> {
+  if (!deployment.paramsUtxo) {
+    throw new ClaimValidationError("claim_params_missing", "Reclaim deployment is missing the parameter reference UTxO.");
+  }
+  const outRef = {
+    txHash: deployment.paramsUtxo.tx_hash,
+    outputIndex: deployment.paramsUtxo.output_index,
+  };
+  const outRefIdValue = outRefToString(outRef);
+  const utxos = await provider.getUtxosByOutRef([outRef]);
+  const paramsUtxo = utxos.find((utxo) => outRefToString(utxo) === outRefIdValue);
+  if (!paramsUtxo) {
+    throw new ClaimValidationError("claim_params_not_found", "Parameter reference UTxO is spent or unavailable.");
+  }
+  assertParamsUtxo(paramsUtxo, deployment);
+  return {
+    outRefId: outRefIdValue,
+    holderAddress: paramsUtxo.address,
+    datumCbor: paramsUtxo.datum ?? "",
+  };
+}
+
+function assertParamsUtxo(utxo: UTxO, deployment: ReclaimDeployment): void {
+  const params = deployment.paramsUtxo;
+  if (!params) {
+    throw new ClaimValidationError("claim_params_missing", "Reclaim deployment is missing the parameter reference UTxO.");
+  }
+  if (utxo.address !== params.holder_address) {
+    throw new ClaimValidationError("claim_params_wrong_address", "Parameter reference UTxO is not at the configured holder address.");
+  }
+  const unit = `${params.policy_id}${params.token_name}`;
+  if (utxo.assets[unit] !== 1n) {
+    throw new ClaimValidationError("claim_params_token_missing", "Parameter reference UTxO does not contain exactly one configured parameter NFT.");
+  }
+  for (const [assetUnit, amount] of Object.entries(utxo.assets)) {
+    if (assetUnit !== "lovelace" && assetUnit.startsWith(params.policy_id) && (assetUnit !== unit || amount !== 1n)) {
+      throw new ClaimValidationError("claim_params_token_mismatch", "Parameter reference UTxO contains unexpected tokens under the parameter policy.");
+    }
+  }
+  const expectedDatum = Data.to(new Constr(0, [deployment.reclaimBaseScriptHash]));
+  if (!utxo.datum || utxo.datum.toLowerCase() !== expectedDatum) {
+    throw new ClaimValidationError("claim_params_datum_mismatch", "Parameter reference datum does not bind the configured ReclaimBase script hash.");
+  }
 }
 
 function outRefId(value: string | ClaimOutRef): string {

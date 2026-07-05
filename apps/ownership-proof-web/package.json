@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
+    "test:e2e:preprod": "node e2e/preprod/preflight.mjs",
     "typecheck": "tsc --noEmit",
     "verify:reclaim-manifest": "node scripts/verify-reclaim-manifest.mjs",
     "visual:claim": "node scripts/claim-ui-visual-check.mjs",
