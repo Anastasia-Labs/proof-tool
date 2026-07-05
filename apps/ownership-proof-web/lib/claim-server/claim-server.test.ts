@@ -19,7 +19,6 @@ import { createClaimDraft } from "./draft";
 import { getClaimProgress } from "./progress";
 import {
   UnsupportedClaimBuildError,
-  UnsupportedClaimSubmitError,
   buildClaimTx,
   validateClaimBuildRequest,
   validateClaimSubmitRequest,
@@ -657,7 +656,7 @@ describe("claim build and submit fail closed", () => {
     ).toThrow("reviewed claim build token");
   });
 
-  it("refuses live submit even when shape is present", () => {
+  it("requires reviewed claim build material before submit", () => {
     expect(() =>
       validateClaimSubmitRequest(DEPLOYMENT, {
         deploymentId: DEPLOYMENT.id,
@@ -665,7 +664,19 @@ describe("claim build and submit fail closed", () => {
         signedTxCbor: "84a1",
         claimBuildReviewToken: "reviewed",
       }),
-    ).toThrow(UnsupportedClaimSubmitError);
+    ).toThrow("reviewed claim build summary");
+  });
+
+  it("accepts reviewed signed transaction shape for submit inspection", () => {
+    expect(() =>
+      validateClaimSubmitRequest(DEPLOYMENT, {
+        deploymentId: DEPLOYMENT.id,
+        selectedOutrefs: [`${"01".repeat(32)}#0`],
+        signedTxCbor: "84a1",
+        claimBuildReviewToken: "reviewed",
+        review: claimBuildReview([`${"01".repeat(32)}#0`]),
+      }),
+    ).not.toThrow();
   });
 });
 
@@ -844,6 +855,50 @@ function referenceScriptUtxos(
 
 function isDeployment(value: unknown): value is ReclaimDeployment {
   return Boolean(value && typeof value === "object" && "reclaimBaseAddress" in value && "verifierVkHash" in value);
+}
+
+function claimBuildReview(selectedOutrefs: string[]) {
+  return {
+    deploymentId: DEPLOYMENT.id,
+    draftId: "ab".repeat(32),
+    selectedOutrefs,
+    transactionInputOrder: selectedOutrefs,
+    destinationOutputStartIndex: 0,
+    destinationOutputs: selectedOutrefs.map((outRefIdValue) => ({
+      outRefId: outRefIdValue,
+      address: SAFE_ADDRESS,
+      destinationAddressEncoding: "destination-address-v1" as const,
+      destinationAddress: destinationAddressV1(SAFE_ADDRESS, 0),
+      value: { lovelace: "2000000" },
+    })),
+    paramsReferenceInput: {
+      outRefId: `${DEPLOYMENT.paramsUtxo?.tx_hash}#${DEPLOYMENT.paramsUtxo?.output_index}`,
+      holderAddress: PARAMS_HOLDER_ADDRESS,
+      datumCbor: Data.to(new Constr(0, [RECLAIM_SCRIPT])),
+    },
+    referenceScriptInputs: [
+      {
+        role: "reclaim_base" as const,
+        outRefId: `${"12".repeat(32)}#0`,
+        holderAddress: PARAMS_HOLDER_ADDRESS,
+        scriptHash: RECLAIM_SCRIPT,
+        scriptType: "PlutusV3",
+      },
+      {
+        role: "reclaim_global" as const,
+        outRefId: `${"13".repeat(32)}#0`,
+        holderAddress: PARAMS_HOLDER_ADDRESS,
+        scriptHash: RECLAIM_GLOBAL_SCRIPT,
+        scriptType: "PlutusV3",
+      },
+    ],
+    proofDigests: selectedOutrefs.map((outRefIdValue) => ({
+      outRefId: outRefIdValue,
+      targetCredential: CREDENTIAL_1,
+      destinationAddress: destinationAddressV1(SAFE_ADDRESS, 0),
+      publicInputDigestHex: "00".repeat(32),
+    })),
+  };
 }
 
 function proofArtifactForDraft(draft: ClaimDraftResponse, index: number): any {

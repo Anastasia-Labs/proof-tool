@@ -1,4 +1,4 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { blake2b } from "@noble/hashes/blake2b";
 import * as LucidExports from "@lucid-evolution/lucid";
 import {
@@ -10,6 +10,7 @@ import {
   scriptHashToCredential,
   type Assets,
   type Provider,
+  type TransactionWitnesses,
   type UTxO,
 } from "@lucid-evolution/lucid";
 import type { BuildTxWithRedeemer, EvalRedeemer } from "@lucid-evolution/core-types";
@@ -18,8 +19,10 @@ import {
   DESTINATION_ADDRESS_V1_ENCODING,
   type ClaimBuildResponse,
   type ClaimBuildRequest,
+  type ClaimBuildReview,
   type ClaimDraftResponse,
   type ClaimOutRef,
+  type ClaimSubmitResponse,
   type ClaimSubmitRequest,
 } from "../claim/types";
 import {
@@ -271,19 +274,57 @@ export function validateClaimBuildRequestShape(deployment: ReclaimDeployment, re
   assertWalletAddresses(raw.safeWalletAddresses, deployment.network);
 }
 
-export function validateClaimSubmitRequest(deployment: ReclaimDeployment, request: ClaimSubmitRequest): never {
+export function validateClaimSubmitRequest(deployment: ReclaimDeployment, request: ClaimSubmitRequest): void {
   const raw = assertObject(request, "claim submit request") as ClaimSubmitRequest;
   assertExactDeploymentId(raw.deploymentId, deployment.id);
   const selectedOutrefs = assertOutRefList(raw.selectedOutrefs, "selectedOutrefs");
   if (selectedOutrefs.length === 0) {
     throw new ClaimValidationError("selected_outrefs_empty", "Claim submit requires selected reclaim outrefs.");
   }
-  assertCborHex(raw.signedTxCbor, "signedTxCbor");
+  if (raw.signedTxCbor !== undefined) {
+    assertCborHex(raw.signedTxCbor, "signedTxCbor");
+  }
+  if (raw.unsignedTxCbor !== undefined) {
+    assertCborHex(raw.unsignedTxCbor, "unsignedTxCbor");
+  }
+  if (raw.witnessSetCbor !== undefined) {
+    assertCborHex(raw.witnessSetCbor, "witnessSetCbor");
+  }
   if (typeof raw.claimBuildReviewToken !== "string" || raw.claimBuildReviewToken.trim() === "") {
     throw new ClaimValidationError("claim_submit_review_required", "Claim submit requires a reviewed claim build token.");
   }
+  if (!raw.review) {
+    throw new ClaimValidationError("claim_submit_review_required", "Claim submit requires the reviewed claim build summary.");
+  }
+  if (!raw.signedTxCbor && (!raw.unsignedTxCbor || !raw.witnessSetCbor)) {
+    throw new ClaimValidationError("claim_submit_signed_tx_required", "Claim submit requires signedTxCbor or unsignedTxCbor plus witnessSetCbor.");
+  }
+}
 
-  throw new UnsupportedClaimSubmitError();
+export async function submitClaimTx(
+  provider: Provider,
+  deployment: ReclaimDeployment,
+  request: ClaimSubmitRequest,
+): Promise<ClaimSubmitResponse> {
+  validateClaimSubmitRequest(deployment, request);
+  const raw = request as Required<Pick<ClaimSubmitRequest, "claimBuildReviewToken" | "review">> & ClaimSubmitRequest;
+  const inspection = await inspectClaimSubmitRequest(provider, deployment, raw);
+  const submittedHash = await provider.submitTx(inspection.signedTxCbor);
+  if (submittedHash !== inspection.txHash) {
+    throw new ClaimValidationError("claim_submit_hash_mismatch", "Provider returned a transaction hash that does not match the reviewed claim transaction.");
+  }
+  return {
+    txHash: submittedHash,
+    deploymentId: deployment.id,
+    selectedOutrefs: inspection.review.selectedOutrefs,
+    reviewHash: inspection.reviewHash,
+    provider: {
+      submitted: true,
+    },
+    progress: {
+      pollAfterSeconds: 20,
+    },
+  };
 }
 
 function assertDraftId(value: unknown): string {
@@ -734,6 +775,107 @@ function parseTransactionHash(txCbor: string, field: string): string {
   }
 }
 
+async function inspectClaimSubmitRequest(
+  provider: Provider,
+  deployment: ReclaimDeployment,
+  request: Required<Pick<ClaimSubmitRequest, "claimBuildReviewToken" | "review">> & ClaimSubmitRequest,
+): Promise<{
+  txHash: string;
+  signedTxCbor: string;
+  review: ClaimBuildReview;
+  reviewHash: string;
+}> {
+  const review = assertClaimBuildReview(request.review, deployment);
+  const selectedOutrefs = assertOutRefList(request.selectedOutrefs, "selectedOutrefs").map(outRefToString);
+  if (selectedOutrefs.join("|") !== review.selectedOutrefs.join("|")) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim submit selected outrefs do not match the reviewed claim build.");
+  }
+  const reviewHash = hashClaimBuildReview(review);
+  const token = verifyClaimBuildReviewToken(deployment, request.claimBuildReviewToken);
+  if (token.reviewHash !== reviewHash) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token does not match the reviewed claim build summary.");
+  }
+
+  const unsignedTxCbor = request.unsignedTxCbor ? assertCborHex(request.unsignedTxCbor, "unsignedTxCbor") : "";
+  if (unsignedTxCbor && token.txCborHash !== sha256Hex(unsignedTxCbor)) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token does not match the reviewed unsigned transaction.");
+  }
+
+  const signedTxCbor = request.signedTxCbor
+    ? assertCborHex(request.signedTxCbor, "signedTxCbor")
+    : await assembleClaimWitnessSet(provider, deployment, unsignedTxCbor, request.witnessSetCbor);
+  const signedTxHash = parseTransactionHash(signedTxCbor, "signedTxCbor");
+  if (signedTxHash !== token.txHash) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Signed claim transaction body does not match the reviewed build.");
+  }
+  if (unsignedTxCbor) {
+    const unsignedTxHash = parseTransactionHash(unsignedTxCbor, "unsignedTxCbor");
+    if (unsignedTxHash !== signedTxHash) {
+      throw new ClaimValidationError("claim_submit_review_mismatch", "Signed claim transaction body does not match unsignedTxCbor.");
+    }
+  }
+
+  return {
+    txHash: signedTxHash,
+    signedTxCbor,
+    review,
+    reviewHash,
+  };
+}
+
+async function assembleClaimWitnessSet(
+  provider: Provider,
+  deployment: ReclaimDeployment,
+  unsignedTxCbor: string,
+  witnessSetCbor: unknown,
+): Promise<string> {
+  if (!unsignedTxCbor) {
+    throw new ClaimValidationError("claim_submit_signed_tx_required", "Claim submit requires unsignedTxCbor when witnessSetCbor is provided.");
+  }
+  const witnessSet = assertCborHex(witnessSetCbor, "witnessSetCbor");
+  const lucid = await Lucid(provider, deployment.network);
+  const signedTx = await lucid.fromTx(unsignedTxCbor).assemble([witnessSet as TransactionWitnesses]).complete();
+  return signedTx.toCBOR({ canonical: true });
+}
+
+function assertClaimBuildReview(value: unknown, deployment: ReclaimDeployment): ClaimBuildReview {
+  const review = assertObject(value, "review") as ClaimBuildReview;
+  assertExactDeploymentId(review.deploymentId, deployment.id);
+  assertDraftId(review.draftId);
+  const selectedOutrefs = assertOutRefList(review.selectedOutrefs, "review.selectedOutrefs").map(outRefToString);
+  const transactionInputOrder = assertOutRefList(review.transactionInputOrder, "review.transactionInputOrder").map(outRefToString);
+  if (selectedOutrefs.length === 0 || transactionInputOrder.length !== selectedOutrefs.length) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review input order is malformed.");
+  }
+  if (!Number.isInteger(review.destinationOutputStartIndex) || review.destinationOutputStartIndex < 0) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review destination output index is malformed.");
+  }
+  if (!Array.isArray(review.destinationOutputs) || review.destinationOutputs.length !== selectedOutrefs.length) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review destination outputs are malformed.");
+  }
+  if (!Array.isArray(review.referenceScriptInputs) || review.referenceScriptInputs.length !== 2) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review reference scripts are malformed.");
+  }
+  if (!Array.isArray(review.proofDigests) || review.proofDigests.length !== selectedOutrefs.length) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review proof digests are malformed.");
+  }
+  return {
+    deploymentId: review.deploymentId,
+    draftId: review.draftId,
+    selectedOutrefs,
+    transactionInputOrder,
+    destinationOutputStartIndex: review.destinationOutputStartIndex,
+    destinationOutputs: review.destinationOutputs,
+    paramsReferenceInput: {
+      outRefId: outRefToString(assertOutRef(review.paramsReferenceInput?.outRefId, "review.paramsReferenceInput.outRefId")),
+      holderAddress: String(review.paramsReferenceInput?.holderAddress ?? ""),
+      datumCbor: assertCborHex(review.paramsReferenceInput?.datumCbor, "review.paramsReferenceInput.datumCbor"),
+    },
+    referenceScriptInputs: review.referenceScriptInputs,
+    proofDigests: review.proofDigests,
+  };
+}
+
 function hashClaimBuildReview(review: ClaimBuildResponse["review"]): string {
   return sha256Hex(stableStringify(review));
 }
@@ -751,6 +893,41 @@ function signClaimBuildReviewToken(
   });
   const signature = createHmac("sha256", reviewTokenSecret()).update(body).digest("hex");
   return `v1.${Buffer.from(body, "utf8").toString("base64url")}.${signature}`;
+}
+
+function verifyClaimBuildReviewToken(
+  deployment: ReclaimDeployment,
+  token: string,
+): { txHash: string; txCborHash: string; reviewHash: string } {
+  const [version, encoded, signature, extra] = token.split(".");
+  if (version !== "v1" || !encoded || !signature || extra !== undefined) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token is malformed.");
+  }
+  const body = Buffer.from(encoded, "base64url").toString("utf8");
+  const expected = createHmac("sha256", reviewTokenSecret()).update(body).digest("hex");
+  if (!safeEqualHex(signature, expected)) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token signature is invalid.");
+  }
+  const parsed = JSON.parse(body) as {
+    v?: unknown;
+    kind?: unknown;
+    deploymentId?: unknown;
+    network?: unknown;
+    txHash?: unknown;
+    txCborHash?: unknown;
+    reviewHash?: unknown;
+  };
+  if (parsed.v !== 1 || parsed.kind !== "claim-build" || parsed.deploymentId !== deployment.id || parsed.network !== deployment.network) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token was issued for a different deployment.");
+  }
+  if (typeof parsed.txHash !== "string" || typeof parsed.txCborHash !== "string" || typeof parsed.reviewHash !== "string") {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token payload is malformed.");
+  }
+  return {
+    txHash: parsed.txHash,
+    txCborHash: parsed.txCborHash,
+    reviewHash: parsed.reviewHash,
+  };
 }
 
 function sha256Hex(value: string): string {
@@ -776,6 +953,18 @@ function stableStringify(value: unknown): string {
   return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`).join(",")}}`;
 }
 
+function safeEqualHex(left: string, right: string): boolean {
+  if (!/^[0-9a-f]+$/iu.test(left) || !/^[0-9a-f]+$/iu.test(right)) {
+    return false;
+  }
+  const leftBuffer = Buffer.from(left, "hex");
+  const rightBuffer = Buffer.from(right, "hex");
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
 function outRefId(value: string | ClaimOutRef): string {
   if (typeof value === "string") {
     return value;
@@ -799,14 +988,5 @@ export class UnsupportedClaimBuildError extends Error {
     this.preflight = preflight;
     this.reason = preflight?.buildReady ? "transaction_builder_not_implemented" : "build_prerequisites_missing";
     this.missingBuildArtifacts = preflight?.missingBuildArtifacts ?? [];
-  }
-}
-
-export class UnsupportedClaimSubmitError extends Error {
-  readonly code = "claim_submit_unsupported";
-
-  constructor() {
-    super("Live claim transaction submission is not enabled for this deployment.");
-    this.name = "UnsupportedClaimSubmitError";
   }
 }

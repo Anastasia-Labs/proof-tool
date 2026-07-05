@@ -205,8 +205,24 @@ export type ClaimBuildResponse = {
 export type ClaimSubmitRequest = {
   deploymentId?: string;
   selectedOutrefs?: Array<string | ClaimOutRef>;
+  review?: ClaimBuildReview;
+  unsignedTxCbor?: string;
   signedTxCbor?: string;
+  witnessSetCbor?: string;
   claimBuildReviewToken?: string;
+};
+
+export type ClaimSubmitResponse = {
+  txHash: string;
+  deploymentId: string;
+  selectedOutrefs: string[];
+  reviewHash: string;
+  provider: {
+    submitted: true;
+  };
+  progress: {
+    pollAfterSeconds: number;
+  };
 };
 
 export type ClaimProgressState =

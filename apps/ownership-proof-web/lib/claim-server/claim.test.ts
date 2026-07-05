@@ -6,7 +6,7 @@ import { makeCompromisedCredentialDatum } from "../reclaim-server/transactions";
 import { parseReclaimBaseDatum, tryParseReclaimBaseDatum } from "../claim/datum";
 import { ClaimValidationError } from "../claim/validation";
 import { createClaimDraft } from "./draft";
-import { UnsupportedClaimSubmitError, validateClaimBuildRequestShape, validateClaimSubmitRequest } from "./build-submit";
+import { validateClaimBuildRequestShape, validateClaimSubmitRequest } from "./build-submit";
 
 const credentialA = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
 const credentialB = "22222222222222222222222222222222222222222222222222222222";
@@ -120,7 +120,7 @@ describe("claim build and submit guardrails", () => {
     ).toThrow("expected testnet");
   });
 
-  it("requires reviewed signed CBOR before fail-closed unsupported submit", () => {
+  it("requires reviewed signed CBOR before submit inspection", () => {
     expect(() =>
       validateClaimSubmitRequest(deployment(), {
         deploymentId: deployment().id,
@@ -128,7 +128,7 @@ describe("claim build and submit guardrails", () => {
         signedTxCbor: "84a400",
         claimBuildReviewToken: "review-token",
       }),
-    ).toThrow(UnsupportedClaimSubmitError);
+    ).toThrow("reviewed claim build summary");
 
     expect(() =>
       validateClaimSubmitRequest(deployment(), {
