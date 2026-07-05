@@ -1,5 +1,6 @@
 "use client";
 
+import { bech32 } from "bech32";
 import {
   ArrowLeft,
   ArrowRight,
@@ -36,7 +37,10 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
+import type { IndexedReclaimUtxo, ReclaimUtxosResponse } from "../lib/claim/types";
+import type { AssetMap, DeploymentResponse, ReclaimApiError } from "../lib/reclaim/types";
+import { LOVELACE_UNIT } from "../lib/reclaim/types";
 
 type ClaimScreen =
   | "deployment-review"
@@ -87,6 +91,52 @@ type ClaimRow = {
   ada: string;
   assets: string;
   summary: string[];
+  lovelace?: string;
+  assetCount?: number;
+  outRefId?: string;
+};
+
+type ClaimDeploymentResponse = DeploymentResponse & {
+  capabilities?: unknown;
+};
+
+type CardanoWalletProvider = {
+  name?: string;
+  icon?: string;
+  enable(): Promise<CardanoWalletApi>;
+};
+
+type CardanoWalletApi = {
+  getNetworkId(): Promise<number>;
+  getUsedAddresses(): Promise<string[]>;
+  getChangeAddress(): Promise<string>;
+};
+
+type WalletEntry = [string, CardanoWalletProvider];
+
+type ImpactedWalletSummary = {
+  walletId: string;
+  walletName: string;
+  networkId: number;
+  addresses: string[];
+  credentials: string[];
+};
+
+type ClaimFlowRuntime = {
+  deployment: ClaimDeploymentResponse | null;
+  deploymentLoading: boolean;
+  deploymentError: string;
+  continueFromDeployment: () => void;
+  wallets: WalletEntry[];
+  selectedWallet: string;
+  setSelectedWallet: React.Dispatch<React.SetStateAction<string>>;
+  impactedWallet: ImpactedWalletSummary | null;
+  impactedWalletError: string;
+  discoverClaimsForImpactedWallet: () => void;
+  claimRows: ClaimRow[];
+  claimIndexerTotal: number;
+  claimDiscoveryError: string;
+  refreshClaimMatches: () => void;
 };
 
 type ProofRow = {
@@ -263,9 +313,21 @@ const transactions: TransactionRow[] = [
   { batch: 5, hash: "d2fc91...0ab7", value: "2.45 ADA + 2 tokens", status: "Confirmed" },
 ];
 
+const ADDRESS_HEX_RE = /^[0-9a-f]+$/iu;
+
 export function ClaimFlow() {
   const [screen, setScreen] = useState<ClaimScreen>("deployment-review");
   const fixtureEnabled = process.env.NEXT_PUBLIC_CLAIM_UI_FIXTURE === "1";
+  const [deployment, setDeployment] = useState<ClaimDeploymentResponse | null>(null);
+  const [deploymentLoading, setDeploymentLoading] = useState(!fixtureEnabled);
+  const [deploymentError, setDeploymentError] = useState("");
+  const [wallets, setWallets] = useState<WalletEntry[]>([]);
+  const [selectedWallet, setSelectedWallet] = useState("");
+  const [impactedWallet, setImpactedWallet] = useState<ImpactedWalletSummary | null>(null);
+  const [impactedWalletError, setImpactedWalletError] = useState("");
+  const [claimRows, setClaimRows] = useState<ClaimRow[]>([]);
+  const [claimIndexerTotal, setClaimIndexerTotal] = useState(0);
+  const [claimDiscoveryError, setClaimDiscoveryError] = useState("");
 
   useEffect(() => {
     if (!fixtureEnabled) {
@@ -277,17 +339,196 @@ export function ClaimFlow() {
     }
   }, [fixtureEnabled]);
 
+  useEffect(() => {
+    if (fixtureEnabled) {
+      return;
+    }
+    let mounted = true;
+    void loadDeployment({ updateScreen: true });
+    return () => {
+      mounted = false;
+    };
+
+    async function loadDeployment({ updateScreen }: { updateScreen: boolean }) {
+      setDeploymentLoading(true);
+      setDeploymentError("");
+      try {
+        const nextDeployment = await fetchClaimDeployment();
+        if (!mounted) {
+          return;
+        }
+        setDeployment(nextDeployment);
+        if (nextDeployment.available) {
+          if (updateScreen) {
+            setScreen((current) => (current === "deployment-unavailable" ? "deployment-review" : current));
+          }
+        } else {
+          setDeploymentError(deploymentUnavailableReason(nextDeployment));
+          if (updateScreen) {
+            setScreen((current) => (current === "deployment-review" ? "deployment-unavailable" : current));
+          }
+        }
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        setDeployment(null);
+        setDeploymentError(error instanceof Error ? error.message : "Unable to load claim deployment.");
+        if (updateScreen) {
+          setScreen((current) => (current === "deployment-review" ? "deployment-unavailable" : current));
+        }
+      } finally {
+        if (mounted) {
+          setDeploymentLoading(false);
+        }
+      }
+    }
+  }, [fixtureEnabled]);
+
+  useEffect(() => {
+    if (fixtureEnabled) {
+      return;
+    }
+    const nextWallets = listCardanoWallets();
+    setWallets(nextWallets);
+    setSelectedWallet((current) => current || nextWallets[0]?.[0] || "");
+  }, [fixtureEnabled]);
+
   const visibleScreen = screen === "available-claims-asset-modal" ? "available-claims-page-2" : screen;
   const activeStep = screenStep[screen];
   const goNext = () => setScreen(nextScreen[screen] ?? screen);
   const goBack = () => setScreen(previousScreen[screen] ?? screen);
+
+  const refreshDeployment = async () => {
+    if (fixtureEnabled) {
+      goNext();
+      return;
+    }
+    setDeploymentLoading(true);
+    setDeploymentError("");
+    try {
+      const nextDeployment = await fetchClaimDeployment();
+      setDeployment(nextDeployment);
+      if (nextDeployment.available) {
+        setScreen("deployment-review");
+      } else {
+        setDeploymentError(deploymentUnavailableReason(nextDeployment));
+        setScreen("deployment-unavailable");
+      }
+    } catch (error) {
+      setDeployment(null);
+      setDeploymentError(error instanceof Error ? error.message : "Unable to load claim deployment.");
+      setScreen("deployment-unavailable");
+    } finally {
+      setDeploymentLoading(false);
+    }
+  };
+
+  const continueFromDeployment = () => {
+    if (fixtureEnabled) {
+      goNext();
+      return;
+    }
+    if (deployment?.available) {
+      setScreen("impacted-wallet");
+      return;
+    }
+    void refreshDeployment();
+  };
+
+  const discoverClaimsForImpactedWallet = async () => {
+    if (fixtureEnabled) {
+      goNext();
+      return;
+    }
+    setImpactedWalletError("");
+    setClaimDiscoveryError("");
+    if (!deployment?.available) {
+      setScreen("deployment-unavailable");
+      return;
+    }
+    const provider = wallets.find(([id]) => id === selectedWallet)?.[1];
+    if (!provider) {
+      setImpactedWallet(null);
+      setImpactedWalletError("No CIP-30 wallet is available for impacted credential discovery.");
+      return;
+    }
+
+    try {
+      const api = await provider.enable();
+      const networkId = await api.getNetworkId();
+      if (networkId !== deployment.deployment.networkId) {
+        setImpactedWallet(null);
+        setImpactedWalletError(
+          `Connected wallet is on network id ${networkId}; this deployment expects ${deployment.deployment.networkId}.`,
+        );
+        setScreen("wrong-network");
+        return;
+      }
+      const walletSummary = await readImpactedWalletSummary(api, {
+        walletId: selectedWallet,
+        walletName: provider.name || selectedWallet,
+        networkId: deployment.deployment.networkId,
+      });
+      setImpactedWallet(walletSummary);
+      setScreen("scanning-claims");
+      await refreshClaimMatches(walletSummary.credentials);
+    } catch (error) {
+      setImpactedWallet(null);
+      setImpactedWalletError(error instanceof Error ? error.message : "Unable to connect the impacted wallet.");
+      setScreen("impacted-wallet");
+    }
+  };
+
+  const refreshClaimMatches = async (credentials = impactedWallet?.credentials ?? []) => {
+    if (!deployment?.available || credentials.length === 0) {
+      return;
+    }
+    setClaimDiscoveryError("");
+    setScreen("scanning-claims");
+    try {
+      const utxos = await fetchAllReclaimUtxos();
+      const credentialSet = new Set(credentials.map((credential) => credential.toLowerCase()));
+      const matched = utxos.filter(
+        (utxo) =>
+          utxo.state === "unspent" &&
+          utxo.datum.status === "valid" &&
+          credentialSet.has(utxo.datum.paymentCredential.toLowerCase()),
+      );
+      setClaimIndexerTotal(utxos.length);
+      setClaimRows(matched.map(toClaimRow));
+      setScreen(matched.length > 0 ? "available-claims-page-1" : "no-matching-funds");
+    } catch (error) {
+      setClaimRows([]);
+      setClaimIndexerTotal(0);
+      setClaimDiscoveryError(error instanceof Error ? error.message : "Unable to scan ReclaimBase UTxOs.");
+      setScreen("no-matching-funds");
+    }
+  };
 
   return (
     <main className="claim-shell" data-claim-state={screen}>
       <ClaimSidebar activeStep={activeStep} screen={screen} />
       <section className="claim-workspace">
         <ClaimTopNav />
-        <div className="claim-page">{renderScreen(visibleScreen, goNext, goBack, setScreen)}</div>
+        <div className="claim-page">
+          {renderScreen(visibleScreen, goNext, goBack, setScreen, {
+            deployment,
+            deploymentLoading,
+            deploymentError,
+            continueFromDeployment,
+            wallets,
+            selectedWallet,
+            setSelectedWallet,
+            impactedWallet,
+            impactedWalletError,
+            discoverClaimsForImpactedWallet,
+            claimRows,
+            claimIndexerTotal,
+            claimDiscoveryError,
+            refreshClaimMatches,
+          })}
+        </div>
       </section>
       {screen === "available-claims-asset-modal" ? <AssetModal onClose={() => setScreen("available-claims-page-2")} /> : null}
     </main>
@@ -299,24 +540,117 @@ function renderScreen(
   goNext: () => void,
   goBack: () => void,
   setScreen: React.Dispatch<React.SetStateAction<ClaimScreen>>,
+  runtime: ClaimFlowRuntime,
 ) {
   switch (screen) {
     case "deployment-review":
-      return <DeploymentReview onNext={goNext} onBack={goBack} />;
+      return (
+        <DeploymentReview
+          deployment={runtime.deployment}
+          loading={runtime.deploymentLoading}
+          error={runtime.deploymentError}
+          onNext={runtime.continueFromDeployment}
+          onBack={goBack}
+        />
+      );
     case "deployment-unavailable":
-      return <DeploymentReview unavailable onNext={goNext} onBack={goBack} />;
+      return (
+        <DeploymentReview
+          unavailable
+          deployment={runtime.deployment}
+          loading={runtime.deploymentLoading}
+          error={runtime.deploymentError}
+          onNext={runtime.continueFromDeployment}
+          onBack={goBack}
+        />
+      );
     case "impacted-wallet":
-      return <ImpactedWallet onNext={goNext} onBack={goBack} />;
+      return (
+        <ImpactedWallet
+          deployment={runtime.deployment}
+          wallets={runtime.wallets}
+          selectedWallet={runtime.selectedWallet}
+          onSelectWallet={runtime.setSelectedWallet}
+          impactedWallet={runtime.impactedWallet}
+          error={runtime.impactedWalletError}
+          onNext={runtime.discoverClaimsForImpactedWallet}
+          onBack={goBack}
+        />
+      );
     case "wrong-network":
-      return <ImpactedWallet wrongNetwork onNext={goNext} onBack={goBack} />;
+      return (
+        <ImpactedWallet
+          wrongNetwork
+          deployment={runtime.deployment}
+          wallets={runtime.wallets}
+          selectedWallet={runtime.selectedWallet}
+          onSelectWallet={runtime.setSelectedWallet}
+          impactedWallet={runtime.impactedWallet}
+          error={runtime.impactedWalletError}
+          onNext={runtime.discoverClaimsForImpactedWallet}
+          onBack={goBack}
+        />
+      );
     case "scanning-claims":
-      return <AvailableClaims loading onNext={goNext} onBack={goBack} onViewAsset={() => setScreen("available-claims-asset-modal")} />;
+      return (
+        <AvailableClaims
+          loading
+          deployment={runtime.deployment}
+          impactedWallet={runtime.impactedWallet}
+          rows={runtime.claimRows}
+          indexerTotal={runtime.claimIndexerTotal}
+          discoveryError={runtime.claimDiscoveryError}
+          onRefresh={runtime.refreshClaimMatches}
+          onNext={goNext}
+          onBack={goBack}
+          onViewAsset={() => setScreen("available-claims-asset-modal")}
+        />
+      );
     case "no-matching-funds":
-      return <AvailableClaims empty onNext={goNext} onBack={goBack} onViewAsset={() => setScreen("available-claims-asset-modal")} />;
+      return (
+        <AvailableClaims
+          empty
+          deployment={runtime.deployment}
+          impactedWallet={runtime.impactedWallet}
+          rows={runtime.claimRows}
+          indexerTotal={runtime.claimIndexerTotal}
+          discoveryError={runtime.claimDiscoveryError}
+          onRefresh={runtime.refreshClaimMatches}
+          onNext={goNext}
+          onBack={goBack}
+          onViewAsset={() => setScreen("available-claims-asset-modal")}
+        />
+      );
     case "available-claims-page-1":
-      return <AvailableClaims page={1} onNext={goNext} onBack={goBack} onViewAsset={() => setScreen("available-claims-asset-modal")} />;
+      return (
+        <AvailableClaims
+          page={1}
+          deployment={runtime.deployment}
+          impactedWallet={runtime.impactedWallet}
+          rows={runtime.claimRows}
+          indexerTotal={runtime.claimIndexerTotal}
+          discoveryError={runtime.claimDiscoveryError}
+          onRefresh={runtime.refreshClaimMatches}
+          onNext={goNext}
+          onBack={goBack}
+          onViewAsset={() => setScreen("available-claims-asset-modal")}
+        />
+      );
     case "available-claims-page-2":
-      return <AvailableClaims page={2} onNext={goNext} onBack={goBack} onViewAsset={() => setScreen("available-claims-asset-modal")} />;
+      return (
+        <AvailableClaims
+          page={2}
+          deployment={runtime.deployment}
+          impactedWallet={runtime.impactedWallet}
+          rows={runtime.claimRows}
+          indexerTotal={runtime.claimIndexerTotal}
+          discoveryError={runtime.claimDiscoveryError}
+          onRefresh={runtime.refreshClaimMatches}
+          onNext={goNext}
+          onBack={goBack}
+          onViewAsset={() => setScreen("available-claims-asset-modal")}
+        />
+      );
     case "safe-wallet":
       return <SafeWallet onNext={goNext} onBack={goBack} />;
     case "safe-wallet-overlap":
@@ -427,53 +761,107 @@ function ClaimStep({ step, status }: { step: Step; status: StepStatus }) {
   );
 }
 
-function DeploymentReview({ unavailable, onNext, onBack }: { unavailable?: boolean; onNext: () => void; onBack: () => void }) {
+function DeploymentReview({
+  unavailable,
+  deployment,
+  loading,
+  error,
+  onNext,
+  onBack,
+}: {
+  unavailable?: boolean;
+  deployment?: ClaimDeploymentResponse | null;
+  loading?: boolean;
+  error?: string;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  const liveDeployment = deployment?.available ? deployment.deployment : null;
+  const sourceCommit = liveDeployment?.sourceCommit ?? "4f3c9a1e2b6c8d0f91a4b7c3e0d29a6f48bd12c0";
+  const deploymentLabel = liveDeployment?.id ?? "Pinned";
+  const networkLabel = liveDeployment?.network ?? "Cardano mainnet";
+  const baseScript = liveDeployment?.reclaimBaseScriptHash ?? "script1q9k9r0v6t2m313u4z8h8y2d0k5f4x7w8e5p2c3h6tx";
+  const globalScript = liveDeployment?.reclaimGlobalScriptHash ?? "script1p7c2a5j9u8x316v0m4n9w5e2k3d7z6t1y8f4p5m4da";
+  const paramsUtxo = liveDeployment?.paramsUtxo
+    ? `${liveDeployment.paramsUtxo.tx_hash}#${liveDeployment.paramsUtxo.output_index}`
+    : "7b9f2c1d6e8a3b4f7c9d0a1e5b6c3d2a9f1b8c7a#0";
+  const paramsDatum = liveDeployment?.paramsUtxo?.datum_reclaim_base_script_hash
+    ? `reclaimBaseHash: ${liveDeployment.paramsUtxo.datum_reclaim_base_script_hash}`
+    : "reclaimBaseHash: script1q9k9r0v6t2m313u4z8h8y2d0k5f4x7w8e5p2c3h6tx";
+  const deploymentKnownUnavailable = Boolean(unavailable || deployment?.available === false);
   return (
     <ClaimScreenFrame
       title="Review deployment"
       subtitle="Confirm the deployed contracts and recovery parameters before connecting a wallet."
       backLabel="Back"
-      nextLabel={unavailable ? "Retry deployment" : "I reviewed deployment"}
+      nextLabel={deploymentKnownUnavailable ? "Retry deployment" : "I reviewed deployment"}
       onBack={onBack}
       onNext={onNext}
-      nextDisabled={false}
+      nextDisabled={Boolean(loading)}
     >
       {unavailable ? (
         <Notice tone="bad" icon={CircleAlert} title="Deployment unavailable">
-          The pinned claim deployment could not be loaded. Wallet connection and claim submission stay disabled until the
-          manifest is available.
+          {error ||
+            "The pinned claim deployment could not be loaded. Wallet connection and claim submission stay disabled until the manifest is available."}
+        </Notice>
+      ) : null}
+      {loading ? (
+        <Notice icon={RefreshCw} title="Checking deployment">
+          Loading the pinned claim deployment before wallet discovery is enabled.
         </Notice>
       ) : null}
 
       <div className="claim-card-grid three">
-        <MetricStripItem icon={Globe2} label="Network" value="Cardano mainnet" />
-        <MetricStripItem icon={Lock} label="Deployment" value="Pinned" />
+        <MetricStripItem icon={Globe2} label="Network" value={networkLabel} />
+        <MetricStripItem icon={Lock} label="Deployment" value={abbreviateMiddle(deploymentLabel, 24)} />
         <MetricStripItem icon={ShieldCheck} label="Claim flow" value="Single validator" />
       </div>
 
       <Panel icon={Code2} title="Smart contracts">
-        <ReviewRow label="mkReclaimBase" value="script1q9k9r0v6t2m313u4z8h8y2d0k5f4x7w8e5p2c3h6tx" />
-        <ReviewRow label="mkReclaimGlobal" value="script1p7c2a5j9u8x316v0m4n9w5e2k3d7z6t1y8f4p5m4da" />
+        <ReviewRow label="mkReclaimBase" value={baseScript} />
+        <ReviewRow label="mkReclaimGlobal" value={globalScript} />
       </Panel>
 
       <Panel icon={SlidersHorizontal} title="Recovery parameters">
-        <ReviewRow label="Params UTxO" value="7b9f2c1d6e8a3b4f7c9d0a1e5b6c3d2a9f1b8c7a#0" />
-        <ReviewRow label="Parsed datum" value="reclaimBaseHash: script1q9k9r0v6t2m313u4z8h8y2d0k5f4x7w8e5p2c3h6tx" detail="The datum binds this deployment to the ReclaimBase script." />
+        <ReviewRow label="Params UTxO" value={paramsUtxo} />
+        <ReviewRow label="Parsed datum" value={paramsDatum} detail="The datum binds this deployment to the ReclaimBase script." />
       </Panel>
 
       <Panel icon={Github} title="Pinned source">
-        <ReviewRow label="Git commit" value="4f3c9a1e2b6c8d0f91a4b7c3e0d29a6f48bd12c0" />
-        <a className="claim-external-link" href="https://github.com/reclaim-global/proof-zk-recovery/commit/4f3c9a1e2b6c8d0f91a4b7c3e0d29a6f48bd12c0">
+        <ReviewRow label="Git commit" value={sourceCommit} />
+        <a className="claim-external-link" href={`https://github.com/reclaim-global/proof-zk-recovery/commit/${sourceCommit}`}>
           <ExternalLink size={17} aria-hidden="true" />
           View commit on GitHub
-          <span>github.com/reclaim-global/proof-zk-recovery/commit/4f3c9a1e...</span>
+          <span>github.com/reclaim-global/proof-zk-recovery/commit/{abbreviateMiddle(sourceCommit, 12)}</span>
         </a>
       </Panel>
     </ClaimScreenFrame>
   );
 }
 
-function ImpactedWallet({ wrongNetwork, onNext, onBack }: { wrongNetwork?: boolean; onNext: () => void; onBack: () => void }) {
+function ImpactedWallet({
+  wrongNetwork,
+  deployment,
+  wallets = [],
+  selectedWallet = "",
+  onSelectWallet,
+  impactedWallet,
+  error,
+  onNext,
+  onBack,
+}: {
+  wrongNetwork?: boolean;
+  deployment?: ClaimDeploymentResponse | null;
+  wallets?: WalletEntry[];
+  selectedWallet?: string;
+  onSelectWallet?: React.Dispatch<React.SetStateAction<string>>;
+  impactedWallet?: ImpactedWalletSummary | null;
+  error?: string;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  const expectedNetwork = deployment?.available ? deployment.deployment.network : "the configured network";
+  const hasWallets = wallets.length > 0 || !onSelectWallet;
   return (
     <ClaimScreenFrame
       title="Connect impacted wallet"
@@ -483,6 +871,7 @@ function ImpactedWallet({ wrongNetwork, onNext, onBack }: { wrongNetwork?: boole
       nextIcon={Wallet}
       onBack={onBack}
       onNext={onNext}
+      nextDisabled={!hasWallets}
     >
       <div className="claim-two-column">
         <div className="claim-stack">
@@ -492,10 +881,21 @@ function ImpactedWallet({ wrongNetwork, onNext, onBack }: { wrongNetwork?: boole
           </Notice>
           <Notice tone={wrongNetwork ? "bad" : "info"} icon={wrongNetwork ? CircleAlert : HelpCircle} title={wrongNetwork ? "Wrong network" : undefined}>
             {wrongNetwork
-              ? "This wallet is not on Cardano mainnet. Switch network before scanning claims."
+              ? `This wallet is not on ${expectedNetwork}. Switch network before scanning claims.`
               : "This step only reads addresses and payment credentials. You will not sign a transaction with the impacted wallet."}
           </Notice>
-          <WalletChooser layout="list" />
+          {error ? (
+            <Notice tone="bad" icon={CircleAlert} title="Impacted wallet discovery stopped">
+              {error}
+            </Notice>
+          ) : null}
+          {impactedWallet ? (
+            <Notice tone="ok" icon={Check} title="Impacted wallet connected">
+              Found {impactedWallet.credentials.length} payment credential{impactedWallet.credentials.length === 1 ? "" : "s"} from{" "}
+              {impactedWallet.addresses.length} public wallet address{impactedWallet.addresses.length === 1 ? "" : "es"}.
+            </Notice>
+          ) : null}
+          <WalletChooser layout="list" wallets={wallets} selectedWallet={selectedWallet} onSelectWallet={onSelectWallet} />
         </div>
         <InfoPanel
           title="What happens next"
@@ -515,6 +915,12 @@ function AvailableClaims({
   page = 1,
   loading,
   empty,
+  deployment,
+  impactedWallet,
+  rows: realRows,
+  indexerTotal,
+  discoveryError,
+  onRefresh,
   onNext,
   onBack,
   onViewAsset,
@@ -522,11 +928,26 @@ function AvailableClaims({
   page?: 1 | 2;
   loading?: boolean;
   empty?: boolean;
+  deployment?: ClaimDeploymentResponse | null;
+  impactedWallet?: ImpactedWalletSummary | null;
+  rows?: ClaimRow[];
+  indexerTotal?: number;
+  discoveryError?: string;
+  onRefresh?: () => void;
   onNext: () => void;
   onBack: () => void;
   onViewAsset: () => void;
 }) {
-  const rows = page === 1 ? allClaims.slice(0, 10) : allClaims.slice(10, 18);
+  const allRows = realRows && (realRows.length > 0 || empty || loading || discoveryError) ? realRows : allClaims;
+  const pageSize = 10;
+  const rows = page === 1 ? allRows.slice(0, pageSize) : allRows.slice(pageSize, pageSize * 2);
+  const totalLovelace = sumLovelace(allRows);
+  const totalAssets = allRows.reduce((total, row) => total + (row.assetCount ?? (row.summary.length > 0 ? row.summary.length : 0)), 0);
+  const credentialCount = new Set(allRows.map((row) => row.credential)).size;
+  const batchSize = deployment?.available ? deployment.deployment.batching?.default_utxo_count ?? 4 : 4;
+  const estimatedBatches = Math.max(1, Math.ceil(Math.max(allRows.length, 1) / batchSize));
+  const walletLabel = impactedWallet ? abbreviateMiddle(impactedWallet.addresses[0] ?? impactedWallet.walletName, 14) : "addr1q...f3k7l2";
+  const visibleEmpty = Boolean(empty || (allRows.length === 0 && !loading));
   return (
     <ClaimScreenFrame
       title="Available claims"
@@ -536,14 +957,19 @@ function AvailableClaims({
       nextIcon={ShieldCheck}
       onBack={onBack}
       onNext={onNext}
-      nextDisabled={Boolean(loading || empty)}
+      nextDisabled={Boolean(loading || visibleEmpty)}
     >
       <SummaryTiles
         tiles={[
-          { icon: Wallet, label: "Impacted wallet", value: "addr1q...f3k7l2", status: "Connected" },
-          { icon: Coins, label: "Total claimable", value: "15.87 ADA", detail: "23 token bundles" },
-          { icon: KeyRound, label: "Matching UTxOs", value: "18", detail: "Across 4 credentials" },
-          { icon: CalendarDays, label: "Estimated batches", value: "5", detail: "4 UTxOs per batch" },
+          { icon: Wallet, label: "Impacted wallet", value: walletLabel, status: impactedWallet ? "Connected" : "Fixture" },
+          { icon: Coins, label: "Total claimable", value: `${formatLovelace(totalLovelace)} ADA`, detail: `${totalAssets} token bundle${totalAssets === 1 ? "" : "s"}` },
+          {
+            icon: KeyRound,
+            label: "Matching UTxOs",
+            value: String(allRows.length),
+            detail: `Across ${credentialCount} credential${credentialCount === 1 ? "" : "s"}`,
+          },
+          { icon: CalendarDays, label: "Estimated batches", value: String(estimatedBatches), detail: `${batchSize} UTxOs per batch` },
         ]}
       />
 
@@ -555,17 +981,23 @@ function AvailableClaims({
               <input placeholder="Search tx, output, or credential" />
             </label>
             <Segmented options={["All", "ADA", "Tokens"]} />
-            <button className="claim-secondary-button" type="button">
+            <button className="claim-secondary-button" type="button" onClick={onRefresh} disabled={!onRefresh || loading}>
               <RefreshCw size={18} aria-hidden="true" />
               Refresh
             </button>
           </div>
           {loading ? (
             <TableEmpty icon={RefreshCw} title="Scanning ReclaimBase" body="Checking public UTxOs against your local impacted credentials." />
-          ) : empty ? (
-            <TableEmpty icon={Search} title="No matching funds found" body="No unclaimed ReclaimBase UTxOs matched this wallet's payment credentials." />
+          ) : discoveryError ? (
+            <TableEmpty icon={CircleAlert} title="Claim scan unavailable" body={discoveryError} />
+          ) : visibleEmpty ? (
+            <TableEmpty
+              icon={Search}
+              title="No matching funds found"
+              body={`No unclaimed ReclaimBase UTxOs matched this wallet's payment credentials${indexerTotal ? ` across ${indexerTotal} indexed UTxOs` : ""}.`}
+            />
           ) : (
-            <ClaimsTable rows={rows} page={page} onViewAsset={onViewAsset} />
+            <ClaimsTable rows={rows} page={page} totalRows={allRows.length} onViewAsset={onViewAsset} />
           )}
         </Panel>
         <InfoPanel
@@ -1137,19 +1569,53 @@ function CopyButton({ label }: { label: string }) {
   );
 }
 
-function WalletChooser({ layout }: { layout: "list" | "grid" }) {
-  const wallets = [
+function WalletChooser({
+  layout,
+  wallets,
+  selectedWallet,
+  onSelectWallet,
+}: {
+  layout: "list" | "grid";
+  wallets?: WalletEntry[];
+  selectedWallet?: string;
+  onSelectWallet?: React.Dispatch<React.SetStateAction<string>>;
+}) {
+  const fixtureWallets = [
     { name: "Lace", detail: "The simplest and most secure way to connect.", recommended: true },
     { name: "Eternl", detail: "A feature-rich wallet for Cardano." },
     { name: "Yoroi", detail: "Lightweight and easy to use." },
   ];
+  const walletOptions = wallets
+    ? wallets.map(([id, provider], index) => ({
+        id,
+        name: provider.name || id,
+        detail: index === 0 ? "Detected CIP-30 wallet extension." : "Available CIP-30 wallet extension.",
+        recommended: index === 0,
+      }))
+    : fixtureWallets.map((wallet) => ({
+        ...wallet,
+        id: wallet.name.toLowerCase(),
+      }));
   return (
     <section className={`claim-wallet-chooser ${layout}`}>
       <h2>Choose a CIP-30 wallet</h2>
       {layout === "grid" ? <p>Use a different wallet than the impacted wallet.</p> : null}
       <div>
-        {wallets.map((wallet) => (
-          <button key={wallet.name} className="claim-wallet-option" type="button">
+        {walletOptions.length === 0 ? (
+          <button className="claim-wallet-option" type="button" disabled>
+            <span className="claim-wallet-logo">?</span>
+            <strong>No wallet found</strong>
+            {layout === "list" ? <span>Install or unlock a CIP-30 wallet, then refresh this page.</span> : null}
+          </button>
+        ) : null}
+        {walletOptions.map((wallet) => (
+          <button
+            key={wallet.id}
+            className="claim-wallet-option"
+            type="button"
+            onClick={() => onSelectWallet?.(wallet.id)}
+            aria-pressed={selectedWallet === wallet.id}
+          >
             <span className={`claim-wallet-logo ${wallet.name.toLowerCase()}`}>{wallet.name[0]}</span>
             <strong>
               {wallet.name}
@@ -1176,7 +1642,11 @@ function Segmented({ options }: { options: string[] }) {
   );
 }
 
-function ClaimsTable({ rows, page, onViewAsset }: { rows: ClaimRow[]; page: 1 | 2; onViewAsset: () => void }) {
+function ClaimsTable({ rows, page, totalRows, onViewAsset }: { rows: ClaimRow[]; page: 1 | 2; totalRows: number; onViewAsset: () => void }) {
+  const pageSize = 10;
+  const firstRow = totalRows === 0 ? 0 : page === 1 ? 1 : pageSize + 1;
+  const lastRow = page === 1 ? Math.min(pageSize, totalRows) : Math.min(pageSize * 2, totalRows);
+  const hasSecondPage = totalRows > pageSize;
   return (
     <>
       <div className="claim-table-wrap">
@@ -1215,12 +1685,12 @@ function ClaimsTable({ rows, page, onViewAsset }: { rows: ClaimRow[]; page: 1 | 
         <span>
           <HelpCircle size={16} aria-hidden="true" /> Use View to inspect every asset and quantity inside a UTxO.
         </span>
-        <span>Showing {page === 1 ? "1-10" : "11-18"} of 18 UTxOs</span>
+        <span>Showing {firstRow}-{lastRow} of {totalRows} UTxOs</span>
         <div className="claim-pagination">
           <button disabled={page === 1} type="button">Previous</button>
           <button className={page === 1 ? "active" : ""} type="button">1</button>
-          <button className={page === 2 ? "active" : ""} type="button">2</button>
-          <button disabled={page === 2} type="button">Next</button>
+          <button className={page === 2 ? "active" : ""} type="button" disabled={!hasSecondPage}>2</button>
+          <button disabled={page === 2 || !hasSecondPage} type="button">Next</button>
         </div>
       </div>
     </>
@@ -1469,6 +1939,248 @@ function Assurance({ icon: Icon, title, body }: { icon: LucideIcon; title: strin
       </div>
     </section>
   );
+}
+
+async function fetchClaimDeployment(): Promise<ClaimDeploymentResponse> {
+  return fetchJSON<ClaimDeploymentResponse>("/claim-api/deployment");
+}
+
+async function fetchAllReclaimUtxos(): Promise<IndexedReclaimUtxo[]> {
+  const utxos: IndexedReclaimUtxo[] = [];
+  let cursor: string | null = null;
+  const seenCursors = new Set<string>();
+  for (let page = 0; page < 100; page += 1) {
+    const params = new URLSearchParams({ limit: "100" });
+    if (cursor) {
+      params.set("cursor", cursor);
+    }
+    const response = await fetchJSON<ReclaimUtxosResponse>(`/claim-api/reclaim-utxos?${params.toString()}`);
+    if (!response.available) {
+      throw new Error(response.reason || "Reclaim UTxO index is unavailable.");
+    }
+    utxos.push(...response.utxos);
+    if (!response.page.nextCursor) {
+      return utxos;
+    }
+    if (seenCursors.has(response.page.nextCursor)) {
+      throw new Error("Reclaim UTxO index pagination did not advance.");
+    }
+    seenCursors.add(response.page.nextCursor);
+    cursor = response.page.nextCursor;
+  }
+  throw new Error("Reclaim UTxO index pagination exceeded the client safety limit.");
+}
+
+async function fetchJSON<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  if (!response.ok) {
+    const error = payload as Partial<ReclaimApiError> & { reason?: string };
+    throw new Error(error.error || error.reason || "Request failed.");
+  }
+  return payload as T;
+}
+
+function listCardanoWallets(): WalletEntry[] {
+  const cardano = ((window as Window & { cardano?: Record<string, unknown> }).cardano ?? {}) as Record<string, unknown>;
+  return Object.entries(cardano).filter((entry): entry is WalletEntry => {
+    const wallet = entry[1] as CardanoWalletProvider | undefined;
+    return typeof wallet?.enable === "function";
+  });
+}
+
+async function readImpactedWalletSummary(
+  api: CardanoWalletApi,
+  wallet: { walletId: string; walletName: string; networkId: 0 | 1 },
+): Promise<ImpactedWalletSummary> {
+  if (typeof api.getNetworkId !== "function" || typeof api.getChangeAddress !== "function" || typeof api.getUsedAddresses !== "function") {
+    throw new Error("Connected wallet is missing required CIP-30 public address methods.");
+  }
+
+  let rawChangeAddress = "";
+  let rawUsedAddresses: string[] = [];
+  try {
+    [rawChangeAddress, rawUsedAddresses] = await Promise.all([api.getChangeAddress(), api.getUsedAddresses()]);
+  } catch {
+    throw new Error("Connected wallet did not provide usable CIP-30 payment addresses.");
+  }
+
+  if (typeof rawChangeAddress !== "string" || !Array.isArray(rawUsedAddresses) || rawUsedAddresses.some((address) => typeof address !== "string")) {
+    throw new Error("Connected wallet returned malformed CIP-30 address data.");
+  }
+
+  const addresses = [...new Set([rawChangeAddress, ...rawUsedAddresses].map((address) => address.trim()).filter(Boolean))];
+  const credentials = new Set<string>();
+  for (const address of addresses) {
+    credentials.add(extractCip30PaymentKeyHash(address, wallet.networkId));
+  }
+  if (credentials.size === 0) {
+    throw new Error("Connected wallet did not expose any payment key credentials.");
+  }
+
+  return {
+    walletId: wallet.walletId,
+    walletName: wallet.walletName,
+    networkId: wallet.networkId,
+    addresses,
+    credentials: [...credentials],
+  };
+}
+
+function extractCip30PaymentKeyHash(rawAddress: string, expectedNetworkId: 0 | 1): string {
+  const bytes = cip30AddressBytes(rawAddress);
+  if (bytes.length < 29) {
+    throw new Error("Wallet address must be a Shelley payment address.");
+  }
+  const header = bytes[0];
+  const networkId = header & 0x0f;
+  if (networkId !== expectedNetworkId) {
+    throw new Error("Wallet address network does not match the claim deployment.");
+  }
+  const addressKind = header >> 4;
+  if (addressKind === 1 || addressKind === 3 || addressKind === 5 || addressKind === 7) {
+    throw new Error("Only payment key credentials can prove reclaim ownership.");
+  }
+  if (addressKind !== 0 && addressKind !== 2 && addressKind !== 4 && addressKind !== 6) {
+    throw new Error("Wallet address does not contain a payment key credential.");
+  }
+  return bytesToHex(bytes.slice(1, 29));
+}
+
+function cip30AddressBytes(rawAddress: string): Uint8Array {
+  const value = rawAddress.trim();
+  if (!value) {
+    throw new Error("Wallet address is empty.");
+  }
+  if (value.startsWith("addr")) {
+    try {
+      const decoded = bech32.decode(value, 1000);
+      return Uint8Array.from(bech32.fromWords(decoded.words));
+    } catch {
+      throw new Error("Wallet address must be a valid Shelley bech32 address.");
+    }
+  }
+  if (value.length % 2 !== 0 || !ADDRESS_HEX_RE.test(value)) {
+    throw new Error("Wallet address must be bech32 or CIP-30 hex.");
+  }
+  return hexToBytes(value);
+}
+
+function hexToBytes(value: string): Uint8Array {
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < value.length; index += 2) {
+    bytes[index / 2] = Number.parseInt(value.slice(index, index + 2), 16);
+  }
+  return bytes;
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function deploymentUnavailableReason(deployment: ClaimDeploymentResponse): string {
+  if (deployment.available) {
+    return "";
+  }
+  if (deployment.errors?.length) {
+    return deployment.errors.map((error) => error.message).join(" ");
+  }
+  if (deployment.missing?.length) {
+    return `Missing claim deployment configuration: ${deployment.missing.join(", ")}.`;
+  }
+  return "The pinned claim deployment could not be loaded.";
+}
+
+function toClaimRow(utxo: IndexedReclaimUtxo, index: number): ClaimRow {
+  const lovelace = lovelaceFromAssets(utxo.value);
+  const assetCount = assetCountFrom(utxo.value);
+  return {
+    id: index + 1,
+    tx: abbreviateMiddle(utxo.outRef.txHash, 16),
+    output: utxo.outRef.outputIndex,
+    credential: utxo.datum.status === "valid" ? `cred ...${utxo.datum.paymentCredential.slice(-4)}` : "invalid datum",
+    ada: `${formatLovelace(lovelace)} ADA`,
+    assets: assetCount === 0 ? "No tokens" : `${assetCount} asset${assetCount === 1 ? "" : "s"}`,
+    summary: assetLabels(utxo.value),
+    lovelace,
+    assetCount,
+    outRefId: utxo.outRefId,
+  };
+}
+
+function lovelaceFromAssets(assets: AssetMap): string {
+  return assets[LOVELACE_UNIT] ?? "0";
+}
+
+function assetCountFrom(assets: AssetMap): number {
+  return Object.entries(assets).filter(([unit, quantity]) => unit !== LOVELACE_UNIT && positiveQuantity(quantity)).length;
+}
+
+function assetLabels(assets: AssetMap): string[] {
+  return Object.entries(assets)
+    .filter(([unit, quantity]) => unit !== LOVELACE_UNIT && positiveQuantity(quantity))
+    .map(([unit]) => assetLabel(unit))
+    .slice(0, 3);
+}
+
+function assetLabel(unit: string): string {
+  const tokenNameHex = unit.length > 56 ? unit.slice(56) : "";
+  if (tokenNameHex && /^[0-9a-f]+$/iu.test(tokenNameHex) && tokenNameHex.length % 2 === 0) {
+    const decoded = decodeHexText(tokenNameHex);
+    if (decoded) {
+      return decoded;
+    }
+  }
+  return abbreviateMiddle(unit, 10);
+}
+
+function decodeHexText(value: string): string {
+  const chars: string[] = [];
+  for (let index = 0; index < value.length; index += 2) {
+    const charCode = Number.parseInt(value.slice(index, index + 2), 16);
+    if (charCode < 32 || charCode > 126) {
+      return "";
+    }
+    chars.push(String.fromCharCode(charCode));
+  }
+  return chars.join("");
+}
+
+function positiveQuantity(quantity: string): boolean {
+  try {
+    return BigInt(quantity) > 0n;
+  } catch {
+    return false;
+  }
+}
+
+function sumLovelace(rows: ClaimRow[]): string {
+  return rows.reduce((total, row) => total + BigInt(row.lovelace ?? "0"), 0n).toString();
+}
+
+function formatLovelace(value: string): string {
+  let lovelace: bigint;
+  try {
+    lovelace = BigInt(value);
+  } catch {
+    return "0";
+  }
+  const whole = lovelace / 1_000_000n;
+  const fractional = (lovelace % 1_000_000n).toString().padStart(6, "0").replace(/0+$/u, "");
+  return fractional ? `${whole.toString()}.${fractional}` : whole.toString();
+}
+
+function abbreviateMiddle(value: string, visible = 18): string {
+  if (value.length <= visible) {
+    return value;
+  }
+  const edge = Math.max(4, Math.floor((visible - 3) / 2));
+  return `${value.slice(0, edge)}...${value.slice(-edge)}`;
 }
 
 function isClaimScreen(value: string): value is ClaimScreen {
