@@ -49,6 +49,8 @@ export async function runPreprodPreflight(options = {}) {
     git: null,
   };
 
+  errors.push(...validateServerSecretEnv(env));
+
   const walletResult = loadPreprodWalletsFromEnv(env, {
     cwd,
     repoRoot,
@@ -241,6 +243,67 @@ export function validatePreprodManifest(manifest, currentCommit) {
     });
   }
 
+  errors.push(...validateReferenceScriptManifest(root));
+
+  return errors;
+}
+
+export function validateServerSecretEnv(env) {
+  const errors = [];
+  if (!envValue(env, "RECLAIM_REVIEW_TOKEN_SECRET")) {
+    errors.push({
+      code: "review_token_secret_missing",
+      field: "RECLAIM_REVIEW_TOKEN_SECRET",
+      message: "RECLAIM_REVIEW_TOKEN_SECRET is required before live preprod build/submit tests.",
+    });
+  }
+  return errors;
+}
+
+function validateReferenceScriptManifest(manifest) {
+  const errors = [];
+  const referenceScripts = manifest?.reference_scripts;
+  if (!referenceScripts || typeof referenceScripts !== "object" || Array.isArray(referenceScripts)) {
+    return [
+      {
+        code: "manifest_reference_scripts_missing",
+        field: "manifest.reference_scripts",
+        message: "Deployment manifest must include ReclaimBase and ReclaimGlobal reference-script UTxOs.",
+      },
+    ];
+  }
+  for (const role of ["reclaim_base", "reclaim_global"]) {
+    const value = referenceScripts[role];
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      errors.push({
+        code: "manifest_reference_script_missing",
+        field: `manifest.reference_scripts.${role}`,
+        message: `${role} reference-script deployment metadata is required.`,
+      });
+      continue;
+    }
+    if (typeof value.tx_hash !== "string" || !/^[0-9a-f]{64}$/u.test(value.tx_hash)) {
+      errors.push({
+        code: "manifest_reference_script_outref_malformed",
+        field: `manifest.reference_scripts.${role}.tx_hash`,
+        message: `${role} reference script tx_hash must be 32-byte lowercase hex.`,
+      });
+    }
+    if (!Number.isInteger(value.output_index) || value.output_index < 0) {
+      errors.push({
+        code: "manifest_reference_script_outref_malformed",
+        field: `manifest.reference_scripts.${role}.output_index`,
+        message: `${role} reference script output_index must be a non-negative integer.`,
+      });
+    }
+    if (typeof value.script_hash !== "string" || !/^[0-9a-f]{56}$/u.test(value.script_hash)) {
+      errors.push({
+        code: "manifest_reference_script_hash_malformed",
+        field: `manifest.reference_scripts.${role}.script_hash`,
+        message: `${role} reference script hash must be 28-byte lowercase hex.`,
+      });
+    }
+  }
   return errors;
 }
 

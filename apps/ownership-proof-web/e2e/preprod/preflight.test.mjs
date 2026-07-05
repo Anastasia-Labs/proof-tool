@@ -10,6 +10,7 @@ import {
   validatePreprodManifest,
   validatePreprodWalletFile,
   validateProviderHealth,
+  validateServerSecretEnv,
 } from "./preflight.mjs";
 
 const tempDirs = [];
@@ -56,6 +57,7 @@ describe("Phase 9A preprod preflight", () => {
     const result = await runPreprodPreflight({
       env: {
         RECLAIM_E2E_LIVE_PREPROD: "1",
+        RECLAIM_REVIEW_TOKEN_SECRET: "test-review-token-secret",
         PREPROD_TEST_WALLETS_FILE: "deployments/reclaim/preprod/test-wallets.local.json",
         RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
         RECLAIM_E2E_PROVIDER_HEALTH_JSON: JSON.stringify({ network: "preprod", network_id: 0 }),
@@ -82,6 +84,7 @@ describe("Phase 9A preprod preflight", () => {
     const result = await runPreprodPreflight({
       env: {
         RECLAIM_E2E_LIVE_PREPROD: "1",
+        RECLAIM_REVIEW_TOKEN_SECRET: "test-review-token-secret",
         PREPROD_TEST_WALLETS_FILE: "deployments/reclaim/preprod/test-wallets.local.json",
         RECLAIM_DEPLOYMENT_MANIFEST_PATH: "deployments/reclaim/preprod/preprod-manifest.json",
       },
@@ -107,6 +110,7 @@ describe("Phase 9A preprod preflight", () => {
     const result = await runPreprodPreflight({
       env: {
         RECLAIM_E2E_LIVE_PREPROD: "1",
+        RECLAIM_REVIEW_TOKEN_SECRET: "test-review-token-secret",
         PREPROD_TEST_WALLETS_FILE: walletPath,
         RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest("2222222222222222222222222222222222222222")),
       },
@@ -165,6 +169,7 @@ describe("Phase 9A preprod preflight", () => {
     const result = await runPreprodPreflight({
       env: {
         RECLAIM_E2E_LIVE_PREPROD: "1",
+        RECLAIM_REVIEW_TOKEN_SECRET: "test-review-token-secret",
         PREPROD_TEST_WALLETS_FILE: walletPath,
         RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
       },
@@ -181,6 +186,17 @@ describe("Phase 9A preprod preflight", () => {
     expect(validateProviderHealth(undefined)).toEqual([]);
     expect(validateProviderHealth({ network: "mainnet", network_id: 1 }).map((error) => error.code)).toEqual(
       expect.arrayContaining(["provider_health_not_preprod", "provider_health_network_id_not_preprod"]),
+    );
+  });
+
+  it("requires review-token secret and reference-script manifest metadata for live preprod", () => {
+    expect(validateServerSecretEnv({}).map((error) => error.code)).toContain("review_token_secret_missing");
+    expect(validateServerSecretEnv({ RECLAIM_REVIEW_TOKEN_SECRET: "secret" })).toEqual([]);
+
+    const manifest = validManifest("4444444444444444444444444444444444444444");
+    delete manifest.reference_scripts;
+    expect(validatePreprodManifest(manifest, manifest.source_commit).map((error) => error.code)).toContain(
+      "manifest_reference_scripts_missing",
     );
   });
 
@@ -217,6 +233,18 @@ function validManifest(commit) {
     network_id: 0,
     source_commit: commit,
     enabled: true,
+    reference_scripts: {
+      reclaim_base: {
+        tx_hash: "1".repeat(64),
+        output_index: 0,
+        script_hash: "a".repeat(56),
+      },
+      reclaim_global: {
+        tx_hash: "2".repeat(64),
+        output_index: 0,
+        script_hash: "b".repeat(56),
+      },
+    },
   };
 }
 
