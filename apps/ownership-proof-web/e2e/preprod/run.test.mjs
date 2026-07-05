@@ -87,14 +87,51 @@ describe("Phase 9A preprod E2E runner", () => {
       outputRoot: "output/preprod-e2e",
       now: () => new Date("2026-07-05T13:00:00.000Z"),
       execFile: fakeGit({ commit, status: "" }),
+      walletHarnessLoader: async () => fakeWalletHarness(),
     });
 
     expect(result.ok).toBe(false);
     expect(result.code).toBe("live_browser_flow_not_implemented");
     expect(result.report).toContain("Pending stages");
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "wallet-harness.json"]);
     const manifest = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
     expect(manifest.transactionSubmissionApproved).toBe(true);
     expect(manifest.stages.every((stage) => stage.status === "pending")).toBe(true);
+    const walletHarness = JSON.parse(readFileSync(result.artifacts[1], "utf8"));
+    expect(walletHarness.schema).toBe("proof-tool-preprod-cip30-harness-summary-v1");
+    expect(JSON.stringify(walletHarness)).not.toContain("abandon");
+  });
+
+  it("fails closed when the approved CIP-30 harness cannot be initialized", async () => {
+    const repo = tempDir();
+    const commit = "fedcba1234567890abcdef1234567890abcdef12";
+    const walletPath = path.join(repo, "wallets.local.json");
+    writeFile(walletPath, JSON.stringify(validWalletFile()));
+
+    const result = await runPreprodE2E({
+      env: {
+        RECLAIM_E2E_LIVE_PREPROD: "1",
+        [TRANSACTION_APPROVAL_ENV]: "1",
+        RECLAIM_REVIEW_TOKEN_SECRET: "test-review-token-secret",
+        PREPROD_TEST_WALLETS_FILE: walletPath,
+        RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
+      },
+      cwd: repo,
+      repoRoot: repo,
+      outputRoot: "output/preprod-e2e",
+      now: () => new Date("2026-07-05T13:30:00.000Z"),
+      execFile: fakeGit({ commit, status: "" }),
+      walletHarnessLoader: async () => {
+        const error = new Error("wallet derivation failed");
+        error.code = "wallet_harness_test_failure";
+        throw error;
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("cip30_harness_failed");
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json"]);
+    expect(result.report).toContain("wallet_harness_test_failure");
   });
 });
 
@@ -173,5 +210,24 @@ function fakeGit({ commit, status }) {
       return;
     }
     callback(new Error(`unexpected git command: ${args.join(" ")}`), "", "");
+  };
+}
+
+function fakeWalletHarness() {
+  return {
+    network: "Preprod",
+    networkId: 0,
+    derivation: "test-derivation",
+    roles: ["deployer", "reclaim_funder", "compromised_user", "safe_claim_destination"],
+    summary: {
+      deployer: {
+        address: "addr_test1...deployer",
+        canSign: true,
+      },
+      compromised_user: {
+        address: "addr_test1...compromised",
+        canSign: false,
+      },
+    },
   };
 }

@@ -8,6 +8,7 @@ import {
   redactSensitiveValue,
   runPreprodPreflight,
 } from "./preflight.mjs";
+import { loadCip30HarnessFromEnv } from "./cip30-harness.mjs";
 
 export const TRANSACTION_APPROVAL_ENV = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
 
@@ -27,6 +28,7 @@ export async function runPreprodE2E(options = {}) {
   const now = options.now ?? (() => new Date());
   const mkdir = options.mkdir ?? mkdirSync;
   const writeFile = options.writeFile ?? writeFileSync;
+  const walletHarnessLoader = options.walletHarnessLoader ?? loadCip30HarnessFromEnv;
   const outputRoot = options.outputRoot ?? env.RECLAIM_E2E_OUTPUT_DIR ?? "output/preprod-e2e";
   const preflight = await runPreprodPreflight(options.preflightOptions ?? options);
   if (!preflight.ok) {
@@ -61,6 +63,7 @@ export async function runPreprodE2E(options = {}) {
   mkdir(outputDir, { recursive: true });
   const runManifestPath = path.join(outputDir, "run-manifest.json");
   writeFile(runManifestPath, `${JSON.stringify(runManifest, null, 2)}\n`, "utf8");
+  const artifacts = [runManifestPath];
 
   if (!approved) {
     return {
@@ -68,29 +71,71 @@ export async function runPreprodE2E(options = {}) {
       code: "live_transaction_gate_missing",
       preflight,
       outputDir,
-      artifacts: [runManifestPath],
+      artifacts,
       report: formatRunnerReport({
         ok: false,
         code: "live_transaction_gate_missing",
         preflight,
         outputDir,
-        artifacts: [runManifestPath],
+        artifacts,
       }),
     };
   }
+
+  let walletHarness;
+  try {
+    walletHarness = await walletHarnessLoader({
+      ...(options.walletHarnessOptions ?? {}),
+      env,
+      cwd: options.cwd ?? process.cwd(),
+      repoRoot: options.repoRoot,
+    });
+  } catch (error) {
+    const result = {
+      ok: false,
+      code: "cip30_harness_failed",
+      preflight,
+      outputDir,
+      artifacts,
+      error: sanitizeError(error),
+    };
+    return {
+      ...result,
+      report: formatRunnerReport(result),
+    };
+  }
+
+  const walletHarnessPath = path.join(outputDir, "wallet-harness.json");
+  writeFile(
+    walletHarnessPath,
+    `${JSON.stringify(
+      {
+        schema: "proof-tool-preprod-cip30-harness-summary-v1",
+        network: walletHarness.network,
+        networkId: walletHarness.networkId,
+        derivation: walletHarness.derivation,
+        roles: walletHarness.roles,
+        summary: walletHarness.summary,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  artifacts.push(walletHarnessPath);
 
   return {
     ok: false,
     code: "live_browser_flow_not_implemented",
     preflight,
     outputDir,
-    artifacts: [runManifestPath],
+    artifacts,
     report: formatRunnerReport({
       ok: false,
       code: "live_browser_flow_not_implemented",
       preflight,
       outputDir,
-      artifacts: [runManifestPath],
+      artifacts,
     }),
   };
 }
@@ -109,6 +154,11 @@ export function formatRunnerReport(result) {
   } else if (result.code === "live_browser_flow_not_implemented") {
     lines.push("Live browser E2E stage execution is not implemented yet.");
     lines.push(`Pending stages: ${PREPROD_E2E_STAGES.join(", ")}.`);
+  } else if (result.code === "cip30_harness_failed") {
+    lines.push("CIP-30 preprod wallet harness failed closed before browser automation.");
+    if (result.error) {
+      lines.push(`- ${result.error.code}: ${result.error.message}`);
+    }
   }
   return lines.join("\n");
 }
@@ -117,6 +167,16 @@ function makeRunId(commit, now) {
   const timestamp = now.toISOString().replace(/[:.]/gu, "-");
   const shortCommit = typeof commit === "string" && commit ? commit.slice(0, 12) : "unknown";
   return `${timestamp}-${shortCommit}`;
+}
+
+function sanitizeError(error) {
+  if (!error || typeof error !== "object") {
+    return { code: "unknown_error", message: "Unknown CIP-30 harness error." };
+  }
+  return {
+    code: typeof error.code === "string" ? error.code : "cip30_harness_error",
+    message: typeof error.message === "string" ? error.message : "CIP-30 harness setup failed.",
+  };
 }
 
 async function main() {
