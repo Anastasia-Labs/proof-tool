@@ -19,6 +19,7 @@ describe("preprod browser bootstrap", () => {
     const walletHarness = fakeWalletHarness();
     const fundingStageRunner = vi.fn(async () => fakeFundingStage(outputDir));
     const nativeFundingStageRunner = vi.fn(async () => fakeNativeFundingStage(outputDir));
+    const claimDiscoveryStageRunner = vi.fn(async () => fakeClaimDiscoveryStage(outputDir));
 
     const result = await runPreprodBrowserBootstrap({
       env: {},
@@ -30,6 +31,7 @@ describe("preprod browser bootstrap", () => {
       browserLauncher: fake.launcher,
       fundingStageRunner,
       nativeFundingStageRunner,
+      claimDiscoveryStageRunner,
     });
 
     expect(result.ok).toBe(true);
@@ -54,6 +56,16 @@ describe("preprod browser bootstrap", () => {
         outputDir,
       }),
     );
+    expect(claimDiscoveryStageRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: fake.page,
+        walletHarness,
+        outputDir,
+        appTarget: {
+          baseUrl: "http://127.0.0.1:3917",
+        },
+      }),
+    );
     expect(fake.context.close).toHaveBeenCalledTimes(1);
     expect(fake.browser.close).toHaveBeenCalledTimes(1);
     expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
@@ -63,6 +75,8 @@ describe("preprod browser bootstrap", () => {
       "fund-ada-only-reclaim.png",
       "fund-native-asset-reclaims.json",
       "fund-native-asset-reclaims-1.png",
+      "discover-matching-claims.json",
+      "discover-matching-claims.png",
     ]);
 
     const artifact = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
@@ -95,6 +109,7 @@ describe("preprod browser bootstrap", () => {
       browserLauncher: fake.launcher,
       fundingStageRunner: async () => fakeFundingStage(tempDir()),
       nativeFundingStageRunner: async () => fakeNativeFundingStage(tempDir()),
+      claimDiscoveryStageRunner: async () => fakeClaimDiscoveryStage(tempDir()),
     });
 
     expect(fake.launcher.launch).toHaveBeenCalledWith({ headless: false });
@@ -181,6 +196,16 @@ function fakeFundingStage(outputDir) {
 function fakeNativeFundingStage(outputDir) {
   const jsonPath = path.join(outputDir, "fund-native-asset-reclaims.json");
   const screenshotPath = path.join(outputDir, "screenshots", "fund-native-asset-reclaims-1.png");
+  mkdirSync(path.dirname(screenshotPath), { recursive: true });
+  return {
+    ok: true,
+    artifacts: [jsonPath, screenshotPath],
+  };
+}
+
+function fakeClaimDiscoveryStage(outputDir) {
+  const jsonPath = path.join(outputDir, "discover-matching-claims.json");
+  const screenshotPath = path.join(outputDir, "screenshots", "discover-matching-claims.png");
   mkdirSync(path.dirname(screenshotPath), { recursive: true });
   return {
     ok: true,
