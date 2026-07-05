@@ -87,6 +87,8 @@ describe("ReclaimFundingFlow", () => {
               network: "Preprod",
               deploymentId: deployment().id,
             },
+            reviewHash: "review-hash",
+            reviewToken: "review-token",
           }),
           { status: 200 },
         ),
@@ -154,6 +156,20 @@ describe("ReclaimFundingFlow", () => {
       "/reclaim-api/submit",
       expect.objectContaining({
         body: JSON.stringify({
+          reviewToken: "review-token",
+          review: {
+            changeAddress: walletAddress,
+            walletAddresses: [walletAddress, usedWalletAddress],
+            reclaimBaseAddress: deployment().reclaimBaseAddress,
+            compromisedCredential: credential,
+            datumCbor: "d8799f581c19e07fbcff",
+            assets: {
+              lovelace: "1500000",
+              [tokenUnit]: "2",
+            },
+            network: "Preprod",
+            deploymentId: deployment().id,
+          },
           unsignedTxCbor: "84a400",
           witnessSetCbor: "witness-cbor",
         }),

@@ -8,18 +8,18 @@ const missingStatus: KeyBundleStatus = {
   state: "missing",
   ready: false,
   app_data_dir: "/tmp/proof-helper",
-  active_dir: "/tmp/proof-helper/keys/ownership-v1/active",
+  active_dir: "/tmp/proof-helper/keys/ownership-destination-v1/active",
   error: "key bundle is not installed",
 };
 
 const readyStatus: KeyBundleStatus = {
   state: "ready",
   ready: true,
-  key_version: "ownership-v1",
+  key_version: "ownership-destination-v1",
   vk_hash: "blake2b256:41db4045127fbb379143a9bb99eadf2fdf2d316698c83cb912d00df938017e92",
-  circuit_id: "root-ownership-v1/bls12-381/groth16",
+  circuit_id: "root-ownership-destination-v1/bls12-381/groth16",
   app_data_dir: "/tmp/proof-helper",
-  active_dir: "/tmp/proof-helper/keys/ownership-v1/active",
+  active_dir: "/tmp/proof-helper/keys/ownership-destination-v1/active",
 };
 
 const startup: HelperStartup = {
@@ -31,10 +31,10 @@ const startup: HelperStartup = {
   allowed_origins: ["http://127.0.0.1:3002"],
   sidecar_version: "0.1.0",
   protocol_version: "proof-helper-v1",
-  circuit_id: "root-ownership-v1/bls12-381/groth16",
+  circuit_id: "root-ownership-destination-v1/bls12-381/groth16",
   key_state: "ready",
   key_ready: true,
-  key_version: "ownership-v1",
+  key_version: "ownership-destination-v1",
   key_hash: "blake2b256:test",
   key_compatibility: "ready",
 };

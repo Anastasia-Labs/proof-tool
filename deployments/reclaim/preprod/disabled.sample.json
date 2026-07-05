@@ -1,0 +1,47 @@
+{
+  "schema": "proof-tool-reclaim-deployment-v1",
+  "deployment_id": "preprod:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:sample-disabled",
+  "network": "Preprod",
+  "network_id": 0,
+  "source_commit": "sample-disabled",
+  "contract_version": "sample-disabled-v0",
+  "reclaim_base": {
+    "address": "addr_test1wreclaimbaseplaceholder0000000000000000000000000000",
+    "script_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "required_global_credential": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "reclaim_global": {
+    "script_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "rewarding_credential": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "params_currency_symbol": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "verifier_vk_hash": "blake2b256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "proof_profile": "single-destination"
+  },
+  "params_utxo": {
+    "tx_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "output_index": 0,
+    "policy_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "token_name": "5245434c41494d",
+    "holder_address": "addr_test1wparamholderplaceholder0000000000000000000000000000",
+    "datum_reclaim_base_script_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "proof": {
+    "circuit_id": "root-ownership-destination-v1/bls12-381/groth16",
+    "key_version": "ownership-destination-v1",
+    "destination_address_encoding": "destination-address-v1",
+    "vk_hash": "blake2b256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "cardano_vk_blake2b256": "blake2b256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "batching": {
+    "default_utxo_count": 4,
+    "optimization_utxo_count": 5,
+    "hard_max_utxo_count": 5,
+    "max_tx_cpu_percent": 80,
+    "max_tx_mem_percent": 80
+  },
+  "provider": {
+    "primary": "blockfrost",
+    "fallback": "koios"
+  },
+  "enabled": false
+}

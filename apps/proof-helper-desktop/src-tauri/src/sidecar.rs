@@ -48,10 +48,12 @@ pub fn start_helper<R: Runtime>(
         Some(value) if !value.trim().is_empty() => PathBuf::from(value),
         _ => key_bundle::active_key_dir(&app)?,
     };
+    let destination_keys_dir = key_bundle::active_key_dir(&app)?;
 
     let args = sidecar_core::serve_helper_args(&ServeHelperLaunch {
         site_url: request.site_url,
         keys_dir,
+        destination_keys_dir,
         fixture: request.fixture.unwrap_or(false),
         dev_create_keys: request.dev_create_keys.unwrap_or(false),
     })

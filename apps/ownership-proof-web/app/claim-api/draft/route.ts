@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { SubmitReclaimTxRequest } from "../../../lib/reclaim/types";
+import type { ClaimDraftRequest } from "../../../lib/claim/types";
+import { ClaimValidationError } from "../../../lib/claim/validation";
 import { getProvider, getReclaimDeployment } from "../../../lib/reclaim-server/config";
-import { submitReclaimTx } from "../../../lib/reclaim-server/transactions";
+import { createClaimDraft } from "../../../lib/claim-server/draft";
+import { ReclaimValidationError } from "../../../lib/reclaim/validation";
 
 export const runtime = "nodejs";
 
@@ -31,15 +33,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = (await request.json()) as SubmitReclaimTxRequest;
-    return NextResponse.json(await submitReclaimTx(providerConfig.provider, deploymentConfig.deployment, body));
+    const body = (await request.json()) as ClaimDraftRequest;
+    const response = await createClaimDraft(providerConfig.provider, deploymentConfig.deployment, body);
+    return NextResponse.json(response);
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Unable to submit reviewed reclaim transaction.",
-        code: "submit_failed",
-      },
-      { status: 400 },
-    );
+    return errorResponse(error);
   }
+}
+
+function errorResponse(error: unknown) {
+  if (error instanceof ClaimValidationError || error instanceof ReclaimValidationError) {
+    return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+  }
+  return NextResponse.json(
+    {
+      error: "Unable to create claim draft.",
+      code: "claim_draft_failed",
+    },
+    { status: 502 },
+  );
 }

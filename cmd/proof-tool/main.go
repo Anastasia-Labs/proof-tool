@@ -997,6 +997,7 @@ func cmdServeHelper(args []string) error {
 	fs := flag.NewFlagSet("serve-helper", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:0", "helper listen address")
 	keysDir := fs.String("keys-dir", prover.DefaultKeyDir(), "local proving/verifying key bundle directory")
+	destinationKeysDir := fs.String("destination-keys-dir", prover.DefaultDestinationKeyDir(), "local destination proving/verifying key bundle directory")
 	siteURL := fs.String("site-url", "", "website URL to open with an automatic pairing fragment")
 	devCreateKeys := fs.Bool("dev-create-keys", false, "development only: create the key bundle if it is missing")
 	fixtureMode := fs.Bool("fixture", false, "development only: return fixture artifacts for UI/control-flow testing")
@@ -1014,7 +1015,7 @@ func cmdServeHelper(args []string) error {
 	if err != nil {
 		return err
 	}
-	var generator helper.Generator = &helper.OwnershipGenerator{KeysDir: *keysDir, AllowCreateKeys: *devCreateKeys}
+	var generator helper.Generator = &helper.OwnershipGenerator{KeysDir: *keysDir, DestinationKeysDir: *destinationKeysDir, AllowCreateKeys: *devCreateKeys}
 	if *fixtureMode {
 		generator = helper.FixtureGenerator{}
 	}
@@ -1053,21 +1054,36 @@ func cmdServeHelper(args []string) error {
 	if reporter, ok := generator.(helper.KeyStatusReporter); ok {
 		key = reporter.KeyStatus()
 	}
+	var destinationProfile *helper.ProfileStatus
+	if reporter, ok := generator.(helper.DestinationKeyStatusReporter); ok {
+		destinationKey := reporter.DestinationKeyStatus()
+		destinationProfile = &helper.ProfileStatus{
+			Profile:       helper.DestinationProfileSingle,
+			CircuitID:     ownershipdest.CircuitID,
+			KeyVersion:    destinationKey.KeyVersion,
+			KeyHash:       destinationKey.VKHash,
+			KeyReady:      destinationKey.Ready,
+			KeyState:      destinationKey.State,
+			KeyError:      destinationKey.Error,
+			Compatibility: helperCompatibilityForKey(destinationKey),
+		}
+	}
 	if err := writeStartupJSON(os.Stdout, helperStartupEvent{
-		Type:             "proof_tool_helper_ready",
-		HelperURL:        helperURL,
-		SiteURL:          *siteURL,
-		PairingURL:       pairedURL,
-		Token:            token,
-		AllowedOrigins:   origins,
-		SidecarVersion:   helper.SidecarVersion,
-		ProtocolVersion:  helper.ProtocolVersion,
-		CircuitID:        ownership.CircuitID,
-		KeyState:         key.State,
-		KeyReady:         key.Ready,
-		KeyVersion:       key.KeyVersion,
-		KeyHash:          key.VKHash,
-		KeyCompatibility: helperCompatibilityForKey(key),
+		Type:               "proof_tool_helper_ready",
+		HelperURL:          helperURL,
+		SiteURL:            *siteURL,
+		PairingURL:         pairedURL,
+		Token:              token,
+		AllowedOrigins:     origins,
+		SidecarVersion:     helper.SidecarVersion,
+		ProtocolVersion:    helper.ProtocolVersion,
+		CircuitID:          ownership.CircuitID,
+		KeyState:           key.State,
+		KeyReady:           key.Ready,
+		KeyVersion:         key.KeyVersion,
+		KeyHash:            key.VKHash,
+		KeyCompatibility:   helperCompatibilityForKey(key),
+		DestinationProfile: destinationProfile,
 	}); err != nil {
 		return err
 	}
@@ -1083,20 +1099,21 @@ func cmdServeHelper(args []string) error {
 }
 
 type helperStartupEvent struct {
-	Type             string   `json:"type"`
-	HelperURL        string   `json:"helper_url"`
-	SiteURL          string   `json:"site_url"`
-	PairingURL       string   `json:"pairing_url"`
-	Token            string   `json:"token"`
-	AllowedOrigins   []string `json:"allowed_origins"`
-	SidecarVersion   string   `json:"sidecar_version"`
-	ProtocolVersion  string   `json:"protocol_version"`
-	CircuitID        string   `json:"circuit_id"`
-	KeyState         string   `json:"key_state"`
-	KeyReady         bool     `json:"key_ready"`
-	KeyVersion       string   `json:"key_version,omitempty"`
-	KeyHash          string   `json:"key_hash,omitempty"`
-	KeyCompatibility string   `json:"key_compatibility"`
+	Type               string                `json:"type"`
+	HelperURL          string                `json:"helper_url"`
+	SiteURL            string                `json:"site_url"`
+	PairingURL         string                `json:"pairing_url"`
+	Token              string                `json:"token"`
+	AllowedOrigins     []string              `json:"allowed_origins"`
+	SidecarVersion     string                `json:"sidecar_version"`
+	ProtocolVersion    string                `json:"protocol_version"`
+	CircuitID          string                `json:"circuit_id"`
+	KeyState           string                `json:"key_state"`
+	KeyReady           bool                  `json:"key_ready"`
+	KeyVersion         string                `json:"key_version,omitempty"`
+	KeyHash            string                `json:"key_hash,omitempty"`
+	KeyCompatibility   string                `json:"key_compatibility"`
+	DestinationProfile *helper.ProfileStatus `json:"destination_profile,omitempty"`
 }
 
 func writeStartupJSON(w io.Writer, event helperStartupEvent) error {

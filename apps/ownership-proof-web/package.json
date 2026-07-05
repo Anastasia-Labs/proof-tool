@@ -9,6 +9,7 @@
     "start": "next start",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "verify:reclaim-manifest": "node scripts/verify-reclaim-manifest.mjs",
     "visual:claim": "node scripts/claim-ui-visual-check.mjs",
     "visual:claim:strict": "CLAIM_VISUAL_STRICT=1 node scripts/claim-ui-visual-check.mjs"
   },

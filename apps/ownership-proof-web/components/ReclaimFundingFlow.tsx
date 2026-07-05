@@ -205,6 +205,8 @@ export function ReclaimFundingFlow() {
     try {
       const witnessSetCbor = await walletApi.signTx(builtTx.txCbor, true);
       const response = await postJSON<{ txHash: string }>("/reclaim-api/submit", {
+        reviewToken: builtTx.reviewToken,
+        review: builtTx.review,
         unsignedTxCbor: builtTx.txCbor,
         witnessSetCbor,
       });

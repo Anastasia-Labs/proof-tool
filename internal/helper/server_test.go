@@ -14,6 +14,7 @@ import (
 
 	"proof-tool/internal/artifact"
 	"proof-tool/internal/circuit/ownership"
+	"proof-tool/internal/circuit/ownershipdest"
 )
 
 const (
@@ -36,6 +37,32 @@ func (f *fakeGenerator) GenerateProof(_ context.Context, input ProveInput) (arti
 		return artifact.ProofArtifact{}, errors.New("bad target")
 	}
 	return f.artifact, f.err
+}
+
+type fakeDestinationGenerator struct {
+	err    error
+	called bool
+	input  ProveDestinationInput
+}
+
+func (f *fakeDestinationGenerator) GenerateProof(_ context.Context, _ ProveInput) (artifact.ProofArtifact, error) {
+	return validArtifact(), nil
+}
+
+func (f *fakeDestinationGenerator) GenerateDestinationProofs(_ context.Context, input ProveDestinationInput) ([]DestinationProofArtifactItem, error) {
+	f.called = true
+	f.input = input
+	if f.err != nil {
+		return nil, f.err
+	}
+	results := make([]DestinationProofArtifactItem, 0, len(input.Requests))
+	for _, request := range input.Requests {
+		results = append(results, DestinationProofArtifactItem{
+			OutRef:   request.OutRef,
+			Artifact: validDestinationArtifactFor(request),
+		})
+	}
+	return results, nil
 }
 
 func TestBuildInputValidatesRequest(t *testing.T) {
@@ -91,6 +118,16 @@ func TestHelperStatusReportsCompatibilityFields(t *testing.T) {
 	if status.Compatibility != "ready" || !status.KeyReady || status.KeyState != "fixture" {
 		t.Fatalf("key status = %+v", status)
 	}
+	if status.DestinationProfile == nil {
+		t.Fatal("destination profile status missing")
+	}
+	if status.DestinationProfile.Profile != DestinationProfileSingle ||
+		status.DestinationProfile.CircuitID != ownershipdest.CircuitID ||
+		status.DestinationProfile.Compatibility != "ready" ||
+		!status.DestinationProfile.KeyReady ||
+		status.DestinationProfile.KeyState != "fixture" {
+		t.Fatalf("destination profile = %+v", status.DestinationProfile)
+	}
 	if len(status.SupportedOrigins) != 1 || status.SupportedOrigins[0] != testOrigin {
 		t.Fatalf("origins = %+v", status.SupportedOrigins)
 	}
@@ -110,6 +147,12 @@ func TestHelperStatusReportsMissingProductionKeys(t *testing.T) {
 	}
 	if status.KeyReady || status.KeyState != "missing" || status.Compatibility != "key_missing" {
 		t.Fatalf("status = %+v", status)
+	}
+	if status.DestinationProfile == nil {
+		t.Fatal("destination profile status missing")
+	}
+	if status.DestinationProfile.KeyReady || status.DestinationProfile.KeyState != "missing" || status.DestinationProfile.Compatibility != "key_missing" {
+		t.Fatalf("destination profile = %+v", status.DestinationProfile)
 	}
 }
 
@@ -142,6 +185,21 @@ func TestProductionGeneratorFailsClosedWhenKeysAreMissing(t *testing.T) {
 	}
 }
 
+func TestProductionDestinationGeneratorFailsClosedWhenKeysAreMissing(t *testing.T) {
+	input, err := BuildDestinationInput(validProveDestinationRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	generator := &OwnershipGenerator{DestinationKeysDir: t.TempDir()}
+	_, err = generator.GenerateDestinationProofs(context.Background(), input)
+	if err == nil {
+		t.Fatal("missing production destination key bundle did not fail")
+	}
+	if !strings.Contains(err.Error(), "manifest.json") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestHelperRejectsWrongOrigin(t *testing.T) {
 	fake := &fakeGenerator{artifact: validArtifact()}
 	rr := postProve(t, NewServer(fake, testToken, []string{testOrigin}), validProveRequest(), "http://evil.test", testToken)
@@ -166,6 +224,30 @@ func TestHelperRejectsMissingOrWrongToken(t *testing.T) {
 	}
 }
 
+func TestProveDestinationRequiresOriginAndToken(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		origin string
+		token  string
+		status int
+	}{
+		{name: "wrong origin", origin: "http://evil.test", token: testToken, status: http.StatusForbidden},
+		{name: "missing token", origin: testOrigin, token: "", status: http.StatusUnauthorized},
+		{name: "wrong token", origin: testOrigin, token: "wrong", status: http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeDestinationGenerator{}
+			rr := postProveDestination(t, NewServer(fake, testToken, []string{testOrigin}), validProveDestinationRequest(), tc.origin, tc.token)
+			if rr.Code != tc.status {
+				t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+			}
+			if fake.called {
+				t.Fatal("destination generator called without valid origin/token")
+			}
+		})
+	}
+}
+
 func TestHelperReturnsBackendArtifactWithoutPathByDefault(t *testing.T) {
 	fake := &fakeGenerator{artifact: validArtifact()}
 	rr := postProve(t, NewServer(fake, testToken, []string{testOrigin}), validProveRequest(), testOrigin, testToken)
@@ -181,6 +263,100 @@ func TestHelperReturnsBackendArtifactWithoutPathByDefault(t *testing.T) {
 	}
 	if resp.DebugArtifact != nil {
 		t.Fatal("debug artifact returned without explicit request")
+	}
+}
+
+func TestProveDestinationValidationRejectsBadCredentialDestinationAndProfile(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*ProveDestinationRequest)
+	}{
+		{
+			name: "bad profile",
+			mutate: func(req *ProveDestinationRequest) {
+				req.Profile = "ownership"
+			},
+		},
+		{
+			name: "bad credential",
+			mutate: func(req *ProveDestinationRequest) {
+				req.Requests[0].TargetCredential = "abcd"
+			},
+		},
+		{
+			name: "bad destination encoding",
+			mutate: func(req *ProveDestinationRequest) {
+				req.Requests[0].DestinationAddressEncoding = "addr-bech32"
+			},
+		},
+		{
+			name: "bad destination",
+			mutate: func(req *ProveDestinationRequest) {
+				req.Requests[0].DestinationAddress = "abcd"
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := validProveDestinationRequest()
+			tc.mutate(&req)
+			fake := &fakeDestinationGenerator{}
+			rr := postProveDestination(t, NewServer(fake, testToken, []string{testOrigin}), req, testOrigin, testToken)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+			}
+			if fake.called {
+				t.Fatal("destination generator called for invalid request")
+			}
+		})
+	}
+}
+
+func TestProveDestinationResponseStripsPathAndPreservesOrder(t *testing.T) {
+	req := validProveDestinationRequest()
+	req.Requests = append(req.Requests, DestinationProofRequest{
+		OutRef:                     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb#1",
+		TargetCredential:           req.Requests[0].TargetCredential,
+		DestinationAddressEncoding: req.Requests[0].DestinationAddressEncoding,
+		DestinationAddress:         req.Requests[0].DestinationAddress,
+	})
+	fake := &fakeDestinationGenerator{}
+	rr := postProveDestination(t, NewServer(fake, testToken, []string{testOrigin}), req, testOrigin, testToken)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	var resp ProveDestinationResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Profile != DestinationProfileSingle {
+		t.Fatalf("profile = %q", resp.Profile)
+	}
+	if len(resp.Artifacts) != len(req.Requests) {
+		t.Fatalf("artifacts = %d, want %d", len(resp.Artifacts), len(req.Requests))
+	}
+	for i, item := range resp.Artifacts {
+		if item.OutRef != req.Requests[i].OutRef {
+			t.Fatalf("artifact[%d].out_ref = %q, want %q", i, item.OutRef, req.Requests[i].OutRef)
+		}
+		if item.Artifact.Path != nil || len(item.Artifact.Paths) != 0 {
+			t.Fatalf("artifact[%d] leaked path metadata: %+v", i, item.Artifact)
+		}
+	}
+}
+
+func TestProveDestinationIncludesPathOnlyWhenRequested(t *testing.T) {
+	req := validProveDestinationRequest()
+	req.IncludeDebugPath = true
+	rr := postProveDestination(t, NewServer(&fakeDestinationGenerator{}, testToken, []string{testOrigin}), req, testOrigin, testToken)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	var resp ProveDestinationResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Artifacts) != 1 || resp.Artifacts[0].Artifact.Path == nil {
+		t.Fatalf("debug path missing: %+v", resp.Artifacts)
 	}
 }
 
@@ -257,6 +433,22 @@ func postProve(t *testing.T, server *Server, req ProveRequest, origin, token str
 	return rr
 }
 
+func postProveDestination(t *testing.T, server *Server, req ProveDestinationRequest, origin, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpReq := httptest.NewRequest(http.MethodPost, "/prove-destination", bytes.NewReader(body))
+	httpReq.Header.Set("Origin", origin)
+	if token != "" {
+		httpReq.Header.Set(TokenHeader, token)
+	}
+	rr := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rr, httpReq)
+	return rr
+}
+
 func postShutdown(server *Server, origin, token string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/shutdown", nil)
 	req.Header.Set("Origin", origin)
@@ -273,6 +465,28 @@ func validProveRequest() ProveRequest {
 	return ProveRequest{
 		MasterXPrvBase64: base64.StdEncoding.EncodeToString(master),
 		TargetCredential: "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4",
+	}
+}
+
+func validProveDestinationRequest() ProveDestinationRequest {
+	master := make([]byte, 96)
+	maxAccount := uint32(9)
+	maxIndex := uint32(999)
+	return ProveDestinationRequest{
+		MasterXPrvBase64: base64.StdEncoding.EncodeToString(master),
+		Profile:          DestinationProfileSingle,
+		Requests: []DestinationProofRequest{
+			{
+				OutRef:                     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#0",
+				TargetCredential:           "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4",
+				DestinationAddressEncoding: ownershipdest.DestinationAddressEncoding,
+				DestinationAddress:         "010038ff22c6562b1277ef0d3eb3b8b4892523eeba04d0ef0c9d7da1110000000000000000000000000000000000000000000000000000000000",
+			},
+		},
+		Search: &DestinationSearchRequest{
+			MaxAccount: &maxAccount,
+			MaxIndex:   &maxIndex,
+		},
 	}
 }
 
@@ -294,4 +508,42 @@ func validArtifact() artifact.ProofArtifact {
 		Proof:            "proof",
 		Path:             &artifact.PathMetadata{Account: 0, Role: 0, Index: 0},
 	}
+}
+
+func validDestinationArtifactFor(input DestinationProofInput) artifact.ProofArtifact {
+	pub, err := ownershipdest.PublicInputForCredentialDestination(input.TargetCredential, input.DestinationAddress)
+	if err != nil {
+		panic(err)
+	}
+	digest, err := ownershipdest.PublicInputDigestForCredentialDestination(input.TargetCredential, input.DestinationAddress)
+	if err != nil {
+		panic(err)
+	}
+	return artifact.ProofArtifact{
+		Schema:                     artifact.ProofSchema,
+		CircuitID:                  ownershipdest.CircuitID,
+		VKHash:                     "blake2b256:destination-test",
+		TargetCredential:           "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4",
+		DestinationAddressEncoding: input.DestinationAddressEncoding,
+		DestinationAddress:         "010038ff22c6562b1277ef0d3eb3b8b4892523eeba04d0ef0c9d7da1110000000000000000000000000000000000000000000000000000000000",
+		PublicInputEncoding:        ownershipdest.PublicInputEncoding,
+		PublicInput:                ownershipdest.PublicInputHex(pub),
+		Proof:                      "proof",
+		Cardano: &artifact.CardanoProof{
+			Format:               "fixture",
+			ProofHex:             "70726f6f66",
+			PublicInputDigestHex: strings.ToLower(hexString(digest)),
+		},
+		Path: &artifact.PathMetadata{Account: 0, Role: 0, Index: 0},
+	}
+}
+
+func hexString(value []byte) string {
+	const digits = "0123456789abcdef"
+	out := make([]byte, len(value)*2)
+	for i, b := range value {
+		out[i*2] = digits[b>>4]
+		out[i*2+1] = digits[b&0x0f]
+	}
+	return string(out)
 }

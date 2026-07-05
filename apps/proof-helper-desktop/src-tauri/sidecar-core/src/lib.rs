@@ -11,6 +11,7 @@ const DEFAULT_HELPER_ADDR: &str = "127.0.0.1:0";
 pub struct ServeHelperLaunch {
     pub site_url: String,
     pub keys_dir: PathBuf,
+    pub destination_keys_dir: PathBuf,
     pub fixture: bool,
     pub dev_create_keys: bool,
 }
@@ -105,6 +106,8 @@ pub fn serve_helper_args(launch: &ServeHelperLaunch) -> Result<Vec<String>, Side
         DEFAULT_HELPER_ADDR.to_string(),
         "--keys-dir".to_string(),
         keys_dir,
+        "--destination-keys-dir".to_string(),
+        launch.destination_keys_dir.display().to_string(),
         "--site-url".to_string(),
         site_url,
         "--no-open".to_string(),
@@ -236,6 +239,7 @@ mod tests {
         let args = serve_helper_args(&ServeHelperLaunch {
             site_url: " http://127.0.0.1:3000 ".to_string(),
             keys_dir: PathBuf::from("/tmp/proof-helper/keys"),
+            destination_keys_dir: PathBuf::from("/tmp/proof-helper/destination-keys"),
             fixture: true,
             dev_create_keys: true,
         })
@@ -249,6 +253,8 @@ mod tests {
                 "127.0.0.1:0",
                 "--keys-dir",
                 "/tmp/proof-helper/keys",
+                "--destination-keys-dir",
+                "/tmp/proof-helper/destination-keys",
                 "--site-url",
                 "http://127.0.0.1:3000",
                 "--no-open",
@@ -263,6 +269,7 @@ mod tests {
         let err = serve_helper_args(&ServeHelperLaunch {
             site_url: "file:///tmp/site.html".to_string(),
             keys_dir: PathBuf::from("/tmp/keys"),
+            destination_keys_dir: PathBuf::from("/tmp/destination-keys"),
             fixture: false,
             dev_create_keys: false,
         })

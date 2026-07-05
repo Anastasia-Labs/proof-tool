@@ -9,8 +9,8 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-pub const KEY_VERSION: &str = "ownership-v1";
-pub const CIRCUIT_ID: &str = "root-ownership-v1/bls12-381/groth16";
+pub const KEY_VERSION: &str = "ownership-destination-v1";
+pub const CIRCUIT_ID: &str = "root-ownership-destination-v1/bls12-381/groth16";
 pub const MANIFEST_FILE: &str = "manifest.json";
 pub const MANIFEST_SIGNATURE_FILE: &str = "manifest.sig";
 pub const PROVING_KEY_FILE: &str = "ownership.pk";

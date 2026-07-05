@@ -12,6 +12,7 @@ import (
 
 	"proof-tool/internal/artifact"
 	"proof-tool/internal/circuit/ownership"
+	"proof-tool/internal/circuit/ownershipdest"
 )
 
 const TokenHeader = "X-Proof-Tool-Token"
@@ -30,19 +31,31 @@ type ErrorResponse struct {
 }
 
 type StatusResponse struct {
-	Connected        bool     `json:"connected"`
-	TokenRequired    bool     `json:"token_required"`
-	Service          string   `json:"service"`
-	SidecarVersion   string   `json:"sidecar_version"`
-	ProtocolVersion  string   `json:"protocol_version"`
-	CircuitID        string   `json:"circuit_id"`
-	KeyVersion       string   `json:"key_version,omitempty"`
-	KeyHash          string   `json:"key_hash,omitempty"`
-	KeyReady         bool     `json:"key_ready"`
-	KeyState         string   `json:"key_state"`
-	KeyError         string   `json:"key_error,omitempty"`
-	Compatibility    string   `json:"compatibility"`
-	SupportedOrigins []string `json:"supported_origins"`
+	Connected          bool           `json:"connected"`
+	TokenRequired      bool           `json:"token_required"`
+	Service            string         `json:"service"`
+	SidecarVersion     string         `json:"sidecar_version"`
+	ProtocolVersion    string         `json:"protocol_version"`
+	CircuitID          string         `json:"circuit_id"`
+	KeyVersion         string         `json:"key_version,omitempty"`
+	KeyHash            string         `json:"key_hash,omitempty"`
+	KeyReady           bool           `json:"key_ready"`
+	KeyState           string         `json:"key_state"`
+	KeyError           string         `json:"key_error,omitempty"`
+	Compatibility      string         `json:"compatibility"`
+	DestinationProfile *ProfileStatus `json:"destination_profile,omitempty"`
+	SupportedOrigins   []string       `json:"supported_origins"`
+}
+
+type ProfileStatus struct {
+	Profile       string `json:"profile"`
+	CircuitID     string `json:"circuit_id"`
+	KeyVersion    string `json:"key_version,omitempty"`
+	KeyHash       string `json:"key_hash,omitempty"`
+	KeyReady      bool   `json:"key_ready"`
+	KeyState      string `json:"key_state"`
+	KeyError      string `json:"key_error,omitempty"`
+	Compatibility string `json:"compatibility"`
 }
 
 func NewServer(generator Generator, token string, allowedOrigins []string) *Server {
@@ -61,6 +74,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/status", s.handleStatus)
 	mux.HandleFunc("/prove", s.handleProve)
+	mux.HandleFunc("/prove-destination", s.handleProveDestination)
 	mux.HandleFunc("/shutdown", s.handleShutdown)
 	return s.withCORS(mux)
 }
@@ -86,20 +100,35 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if reporter, ok := s.Generator.(KeyStatusReporter); ok {
 		key = reporter.KeyStatus()
 	}
+	var destinationProfile *ProfileStatus
+	if reporter, ok := s.Generator.(DestinationKeyStatusReporter); ok {
+		status := reporter.DestinationKeyStatus()
+		destinationProfile = &ProfileStatus{
+			Profile:       DestinationProfileSingle,
+			CircuitID:     ownershipdest.CircuitID,
+			KeyVersion:    status.KeyVersion,
+			KeyHash:       status.VKHash,
+			KeyReady:      status.Ready,
+			KeyState:      status.State,
+			KeyError:      status.Error,
+			Compatibility: compatibilityForKey(status),
+		}
+	}
 	writeJSON(w, http.StatusOK, StatusResponse{
-		Connected:        true,
-		TokenRequired:    true,
-		Service:          "proof-tool-helper",
-		SidecarVersion:   SidecarVersion,
-		ProtocolVersion:  ProtocolVersion,
-		CircuitID:        ownership.CircuitID,
-		KeyVersion:       key.KeyVersion,
-		KeyHash:          key.VKHash,
-		KeyReady:         key.Ready,
-		KeyState:         key.State,
-		KeyError:         key.Error,
-		Compatibility:    compatibilityForKey(key),
-		SupportedOrigins: s.allowedOrigins(),
+		Connected:          true,
+		TokenRequired:      true,
+		Service:            "proof-tool-helper",
+		SidecarVersion:     SidecarVersion,
+		ProtocolVersion:    ProtocolVersion,
+		CircuitID:          ownership.CircuitID,
+		KeyVersion:         key.KeyVersion,
+		KeyHash:            key.VKHash,
+		KeyReady:           key.Ready,
+		KeyState:           key.State,
+		KeyError:           key.Error,
+		Compatibility:      compatibilityForKey(key),
+		DestinationProfile: destinationProfile,
+		SupportedOrigins:   s.allowedOrigins(),
 	})
 }
 
@@ -142,6 +171,60 @@ func (s *Server) handleProve(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.IncludeDebugPath {
 		response.DebugArtifact = &debugArtifact
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleProveDestination(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.originAllowed(r.Header.Get("Origin")) {
+		writeError(w, http.StatusForbidden, "origin_not_allowed", "This website is not allowed to use the local helper.")
+		return
+	}
+	if !s.tokenAllowed(r.Header.Get(TokenHeader)) {
+		writeError(w, http.StatusUnauthorized, "token_required", "Open Proof Helper again so this browser can connect automatically.")
+		return
+	}
+	generator, ok := s.Generator.(DestinationGenerator)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "profile_unavailable", "The local helper does not support destination-bound proofs.")
+		return
+	}
+
+	var req ProveDestinationRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "The destination proof request was not valid JSON.")
+		return
+	}
+	input, err := BuildDestinationInput(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	results, err := generator.GenerateDestinationProofs(r.Context(), input)
+	if err != nil {
+		status, code, message := errorMapping(err)
+		writeError(w, status, code, message)
+		return
+	}
+	response := ProveDestinationResponse{
+		Profile:   input.Profile,
+		Artifacts: make([]DestinationProofArtifactItem, 0, len(results)),
+	}
+	for _, result := range results {
+		proofArtifact := result.Artifact
+		if !input.IncludeDebugPath {
+			proofArtifact = artifact.BackendProofArtifact(proofArtifact)
+		}
+		response.Artifacts = append(response.Artifacts, DestinationProofArtifactItem{
+			OutRef:   result.OutRef,
+			Artifact: proofArtifact,
+		})
 	}
 	writeJSON(w, http.StatusOK, response)
 }
