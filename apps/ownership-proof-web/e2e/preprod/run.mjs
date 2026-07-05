@@ -1,0 +1,139 @@
+#!/usr/bin/env node
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import {
+  REQUIRED_WALLET_ROLES,
+  formatPreflightReport,
+  redactSensitiveValue,
+  runPreprodPreflight,
+} from "./preflight.mjs";
+
+export const TRANSACTION_APPROVAL_ENV = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
+
+export const PREPROD_E2E_STAGES = Object.freeze([
+  "deploy-or-verify-preprod-manifest",
+  "fund-ada-only-reclaim",
+  "fund-native-asset-reclaims",
+  "discover-matching-claims",
+  "generate-destination-bound-proofs",
+  "claim-first-batch",
+  "claim-tail-and-receipt",
+  "negative-guardrails",
+]);
+
+export async function runPreprodE2E(options = {}) {
+  const env = options.env ?? process.env;
+  const now = options.now ?? (() => new Date());
+  const mkdir = options.mkdir ?? mkdirSync;
+  const writeFile = options.writeFile ?? writeFileSync;
+  const outputRoot = options.outputRoot ?? env.RECLAIM_E2E_OUTPUT_DIR ?? "output/preprod-e2e";
+  const preflight = await runPreprodPreflight(options.preflightOptions ?? options);
+  if (!preflight.ok) {
+    return {
+      ok: false,
+      code: "preflight_failed",
+      preflight,
+      outputDir: null,
+      artifacts: [],
+      report: formatPreflightReport(preflight),
+    };
+  }
+
+  const runId = makeRunId(preflight.context.git.commit, now());
+  const outputDir = path.resolve(options.cwd ?? process.cwd(), outputRoot, runId);
+  const approved = env[TRANSACTION_APPROVAL_ENV]?.trim() === "1";
+  const runManifest = {
+    schema: "proof-tool-reclaim-preprod-e2e-run-v1",
+    runId,
+    sourceCommit: preflight.context.git.commit,
+    createdAt: now().toISOString(),
+    transactionSubmissionApproved: approved,
+    requiredWalletRoles: REQUIRED_WALLET_ROLES,
+    stages: PREPROD_E2E_STAGES.map((name) => ({
+      name,
+      status: approved ? "pending" : "blocked",
+      reason: approved ? null : `${TRANSACTION_APPROVAL_ENV}=1 is required before browser signing or provider submission.`,
+    })),
+    context: redactSensitiveValue(preflight.context),
+  };
+
+  mkdir(outputDir, { recursive: true });
+  const runManifestPath = path.join(outputDir, "run-manifest.json");
+  writeFile(runManifestPath, `${JSON.stringify(runManifest, null, 2)}\n`, "utf8");
+
+  if (!approved) {
+    return {
+      ok: false,
+      code: "live_transaction_gate_missing",
+      preflight,
+      outputDir,
+      artifacts: [runManifestPath],
+      report: formatRunnerReport({
+        ok: false,
+        code: "live_transaction_gate_missing",
+        preflight,
+        outputDir,
+        artifacts: [runManifestPath],
+      }),
+    };
+  }
+
+  return {
+    ok: false,
+    code: "live_browser_flow_not_implemented",
+    preflight,
+    outputDir,
+    artifacts: [runManifestPath],
+    report: formatRunnerReport({
+      ok: false,
+      code: "live_browser_flow_not_implemented",
+      preflight,
+      outputDir,
+      artifacts: [runManifestPath],
+    }),
+  };
+}
+
+export function formatRunnerReport(result) {
+  const lines = [formatPreflightReport(result.preflight)];
+  if (result.outputDir) {
+    lines.push(`- artifact directory: ${result.outputDir}`);
+  }
+  if (result.artifacts?.length) {
+    lines.push(`- artifacts: ${result.artifacts.map((artifact) => path.basename(artifact)).join(", ")}`);
+  }
+  if (result.code === "live_transaction_gate_missing") {
+    lines.push(`Live browser signing and provider submission are blocked until ${TRANSACTION_APPROVAL_ENV}=1 is set.`);
+    lines.push("No browser automation, wallet signing, provider submission, proof bytes, witness sets, or CBOR artifacts were produced.");
+  } else if (result.code === "live_browser_flow_not_implemented") {
+    lines.push("Live browser E2E stage execution is not implemented yet.");
+    lines.push(`Pending stages: ${PREPROD_E2E_STAGES.join(", ")}.`);
+  }
+  return lines.join("\n");
+}
+
+function makeRunId(commit, now) {
+  const timestamp = now.toISOString().replace(/[:.]/gu, "-");
+  const shortCommit = typeof commit === "string" && commit ? commit.slice(0, 12) : "unknown";
+  return `${timestamp}-${shortCommit}`;
+}
+
+async function main() {
+  const result = await runPreprodE2E();
+  const report = result.report ?? formatRunnerReport(result);
+  if (result.ok) {
+    console.log(report);
+    return;
+  }
+  console.error(report);
+  process.exitCode = 1;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error("Phase 9A live-preprod E2E runner failed closed.");
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
