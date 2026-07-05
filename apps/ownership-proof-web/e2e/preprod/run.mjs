@@ -12,6 +12,7 @@ import { preparePreprodAppTarget } from "./app-server.mjs";
 import { runPreprodBrowserBootstrap } from "./browser-flow.mjs";
 import { loadCip30HarnessFromEnv } from "./cip30-harness.mjs";
 import { runDeployOrVerifyPreprodManifest } from "./deployment-stage.mjs";
+import { validatePreprodLiveConfig, writePreprodLiveConfigArtifact } from "./live-config.mjs";
 
 export const TRANSACTION_APPROVAL_ENV = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
 
@@ -31,6 +32,8 @@ export async function runPreprodE2E(options = {}) {
   const now = options.now ?? (() => new Date());
   const mkdir = options.mkdir ?? mkdirSync;
   const writeFile = options.writeFile ?? writeFileSync;
+  const liveConfigValidator = options.liveConfigValidator ?? validatePreprodLiveConfig;
+  const liveConfigArtifactWriter = options.liveConfigArtifactWriter ?? writePreprodLiveConfigArtifact;
   const walletHarnessLoader = options.walletHarnessLoader ?? loadCip30HarnessFromEnv;
   const appTargetLoader = options.appTargetLoader ?? preparePreprodAppTarget;
   const deploymentStageRunner = options.deploymentStageRunner ?? runDeployOrVerifyPreprodManifest;
@@ -85,6 +88,24 @@ export async function runPreprodE2E(options = {}) {
         outputDir,
         artifacts,
       }),
+    };
+  }
+
+  try {
+    const liveConfig = liveConfigValidator(env);
+    artifacts.push(liveConfigArtifactWriter(liveConfig, outputDir, { writeFile }));
+  } catch (error) {
+    const result = {
+      ok: false,
+      code: "live_config_failed",
+      preflight,
+      outputDir,
+      artifacts,
+      error: sanitizeError(error),
+    };
+    return {
+      ...result,
+      report: formatRunnerReport(result),
     };
   }
 
@@ -258,6 +279,11 @@ export function formatRunnerReport(result) {
     lines.push(`Pending stages: ${PREPROD_E2E_STAGES.join(", ")}.`);
   } else if (result.code === "cip30_harness_failed") {
     lines.push("CIP-30 preprod wallet harness failed closed before browser automation.");
+    if (result.error) {
+      lines.push(`- ${result.error.code}: ${result.error.message}`);
+    }
+  } else if (result.code === "live_config_failed") {
+    lines.push("Live preprod transaction configuration failed closed before wallet or browser work.");
     if (result.error) {
       lines.push(`- ${result.error.code}: ${result.error.message}`);
     }
