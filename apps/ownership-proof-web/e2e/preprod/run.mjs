@@ -11,6 +11,7 @@ import {
 import { preparePreprodAppTarget } from "./app-server.mjs";
 import { runPreprodBrowserBootstrap } from "./browser-flow.mjs";
 import { loadCip30HarnessFromEnv } from "./cip30-harness.mjs";
+import { runDeployOrVerifyPreprodManifest } from "./deployment-stage.mjs";
 
 export const TRANSACTION_APPROVAL_ENV = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
 
@@ -32,6 +33,7 @@ export async function runPreprodE2E(options = {}) {
   const writeFile = options.writeFile ?? writeFileSync;
   const walletHarnessLoader = options.walletHarnessLoader ?? loadCip30HarnessFromEnv;
   const appTargetLoader = options.appTargetLoader ?? preparePreprodAppTarget;
+  const deploymentStageRunner = options.deploymentStageRunner ?? runDeployOrVerifyPreprodManifest;
   const browserBootstrapRunner = options.browserBootstrapRunner ?? runPreprodBrowserBootstrap;
   const outputRoot = options.outputRoot ?? env.RECLAIM_E2E_OUTPUT_DIR ?? "output/preprod-e2e";
   const preflight = await runPreprodPreflight(options.preflightOptions ?? options);
@@ -172,6 +174,31 @@ export async function runPreprodE2E(options = {}) {
   artifacts.push(appTargetPath);
 
   try {
+    try {
+      const deploymentStage = await deploymentStageRunner({
+        ...(options.deploymentStageOptions ?? {}),
+        appTarget,
+        preflight,
+        outputDir,
+      });
+      if (Array.isArray(deploymentStage?.artifacts)) {
+        artifacts.push(...deploymentStage.artifacts);
+      }
+    } catch (error) {
+      const result = {
+        ok: false,
+        code: "deployment_stage_failed",
+        preflight,
+        outputDir,
+        artifacts,
+        error: sanitizeError(error),
+      };
+      return {
+        ...result,
+        report: formatRunnerReport(result),
+      };
+    }
+
     const browserBootstrap = await browserBootstrapRunner({
       ...(options.browserBootstrapOptions ?? {}),
       env,
@@ -241,6 +268,11 @@ export function formatRunnerReport(result) {
     }
   } else if (result.code === "browser_bootstrap_failed") {
     lines.push("Preprod browser bootstrap failed closed before funding or claim transactions.");
+    if (result.error) {
+      lines.push(`- ${result.error.code}: ${result.error.message}`);
+    }
+  } else if (result.code === "deployment_stage_failed") {
+    lines.push("Preprod deployment verification failed closed before browser funding or claim work.");
     if (result.error) {
       lines.push(`- ${result.error.code}: ${result.error.message}`);
     }

@@ -89,6 +89,7 @@ describe("Phase 9A preprod E2E runner", () => {
       execFile: fakeGit({ commit, status: "" }),
       walletHarnessLoader: async () => fakeWalletHarness(),
       appTargetLoader: async () => fakeAppTarget(),
+      deploymentStageRunner: async () => fakeDeploymentStage(repo),
       browserBootstrapRunner: async () => fakeBrowserBootstrap(repo),
     });
 
@@ -99,6 +100,7 @@ describe("Phase 9A preprod E2E runner", () => {
       "run-manifest.json",
       "wallet-harness.json",
       "app-target.json",
+      "deploy-or-verify-preprod-manifest.json",
       "browser-bootstrap.json",
       "reclaim-initial.png",
     ]);
@@ -111,7 +113,9 @@ describe("Phase 9A preprod E2E runner", () => {
     const appTarget = JSON.parse(readFileSync(result.artifacts[2], "utf8"));
     expect(appTarget.schema).toBe("proof-tool-preprod-app-target-v1");
     expect(appTarget.baseUrl).toBe("http://127.0.0.1:3917");
-    const browserBootstrap = JSON.parse(readFileSync(result.artifacts[3], "utf8"));
+    const deploymentStage = JSON.parse(readFileSync(result.artifacts[3], "utf8"));
+    expect(deploymentStage.schema).toBe("proof-tool-preprod-deployment-stage-v1");
+    const browserBootstrap = JSON.parse(readFileSync(result.artifacts[4], "utf8"));
     expect(browserBootstrap.schema).toBe("proof-tool-preprod-browser-bootstrap-v1");
   });
 
@@ -180,6 +184,42 @@ describe("Phase 9A preprod E2E runner", () => {
     expect(result.report).toContain("app_target_test_failure");
   });
 
+  it("fails closed when deployment verification fails after stopping the app target", async () => {
+    const repo = tempDir();
+    const commit = "456789abcdef0123456789abcdef0123456789ab";
+    const walletPath = path.join(repo, "wallets.local.json");
+    const appTarget = fakeAppTarget();
+    writeFile(walletPath, JSON.stringify(validWalletFile()));
+
+    const result = await runPreprodE2E({
+      env: {
+        RECLAIM_E2E_LIVE_PREPROD: "1",
+        [TRANSACTION_APPROVAL_ENV]: "1",
+        RECLAIM_REVIEW_TOKEN_SECRET: "test-review-token-secret",
+        PREPROD_TEST_WALLETS_FILE: walletPath,
+        RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
+      },
+      cwd: repo,
+      repoRoot: repo,
+      outputRoot: "output/preprod-e2e",
+      now: () => new Date("2026-07-05T14:15:00.000Z"),
+      execFile: fakeGit({ commit, status: "" }),
+      walletHarnessLoader: async () => fakeWalletHarness(),
+      appTargetLoader: async () => appTarget,
+      deploymentStageRunner: async () => {
+        const error = new Error("deployment endpoint mismatch");
+        error.code = "deployment_stage_test_failure";
+        throw error;
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("deployment_stage_failed");
+    expect(appTarget.stopCalls).toBe(1);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "wallet-harness.json", "app-target.json"]);
+    expect(result.report).toContain("deployment_stage_test_failure");
+  });
+
   it("fails closed when browser bootstrap fails after stopping the app target", async () => {
     const repo = tempDir();
     const commit = "89abcdef0123456789abcdef0123456789abcdef";
@@ -202,6 +242,7 @@ describe("Phase 9A preprod E2E runner", () => {
       execFile: fakeGit({ commit, status: "" }),
       walletHarnessLoader: async () => fakeWalletHarness(),
       appTargetLoader: async () => appTarget,
+      deploymentStageRunner: async () => fakeDeploymentStage(repo),
       browserBootstrapRunner: async () => {
         const error = new Error("browser launch failed");
         error.code = "browser_bootstrap_test_failure";
@@ -212,7 +253,12 @@ describe("Phase 9A preprod E2E runner", () => {
     expect(result.ok).toBe(false);
     expect(result.code).toBe("browser_bootstrap_failed");
     expect(appTarget.stopCalls).toBe(1);
-    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "wallet-harness.json", "app-target.json"]);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
+      "run-manifest.json",
+      "wallet-harness.json",
+      "app-target.json",
+      "deploy-or-verify-preprod-manifest.json",
+    ]);
     expect(result.report).toContain("browser_bootstrap_test_failure");
   });
 });
@@ -341,5 +387,19 @@ function fakeBrowserBootstrap(repo) {
   return {
     ok: true,
     artifacts: [jsonPath, screenshotPath],
+  };
+}
+
+function fakeDeploymentStage(repo) {
+  const jsonPath = path.join(repo, "deploy-or-verify-preprod-manifest.json");
+  writeFile(
+    jsonPath,
+    JSON.stringify({
+      schema: "proof-tool-preprod-deployment-stage-v1",
+    }),
+  );
+  return {
+    ok: true,
+    artifacts: [jsonPath],
   };
 }
