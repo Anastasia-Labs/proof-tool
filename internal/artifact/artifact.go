@@ -40,14 +40,20 @@ type PathMetadata struct {
 }
 
 type ProofArtifact struct {
-	Schema           string        `json:"schema"`
-	CircuitID        string        `json:"circuit_id"`
-	VKHash           string        `json:"vk_hash"`
-	TargetCredential string        `json:"target_credential"`
-	PublicInput      string        `json:"public_input"`
-	Proof            string        `json:"proof"`
-	Cardano          *CardanoProof `json:"cardano,omitempty"`
-	Path             *PathMetadata `json:"path,omitempty"`
+	Schema                     string         `json:"schema"`
+	CircuitID                  string         `json:"circuit_id"`
+	VKHash                     string         `json:"vk_hash"`
+	TargetCredential           string         `json:"target_credential,omitempty"`
+	TargetCredentials          []string       `json:"target_credentials,omitempty"`
+	DestinationAddressEncoding string         `json:"destination_address_encoding,omitempty"`
+	DestinationAddress         string         `json:"destination_address,omitempty"`
+	CredentialCount            int            `json:"credential_count,omitempty"`
+	PublicInputEncoding        string         `json:"public_input_encoding,omitempty"`
+	PublicInput                string         `json:"public_input"`
+	Proof                      string         `json:"proof"`
+	Cardano                    *CardanoProof  `json:"cardano,omitempty"`
+	Path                       *PathMetadata  `json:"path,omitempty"`
+	Paths                      []PathMetadata `json:"paths,omitempty"`
 }
 
 type CardanoProof struct {
@@ -58,6 +64,7 @@ type CardanoProof struct {
 
 func BackendProofArtifact(value ProofArtifact) ProofArtifact {
 	value.Path = nil
+	value.Paths = nil
 	return value
 }
 

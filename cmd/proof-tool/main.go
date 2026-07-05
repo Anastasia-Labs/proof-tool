@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,11 +18,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"proof-tool/internal/artifact"
 	"proof-tool/internal/circuit/ownership"
+	"proof-tool/internal/circuit/ownershipdest"
+	"proof-tool/internal/circuit/ownershipmulti"
 	"proof-tool/internal/helper"
 	"proof-tool/internal/prover"
 	"proof-tool/internal/verifier"
@@ -43,10 +48,22 @@ func run(args []string) error {
 		return cmdMasterXPrv(args[2:])
 	case "prove":
 		return cmdProve(args[2:])
+	case "prove-destination":
+		return cmdProveDestination(args[2:])
+	case "prove-multi":
+		return cmdProveMulti(args[2:])
 	case "verify":
 		return cmdVerify(args[2:])
+	case "verify-destination":
+		return cmdVerifyDestination(args[2:])
+	case "verify-multi":
+		return cmdVerifyMulti(args[2:])
 	case "export-cardano":
 		return cmdExportCardano(args[2:])
+	case "generate-destination-benchmark-fixtures":
+		return cmdGenerateDestinationBenchmarkFixtures(args[2:])
+	case "generate-multi-benchmark-fixtures":
+		return cmdGenerateMultiBenchmarkFixtures(args[2:])
 	case "setup-ceremony":
 		return cmdSetupCeremony(args[2:])
 	case "verify-key-bundle":
@@ -171,6 +188,222 @@ func cmdProve(args []string) error {
 	return nil
 }
 
+func cmdProveDestination(args []string) error {
+	fs := flag.NewFlagSet("prove-destination", flag.ContinueOnError)
+	masterHex := fs.String("master-xprv", "", "96-byte master XPrv as hex")
+	targetHex := fs.String("target-credential", "", "28-byte target credential C as hex")
+	outPath := fs.String("out", "ownership-destination-proof.json", "destination-bound proof artifact output path")
+	keysDir := fs.String("keys-dir", prover.DefaultDestinationKeyDir(), "local destination proving/verifying key bundle directory")
+	destinationHex := fs.String("destination-address-bytes", "", "58-byte destinationAddressV1 value as hex")
+	account := fs.Int("account", -1, "CIP-1852 account; omit to scan")
+	role := fs.Int("role", -1, "CIP-1852 role; omit to scan")
+	index := fs.Int("index", -1, "CIP-1852 address index; omit to scan")
+	maxAccount := fs.Uint("max-account", 9, "max account scanned when --account is omitted")
+	maxIndex := fs.Uint("max-index", 999, "max index scanned when --index is omitted")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *masterHex == "" {
+		return errors.New("--master-xprv is required")
+	}
+	if *targetHex == "" {
+		return errors.New("--target-credential is required")
+	}
+	if *destinationHex == "" {
+		return errors.New("--destination-address-bytes is required")
+	}
+
+	master, err := ownership.DecodeMasterXPrvHex(*masterHex)
+	if err != nil {
+		return err
+	}
+	target, err := ownershipdest.DecodeCredentialHex(*targetHex)
+	if err != nil {
+		return err
+	}
+	destination, err := ownershipdest.DecodeDestinationAddressV1Hex(*destinationHex)
+	if err != nil {
+		return err
+	}
+	path, err := ownership.FindPath(master, target, ownership.SearchOptions{
+		Account:    *account,
+		Role:       *role,
+		Index:      *index,
+		MaxAccount: uint32(*maxAccount),
+		MaxIndex:   uint32(*maxIndex),
+	})
+	if err != nil {
+		return err
+	}
+
+	publicInput, err := ownershipdest.PublicInputForCredentialDestination(target, destination)
+	if err != nil {
+		return err
+	}
+	assignment, err := ownershipdest.Assignment(master, path, destination, publicInput)
+	if err != nil {
+		return err
+	}
+
+	ccs, err := prover.CompileOwnershipDestination()
+	if err != nil {
+		return err
+	}
+	bundle, err := prover.LoadOrCreateOwnershipDestinationBundle(*keysDir, ccs)
+	if err != nil {
+		return err
+	}
+	proof, err := prover.Prove(ccs, bundle.ProvingKey, assignment)
+	if err != nil {
+		return err
+	}
+	encodedProof, err := prover.MarshalProof(proof)
+	if err != nil {
+		return err
+	}
+	publicInputDigest, err := ownershipdest.PublicInputDigestForCredentialDestination(target, destination)
+	if err != nil {
+		return err
+	}
+	cardanoProof, err := prover.CardanoProofArtifactWithDigest(proof, publicInputDigest)
+	if err != nil {
+		return err
+	}
+	artifactOut := artifact.ProofArtifact{
+		Schema:                     artifact.ProofSchema,
+		CircuitID:                  ownershipdest.CircuitID,
+		VKHash:                     bundle.Manifest.VKHash,
+		TargetCredential:           hex.EncodeToString(target),
+		DestinationAddressEncoding: ownershipdest.DestinationAddressEncoding,
+		DestinationAddress:         hex.EncodeToString(destination),
+		PublicInputEncoding:        ownershipdest.PublicInputEncoding,
+		PublicInput:                ownershipdest.PublicInputHex(publicInput),
+		Proof:                      encodedProof,
+		Cardano:                    cardanoProof,
+		Path: &artifact.PathMetadata{
+			Account: path.Account,
+			Role:    path.Role,
+			Index:   path.Index,
+		},
+	}
+	if err := artifact.WriteJSON(*outPath, artifactOut); err != nil {
+		return err
+	}
+	fmt.Printf("wrote proof: %s\n", *outPath)
+	fmt.Printf("path: m/1852'/1815'/%d'/%d/%d\n", path.Account, path.Role, path.Index)
+	fmt.Printf("public_input: %s\n", artifactOut.PublicInput)
+	fmt.Printf("vk_hash: %s\n", artifactOut.VKHash)
+	return nil
+}
+
+func cmdProveMulti(args []string) error {
+	fs := flag.NewFlagSet("prove-multi", flag.ContinueOnError)
+	masterHex := fs.String("master-xprv", "", "96-byte master XPrv as hex")
+	outPath := fs.String("out", "ownership-multi-proof.json", "multi-proof artifact output path")
+	keysDir := fs.String("keys-dir", "", "local multi proving/verifying key bundle directory; defaults from credential count")
+	destinationHex := fs.String("destination-address-bytes", "", "58-byte destinationAddressV1 value as hex")
+	var targetFlags stringListFlag
+	var pathFlags pathListFlag
+	fs.Var(&targetFlags, "target-credential", "28-byte target credential C as hex; repeat in ledger order")
+	fs.Var(&pathFlags, "path", "CIP-1852 path account/role/index; repeat in credential order")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *masterHex == "" {
+		return errors.New("--master-xprv is required")
+	}
+	if *destinationHex == "" {
+		return errors.New("--destination-address-bytes is required")
+	}
+
+	master, err := ownership.DecodeMasterXPrvHex(*masterHex)
+	if err != nil {
+		return err
+	}
+	targets, err := decodeCredentialList(targetFlags)
+	if err != nil {
+		return err
+	}
+	paths, err := decodeMultiPaths(pathFlags, len(targets))
+	if err != nil {
+		return err
+	}
+	count := len(targets)
+	if *keysDir == "" {
+		*keysDir = prover.DefaultMultiKeyDirForCount(count)
+	}
+	destination, err := ownershipmulti.DecodeDestinationAddressV1Hex(*destinationHex)
+	if err != nil {
+		return err
+	}
+	derived, err := ownershipmulti.DeriveCredentials(master, paths)
+	if err != nil {
+		return err
+	}
+	for i := range targets {
+		if !bytes.Equal(targets[i], derived[i]) {
+			return fmt.Errorf("target credential %d does not match path %d/%d/%d", i, paths[i].Account, paths[i].Role, paths[i].Index)
+		}
+	}
+
+	publicInput, err := ownershipmulti.PublicInputForCredentialsDestination(targets, destination)
+	if err != nil {
+		return err
+	}
+	assignment, err := ownershipmulti.Assignment(master, paths, destination, publicInput)
+	if err != nil {
+		return err
+	}
+	ccs, err := prover.CompileOwnershipMultiCount(count)
+	if err != nil {
+		return err
+	}
+	bundle, err := prover.LoadOrCreateOwnershipMultiBundleForCount(*keysDir, ccs, count)
+	if err != nil {
+		return err
+	}
+	proof, err := prover.Prove(ccs, bundle.ProvingKey, assignment)
+	if err != nil {
+		return err
+	}
+	encodedProof, err := prover.MarshalProof(proof)
+	if err != nil {
+		return err
+	}
+	publicInputDigest, err := ownershipmulti.PublicInputDigestForCredentialsDestination(targets, destination)
+	if err != nil {
+		return err
+	}
+	cardanoProof, err := prover.CardanoProofArtifactWithDigest(proof, publicInputDigest)
+	if err != nil {
+		return err
+	}
+	artifactOut := artifact.ProofArtifact{
+		Schema:                     artifact.ProofSchema,
+		CircuitID:                  ownershipmulti.CircuitIDForCount(count),
+		VKHash:                     bundle.Manifest.VKHash,
+		TargetCredentials:          encodeHexList(targets),
+		DestinationAddressEncoding: ownershipmulti.DestinationAddressEncoding,
+		DestinationAddress:         hex.EncodeToString(destination),
+		CredentialCount:            count,
+		PublicInputEncoding:        ownershipmulti.PublicInputEncoding,
+		PublicInput:                ownershipmulti.PublicInputHex(publicInput),
+		Proof:                      encodedProof,
+		Cardano:                    cardanoProof,
+		Paths:                      encodePathMetadata(paths),
+	}
+	if err := artifact.WriteJSON(*outPath, artifactOut); err != nil {
+		return err
+	}
+	fmt.Printf("wrote proof: %s\n", *outPath)
+	for i, path := range paths {
+		fmt.Printf("path_%d: m/1852'/1815'/%d'/%d/%d\n", i, path.Account, path.Role, path.Index)
+	}
+	fmt.Printf("public_input: %s\n", artifactOut.PublicInput)
+	fmt.Printf("vk_hash: %s\n", artifactOut.VKHash)
+	return nil
+}
+
 func cmdVerify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	proofPath := fs.String("master-xprv-proof", "", "proof artifact JSON path")
@@ -223,10 +456,97 @@ func cmdVerify(args []string) error {
 	return nil
 }
 
+func cmdVerifyDestination(args []string) error {
+	fs := flag.NewFlagSet("verify-destination", flag.ContinueOnError)
+	proofPath := fs.String("destination-proof", "", "destination-bound proof artifact JSON path")
+	keysDir := fs.String("keys-dir", prover.DefaultDestinationKeyDir(), "local destination verifying key bundle directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *proofPath == "" && fs.NArg() == 1 {
+		*proofPath = fs.Arg(0)
+	}
+	if *proofPath == "" {
+		return errors.New("--destination-proof is required")
+	}
+
+	proofArtifact, err := artifact.ReadProof(*proofPath)
+	if err != nil {
+		return err
+	}
+	publicInput, _, err := validateDestinationProofArtifact(proofArtifact)
+	if err != nil {
+		return err
+	}
+	bundle, err := prover.LoadOwnershipDestinationVerifier(*keysDir)
+	if err != nil {
+		return err
+	}
+	if proofArtifact.VKHash != bundle.Manifest.VKHash {
+		return fmt.Errorf("artifact vk hash %s does not match bundled %s", proofArtifact.VKHash, bundle.Manifest.VKHash)
+	}
+	proof, err := prover.UnmarshalProof(proofArtifact.Proof)
+	if err != nil {
+		return err
+	}
+	if err := prover.VerifyProof(bundle.VerifyingKey, proof, &ownershipdest.Circuit{Pub: publicInput}); err != nil {
+		return err
+	}
+	fmt.Println("verified")
+	return nil
+}
+
+func cmdVerifyMulti(args []string) error {
+	fs := flag.NewFlagSet("verify-multi", flag.ContinueOnError)
+	proofPath := fs.String("multi-proof", "", "multi-proof artifact JSON path")
+	keysDir := fs.String("keys-dir", "", "local multi verifying key bundle directory; defaults from artifact credential count")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *proofPath == "" && fs.NArg() == 1 {
+		*proofPath = fs.Arg(0)
+	}
+	if *proofPath == "" {
+		return errors.New("--multi-proof is required")
+	}
+
+	proofArtifact, err := artifact.ReadProof(*proofPath)
+	if err != nil {
+		return err
+	}
+	publicInput, _, count, err := validateMultiProofArtifact(proofArtifact)
+	if err != nil {
+		return err
+	}
+	if *keysDir == "" {
+		*keysDir = prover.DefaultMultiKeyDirForCount(count)
+	}
+	bundle, err := prover.LoadOwnershipMultiVerifierForCount(*keysDir, count)
+	if err != nil {
+		return err
+	}
+	if proofArtifact.VKHash != bundle.Manifest.VKHash {
+		return fmt.Errorf("artifact vk hash %s does not match bundled %s", proofArtifact.VKHash, bundle.Manifest.VKHash)
+	}
+	proof, err := prover.UnmarshalProof(proofArtifact.Proof)
+	if err != nil {
+		return err
+	}
+	publicAssignment, err := ownershipmulti.PublicAssignment(count, publicInput)
+	if err != nil {
+		return err
+	}
+	if err := prover.VerifyProof(bundle.VerifyingKey, proof, publicAssignment); err != nil {
+		return err
+	}
+	fmt.Println("verified")
+	return nil
+}
+
 func cmdExportCardano(args []string) error {
 	fs := flag.NewFlagSet("export-cardano", flag.ContinueOnError)
 	proofPath := fs.String("master-xprv-proof", "", "proof artifact JSON path")
-	keysDir := fs.String("keys-dir", prover.DefaultKeyDir(), "local verifying key bundle directory")
+	keysDir := fs.String("keys-dir", "", "local verifying key bundle directory; defaults from artifact circuit id")
 	outDir := fs.String("out-dir", "cardano-proof", "directory for proof.hex, vk.hex, pub.hex, and format.txt")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -241,6 +561,22 @@ func cmdExportCardano(args []string) error {
 	proofArtifact, err := artifact.ReadProof(*proofPath)
 	if err != nil {
 		return err
+	}
+	switch {
+	case proofArtifact.CircuitID == ownership.CircuitID:
+		return exportCardanoSingle(proofArtifact, *keysDir, *outDir)
+	case proofArtifact.CircuitID == ownershipdest.CircuitID:
+		return exportCardanoDestination(proofArtifact, *keysDir, *outDir)
+	case ownershipmulti.IsCircuitID(proofArtifact.CircuitID):
+		return exportCardanoMulti(proofArtifact, *keysDir, *outDir)
+	default:
+		return fmt.Errorf("artifact circuit id %q is not supported", proofArtifact.CircuitID)
+	}
+}
+
+func exportCardanoSingle(proofArtifact *artifact.ProofArtifact, keysDir, outDir string) error {
+	if keysDir == "" {
+		keysDir = prover.DefaultKeyDir()
 	}
 	if proofArtifact.CircuitID != ownership.CircuitID {
 		return fmt.Errorf("artifact circuit id %q, want %q", proofArtifact.CircuitID, ownership.CircuitID)
@@ -261,7 +597,7 @@ func cmdExportCardano(args []string) error {
 		return err
 	}
 
-	vkPath := filepath.Join(*keysDir, "ownership.vk")
+	vkPath := filepath.Join(keysDir, "ownership.vk")
 	vkDigest, err := prover.DigestFile(vkPath)
 	if err != nil {
 		return err
@@ -293,29 +629,319 @@ func cmdExportCardano(args []string) error {
 		return fmt.Errorf("cardano proof format %q does not match vk format %q", proofFormat, vkFormat)
 	}
 
-	if err := os.MkdirAll(*outDir, 0o700); err != nil {
-		return fmt.Errorf("create %s: %w", *outDir, err)
+	if err := os.MkdirAll(outDir, 0o700); err != nil {
+		return fmt.Errorf("create %s: %w", outDir, err)
 	}
-	if err := writeHexFile(filepath.Join(*outDir, "proof.hex"), proofBytes); err != nil {
+	if err := writeHexFile(filepath.Join(outDir, "proof.hex"), proofBytes); err != nil {
 		return err
 	}
-	if err := writeHexFile(filepath.Join(*outDir, "vk.hex"), vkBytes); err != nil {
+	if err := writeHexFile(filepath.Join(outDir, "vk.hex"), vkBytes); err != nil {
 		return err
 	}
-	if err := writeHexFile(filepath.Join(*outDir, "pub.hex"), publicInputDigest); err != nil {
+	if err := writeHexFile(filepath.Join(outDir, "pub.hex"), publicInputDigest); err != nil {
 		return err
 	}
-	if err := writeTextFile(filepath.Join(*outDir, "format.txt"), proofFormat+"\n"); err != nil {
+	if err := writeTextFile(filepath.Join(outDir, "format.txt"), proofFormat+"\n"); err != nil {
 		return err
 	}
 
-	fmt.Printf("wrote cardano proof: %s\n", filepath.Join(*outDir, "proof.hex"))
-	fmt.Printf("wrote cardano vk: %s\n", filepath.Join(*outDir, "vk.hex"))
-	fmt.Printf("wrote public input digest: %s\n", filepath.Join(*outDir, "pub.hex"))
+	fmt.Printf("wrote cardano proof: %s\n", filepath.Join(outDir, "proof.hex"))
+	fmt.Printf("wrote cardano vk: %s\n", filepath.Join(outDir, "vk.hex"))
+	fmt.Printf("wrote public input digest: %s\n", filepath.Join(outDir, "pub.hex"))
 	fmt.Printf("format: %s\n", proofFormat)
 	fmt.Printf("proof_bytes: %d\n", len(proofBytes))
 	fmt.Printf("vk_bytes: %d\n", len(vkBytes))
 	return nil
+}
+
+func exportCardanoDestination(proofArtifact *artifact.ProofArtifact, keysDir, outDir string) error {
+	if keysDir == "" {
+		keysDir = prover.DefaultDestinationKeyDir()
+	}
+	publicInput, publicInputDigest, err := validateDestinationProofArtifact(proofArtifact)
+	if err != nil {
+		return err
+	}
+	bundle, err := prover.LoadOwnershipDestinationVerifier(keysDir)
+	if err != nil {
+		return err
+	}
+	if proofArtifact.VKHash != bundle.Manifest.VKHash {
+		return fmt.Errorf("artifact vk hash %s does not match bundled %s", proofArtifact.VKHash, bundle.Manifest.VKHash)
+	}
+	proof, err := prover.UnmarshalProof(proofArtifact.Proof)
+	if err != nil {
+		return err
+	}
+	if err := prover.VerifyProof(bundle.VerifyingKey, proof, &ownershipdest.Circuit{Pub: publicInput}); err != nil {
+		return err
+	}
+
+	proofBytes, proofFormat, err := prover.SerializeCardanoProof(proof)
+	if err != nil {
+		return err
+	}
+	vkBytes, vkFormat, err := prover.SerializeCardanoVK(bundle.VerifyingKey)
+	if err != nil {
+		return err
+	}
+	if proofFormat != vkFormat {
+		return fmt.Errorf("cardano proof format %q does not match vk format %q", proofFormat, vkFormat)
+	}
+
+	if err := os.MkdirAll(outDir, 0o700); err != nil {
+		return fmt.Errorf("create %s: %w", outDir, err)
+	}
+	if err := writeHexFile(filepath.Join(outDir, "proof.hex"), proofBytes); err != nil {
+		return err
+	}
+	if err := writeHexFile(filepath.Join(outDir, "vk.hex"), vkBytes); err != nil {
+		return err
+	}
+	if err := writeHexFile(filepath.Join(outDir, "pub.hex"), publicInputDigest); err != nil {
+		return err
+	}
+	if err := writeTextFile(filepath.Join(outDir, "format.txt"), proofFormat+"\n"); err != nil {
+		return err
+	}
+
+	fmt.Printf("wrote cardano proof: %s\n", filepath.Join(outDir, "proof.hex"))
+	fmt.Printf("wrote cardano vk: %s\n", filepath.Join(outDir, "vk.hex"))
+	fmt.Printf("wrote public input digest: %s\n", filepath.Join(outDir, "pub.hex"))
+	fmt.Printf("format: %s\n", proofFormat)
+	fmt.Printf("proof_bytes: %d\n", len(proofBytes))
+	fmt.Printf("vk_bytes: %d\n", len(vkBytes))
+	return nil
+}
+
+func exportCardanoMulti(proofArtifact *artifact.ProofArtifact, keysDir, outDir string) error {
+	publicInput, publicInputDigest, count, err := validateMultiProofArtifact(proofArtifact)
+	if err != nil {
+		return err
+	}
+	if keysDir == "" {
+		keysDir = prover.DefaultMultiKeyDirForCount(count)
+	}
+	bundle, err := prover.LoadOwnershipMultiVerifierForCount(keysDir, count)
+	if err != nil {
+		return err
+	}
+	if proofArtifact.VKHash != bundle.Manifest.VKHash {
+		return fmt.Errorf("artifact vk hash %s does not match bundled %s", proofArtifact.VKHash, bundle.Manifest.VKHash)
+	}
+	proof, err := prover.UnmarshalProof(proofArtifact.Proof)
+	if err != nil {
+		return err
+	}
+	publicAssignment, err := ownershipmulti.PublicAssignment(count, publicInput)
+	if err != nil {
+		return err
+	}
+	if err := prover.VerifyProof(bundle.VerifyingKey, proof, publicAssignment); err != nil {
+		return err
+	}
+
+	proofBytes, proofFormat, err := prover.SerializeCardanoProof(proof)
+	if err != nil {
+		return err
+	}
+	vkBytes, vkFormat, err := prover.SerializeCardanoVK(bundle.VerifyingKey)
+	if err != nil {
+		return err
+	}
+	if proofFormat != vkFormat {
+		return fmt.Errorf("cardano proof format %q does not match vk format %q", proofFormat, vkFormat)
+	}
+
+	if err := os.MkdirAll(outDir, 0o700); err != nil {
+		return fmt.Errorf("create %s: %w", outDir, err)
+	}
+	if err := writeHexFile(filepath.Join(outDir, "proof.hex"), proofBytes); err != nil {
+		return err
+	}
+	if err := writeHexFile(filepath.Join(outDir, "vk.hex"), vkBytes); err != nil {
+		return err
+	}
+	if err := writeHexFile(filepath.Join(outDir, "pub.hex"), publicInputDigest); err != nil {
+		return err
+	}
+	if err := writeTextFile(filepath.Join(outDir, "format.txt"), proofFormat+"\n"); err != nil {
+		return err
+	}
+
+	fmt.Printf("wrote cardano proof: %s\n", filepath.Join(outDir, "proof.hex"))
+	fmt.Printf("wrote cardano vk: %s\n", filepath.Join(outDir, "vk.hex"))
+	fmt.Printf("wrote public input digest: %s\n", filepath.Join(outDir, "pub.hex"))
+	fmt.Printf("format: %s\n", proofFormat)
+	fmt.Printf("proof_bytes: %d\n", len(proofBytes))
+	fmt.Printf("vk_bytes: %d\n", len(vkBytes))
+	return nil
+}
+
+type stringListFlag []string
+
+func (f *stringListFlag) String() string {
+	return strings.Join(*f, ",")
+}
+
+func (f *stringListFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
+}
+
+type pathListFlag []ownership.Path
+
+func (f *pathListFlag) String() string {
+	parts := make([]string, 0, len(*f))
+	for _, path := range *f {
+		parts = append(parts, fmt.Sprintf("%d/%d/%d", path.Account, path.Role, path.Index))
+	}
+	return strings.Join(parts, ",")
+}
+
+func (f *pathListFlag) Set(value string) error {
+	parts := strings.FieldsFunc(strings.TrimSpace(value), func(r rune) bool {
+		return r == '/' || r == ','
+	})
+	if len(parts) != 3 {
+		return fmt.Errorf("path %q must be account/role/index", value)
+	}
+	account, err := parsePathPart(parts[0], "account")
+	if err != nil {
+		return err
+	}
+	role, err := parsePathPart(parts[1], "role")
+	if err != nil {
+		return err
+	}
+	index, err := parsePathPart(parts[2], "index")
+	if err != nil {
+		return err
+	}
+	*f = append(*f, ownership.Path{Account: account, Role: role, Index: index})
+	return nil
+}
+
+func parsePathPart(value, name string) (uint32, error) {
+	parsed, err := strconv.ParseUint(strings.TrimSpace(value), 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("%s path component %q is invalid", name, value)
+	}
+	return uint32(parsed), nil
+}
+
+func decodeCredentialList(values []string) ([][]byte, error) {
+	if err := ownershipmulti.ValidateCredentialCount(len(values)); err != nil {
+		return nil, fmt.Errorf("--target-credential: %w", err)
+	}
+	out := make([][]byte, len(values))
+	for i, value := range values {
+		credential, err := ownershipmulti.DecodeCredentialHex(value)
+		if err != nil {
+			return nil, fmt.Errorf("target credential %d: %w", i, err)
+		}
+		out[i] = credential
+	}
+	return out, nil
+}
+
+func decodeMultiPaths(values []ownership.Path, wantCount int) ([]ownership.Path, error) {
+	if err := ownershipmulti.ValidateCredentialCount(wantCount); err != nil {
+		return nil, err
+	}
+	if len(values) != wantCount {
+		return nil, fmt.Errorf("--path must be repeated exactly %d times", wantCount)
+	}
+	out := make([]ownership.Path, len(values))
+	copy(out, values)
+	return out, nil
+}
+
+func encodePathMetadata(paths []ownership.Path) []artifact.PathMetadata {
+	out := make([]artifact.PathMetadata, len(paths))
+	for i, path := range paths {
+		out[i] = artifact.PathMetadata{Account: path.Account, Role: path.Role, Index: path.Index}
+	}
+	return out
+}
+
+func encodeHexList(values [][]byte) []string {
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = hex.EncodeToString(value)
+	}
+	return out
+}
+
+func validateDestinationProofArtifact(proofArtifact *artifact.ProofArtifact) (*big.Int, []byte, error) {
+	if proofArtifact.CircuitID != ownershipdest.CircuitID {
+		return nil, nil, fmt.Errorf("artifact circuit id %q, want %q", proofArtifact.CircuitID, ownershipdest.CircuitID)
+	}
+	if proofArtifact.PublicInputEncoding != ownershipdest.PublicInputEncoding {
+		return nil, nil, fmt.Errorf("artifact public input encoding %q, want %q", proofArtifact.PublicInputEncoding, ownershipdest.PublicInputEncoding)
+	}
+	if proofArtifact.DestinationAddressEncoding != ownershipdest.DestinationAddressEncoding {
+		return nil, nil, fmt.Errorf("artifact destination address encoding %q, want %q", proofArtifact.DestinationAddressEncoding, ownershipdest.DestinationAddressEncoding)
+	}
+	credential, err := ownershipdest.DecodeCredentialHex(proofArtifact.TargetCredential)
+	if err != nil {
+		return nil, nil, err
+	}
+	destination, err := ownershipdest.DecodeDestinationAddressV1Hex(proofArtifact.DestinationAddress)
+	if err != nil {
+		return nil, nil, err
+	}
+	publicInput, err := ownershipdest.PublicInputForCredentialDestination(credential, destination)
+	if err != nil {
+		return nil, nil, err
+	}
+	if got := ownershipdest.PublicInputHex(publicInput); got != proofArtifact.PublicInput {
+		return nil, nil, fmt.Errorf("artifact public input %s does not match recomputed %s", proofArtifact.PublicInput, got)
+	}
+	publicInputDigest, err := ownershipdest.PublicInputDigestForCredentialDestination(credential, destination)
+	if err != nil {
+		return nil, nil, err
+	}
+	return publicInput, publicInputDigest, nil
+}
+
+func validateMultiProofArtifact(proofArtifact *artifact.ProofArtifact) (*big.Int, []byte, int, error) {
+	count, ok := ownershipmulti.CircuitCountFromID(proofArtifact.CircuitID)
+	if !ok {
+		return nil, nil, 0, fmt.Errorf("artifact circuit id %q is not a supported multi circuit id", proofArtifact.CircuitID)
+	}
+	if proofArtifact.CredentialCount != count {
+		return nil, nil, 0, fmt.Errorf("artifact credential count %d, want %d", proofArtifact.CredentialCount, count)
+	}
+	if proofArtifact.PublicInputEncoding != ownershipmulti.PublicInputEncoding {
+		return nil, nil, 0, fmt.Errorf("artifact public input encoding %q, want %q", proofArtifact.PublicInputEncoding, ownershipmulti.PublicInputEncoding)
+	}
+	if proofArtifact.DestinationAddressEncoding != ownershipmulti.DestinationAddressEncoding {
+		return nil, nil, 0, fmt.Errorf("artifact destination address encoding %q, want %q", proofArtifact.DestinationAddressEncoding, ownershipmulti.DestinationAddressEncoding)
+	}
+	credentials, err := decodeCredentialList(proofArtifact.TargetCredentials)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	if len(credentials) != count {
+		return nil, nil, 0, fmt.Errorf("artifact target credential count %d, want %d", len(credentials), count)
+	}
+	destination, err := ownershipmulti.DecodeDestinationAddressV1Hex(proofArtifact.DestinationAddress)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	publicInput, err := ownershipmulti.PublicInputForCredentialsDestination(credentials, destination)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	if got := ownershipmulti.PublicInputHex(publicInput); got != proofArtifact.PublicInput {
+		return nil, nil, 0, fmt.Errorf("artifact public input %s does not match recomputed %s", proofArtifact.PublicInput, got)
+	}
+	publicInputDigest, err := ownershipmulti.PublicInputDigestForCredentialsDestination(credentials, destination)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	return publicInput, publicInputDigest, count, nil
 }
 
 func cmdServeVerifier(args []string) error {
@@ -575,5 +1201,5 @@ func writeTextFile(path, text string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: proof-tool <master-xprv-from-seed-phrase|prove|verify|export-cardano|setup-ceremony|verify-key-bundle|serve-verifier|serve-helper> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: proof-tool <master-xprv-from-seed-phrase|prove|prove-destination|prove-multi|verify|verify-destination|verify-multi|export-cardano|generate-destination-benchmark-fixtures|generate-multi-benchmark-fixtures|setup-ceremony|verify-key-bundle|serve-verifier|serve-helper> [flags]")
 }

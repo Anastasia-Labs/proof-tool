@@ -11,9 +11,15 @@ common common-lang
 library
   import:          common-lang
   hs-source-dirs:  src
-  exposed-modules: Ownership.Verify
+  exposed-modules:
+    Ownership.OneShotNFT
+    Ownership.ReclaimBase
+    Ownership.ReclaimGlobal
+    Ownership.ReclaimGlobalMulti
+    Ownership.Verify
   build-depends:
     , base              >= 4.17 && < 5
+    , plutus-ledger-api >= 1.30 && < 2
     , plutus-tx         >= 1.30 && < 2
     , plutus-tx-plugin  >= 1.30 && < 2
     , plutus-core       >= 1.30 && < 2
@@ -25,10 +31,36 @@ test-suite ownership-verifier-test
   import:         common-lang
   type:           exitcode-stdio-1.0
   main-is:        VerifySpec.hs
-  hs-source-dirs: test
+  hs-source-dirs:
+    test
+    test-support
+  other-modules:
+    ScriptContextBuilder
   build-depends:
     , base                >= 4.17 && < 5
     , ownership-verifier
+    , plutus-ledger-api   >= 1.30 && < 2
     , plutus-tx           >= 1.30 && < 2
     , tasty               >= 1.4
     , tasty-hunit         >= 0.10
+
+benchmark ownership-verifier-bench
+  import:         common-lang
+  type:           exitcode-stdio-1.0
+  main-is:        Bench.hs
+  hs-source-dirs:
+    bench
+    test-support
+  other-modules:
+    ScriptContextBuilder
+  build-depends:
+    , aeson               >= 2.0
+    , base                >= 4.17 && < 5
+    , bytestring          >= 0.11
+    , ownership-verifier
+    , plutus-core         >= 1.30 && < 2
+    , plutus-ledger-api   >= 1.30 && < 2
+    , plutus-tx           >= 1.30 && < 2
+    , plutus-tx-plugin    >= 1.30 && < 2
+  ghc-options:
+    -fplugin PlutusTx.Plugin

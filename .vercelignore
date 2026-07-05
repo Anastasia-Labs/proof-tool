@@ -1,0 +1,17 @@
+output/
+.proof-tool/
+.env.local
+.env.*.local
+deployments/reclaim/preprod/*.local.json
+*.pk
+*.vk
+proof-tool.zip
+apps/ownership-proof-web/.next/
+apps/ownership-proof-web/node_modules/
+apps/ownership-proof-web/tsconfig.tsbuildinfo
+apps/proof-helper-desktop/dist/
+apps/proof-helper-desktop/node_modules/
+apps/proof-helper-desktop/src-tauri/target/
+apps/proof-helper-desktop/src-tauri/binaries/proof-tool-*
+packages/client-ts/node_modules/
+packages/client-ts/.vite/

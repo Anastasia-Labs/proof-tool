@@ -24,14 +24,18 @@ import (
 
 	"proof-tool/internal/artifact"
 	"proof-tool/internal/circuit/ownership"
+	"proof-tool/internal/circuit/ownershipdest"
+	"proof-tool/internal/circuit/ownershipmulti"
 )
 
 var curve = ecc.BLS12_381
 
 const (
-	DefaultKeyVersion = "ownership-v1"
-	ProofToolVersion  = "0.1.0"
-	GnarkVersion      = "v0.15.0"
+	DefaultKeyVersion            = "ownership-v1"
+	DefaultDestinationKeyVersion = "ownership-destination-v1"
+	DefaultMultiKeyVersion       = "ownership-multi-destination-v1-count2"
+	ProofToolVersion             = "0.1.0"
+	GnarkVersion                 = "v0.15.0"
 )
 
 const (
@@ -59,6 +63,12 @@ type OwnershipBundle struct {
 	VerifyingKey groth16.VerifyingKey
 }
 
+type keyConfig struct {
+	KeyVersion string
+	CircuitID  string
+	DirName    string
+}
+
 type BundleStatus struct {
 	Dir        string
 	State      string
@@ -76,10 +86,30 @@ type FileDigest struct {
 }
 
 func DefaultKeyDir() string {
+	return defaultKeyDir(DefaultKeyVersion)
+}
+
+func DefaultMultiKeyDir() string {
+	return DefaultMultiKeyDirForCount(ownershipmulti.DefaultCredentialCount)
+}
+
+func DefaultMultiKeyDirForCount(count int) string {
+	return defaultKeyDir(DefaultMultiKeyVersionForCount(count))
+}
+
+func DefaultMultiKeyVersionForCount(count int) string {
+	return ownershipmulti.KeyVersionForCount(count)
+}
+
+func DefaultDestinationKeyDir() string {
+	return defaultKeyDir(DefaultDestinationKeyVersion)
+}
+
+func defaultKeyDir(name string) string {
 	if dir, err := os.UserCacheDir(); err == nil && dir != "" {
-		return filepath.Join(dir, "proof-tool", "ownership-v1")
+		return filepath.Join(dir, "proof-tool", name)
 	}
-	return filepath.Join(".", ".proof-tool", "ownership-v1")
+	return filepath.Join(".", ".proof-tool", name)
 }
 
 func Compile(circuit frontend.Circuit) (constraint.ConstraintSystem, error) {
@@ -94,9 +124,41 @@ func CompileOwnership() (constraint.ConstraintSystem, error) {
 	return Compile(&ownership.Circuit{})
 }
 
+func CompileOwnershipDestination() (constraint.ConstraintSystem, error) {
+	return Compile(&ownershipdest.Circuit{})
+}
+
+func CompileOwnershipMulti() (constraint.ConstraintSystem, error) {
+	return CompileOwnershipMultiCount(ownershipmulti.DefaultCredentialCount)
+}
+
+func CompileOwnershipMultiCount(count int) (constraint.ConstraintSystem, error) {
+	circuit, err := ownershipmulti.NewCircuit(count)
+	if err != nil {
+		return nil, err
+	}
+	return Compile(circuit)
+}
+
 func LoadOrCreateOwnershipBundle(dir string, ccs constraint.ConstraintSystem) (*OwnershipBundle, error) {
+	return loadOrCreateBundle(dir, ccs, ownershipKeyConfig())
+}
+
+func LoadOrCreateOwnershipDestinationBundle(dir string, ccs constraint.ConstraintSystem) (*OwnershipBundle, error) {
+	return loadOrCreateBundle(dir, ccs, ownershipDestinationKeyConfig())
+}
+
+func LoadOrCreateOwnershipMultiBundle(dir string, ccs constraint.ConstraintSystem) (*OwnershipBundle, error) {
+	return LoadOrCreateOwnershipMultiBundleForCount(dir, ccs, ownershipmulti.DefaultCredentialCount)
+}
+
+func LoadOrCreateOwnershipMultiBundleForCount(dir string, ccs constraint.ConstraintSystem, count int) (*OwnershipBundle, error) {
+	return loadOrCreateBundle(dir, ccs, ownershipMultiKeyConfigForCount(count))
+}
+
+func loadOrCreateBundle(dir string, ccs constraint.ConstraintSystem, cfg keyConfig) (*OwnershipBundle, error) {
 	if dir == "" {
-		dir = DefaultKeyDir()
+		dir = defaultKeyDir(cfg.DirName)
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create key dir %s: %w", dir, err)
@@ -104,7 +166,7 @@ func LoadOrCreateOwnershipBundle(dir string, ccs constraint.ConstraintSystem) (*
 	manifestPath, pkPath, vkPath := ownershipBundlePaths(dir)
 
 	if filesExist(manifestPath, pkPath, vkPath) {
-		return LoadOwnershipProver(dir)
+		return loadProver(dir, cfg)
 	}
 
 	pk, vk, err := Setup(ccs)
@@ -127,8 +189,8 @@ func LoadOrCreateOwnershipBundle(dir string, ccs constraint.ConstraintSystem) (*
 	}
 	manifest := &artifact.KeyManifest{
 		Schema:               artifact.ManifestSchema,
-		KeyVersion:           DefaultKeyVersion,
-		CircuitID:            ownership.CircuitID,
+		KeyVersion:           cfg.KeyVersion,
+		CircuitID:            cfg.CircuitID,
 		Curve:                "BLS12-381",
 		Backend:              "groth16",
 		VKHash:               vkDigest.Blake2b256,
@@ -149,15 +211,31 @@ func LoadOrCreateOwnershipBundle(dir string, ccs constraint.ConstraintSystem) (*
 }
 
 func LoadOwnershipProver(dir string) (*OwnershipBundle, error) {
+	return loadProver(dir, ownershipKeyConfig())
+}
+
+func LoadOwnershipDestinationProver(dir string) (*OwnershipBundle, error) {
+	return loadProver(dir, ownershipDestinationKeyConfig())
+}
+
+func LoadOwnershipMultiProver(dir string) (*OwnershipBundle, error) {
+	return LoadOwnershipMultiProverForCount(dir, ownershipmulti.DefaultCredentialCount)
+}
+
+func LoadOwnershipMultiProverForCount(dir string, count int) (*OwnershipBundle, error) {
+	return loadProver(dir, ownershipMultiKeyConfigForCount(count))
+}
+
+func loadProver(dir string, cfg keyConfig) (*OwnershipBundle, error) {
 	if dir == "" {
-		dir = DefaultKeyDir()
+		dir = defaultKeyDir(cfg.DirName)
 	}
 	manifestPath, pkPath, vkPath := ownershipBundlePaths(dir)
 	manifest, err := artifact.ReadKeyManifest(manifestPath)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateManifest(manifest); err != nil {
+	if err := validateManifest(manifest, cfg); err != nil {
 		return nil, err
 	}
 	if err := validateProvingKeyFile(manifest, pkPath); err != nil {
@@ -178,15 +256,31 @@ func LoadOwnershipProver(dir string) (*OwnershipBundle, error) {
 }
 
 func LoadOwnershipVerifier(dir string) (*OwnershipBundle, error) {
+	return loadVerifier(dir, ownershipKeyConfig())
+}
+
+func LoadOwnershipDestinationVerifier(dir string) (*OwnershipBundle, error) {
+	return loadVerifier(dir, ownershipDestinationKeyConfig())
+}
+
+func LoadOwnershipMultiVerifier(dir string) (*OwnershipBundle, error) {
+	return LoadOwnershipMultiVerifierForCount(dir, ownershipmulti.DefaultCredentialCount)
+}
+
+func LoadOwnershipMultiVerifierForCount(dir string, count int) (*OwnershipBundle, error) {
+	return loadVerifier(dir, ownershipMultiKeyConfigForCount(count))
+}
+
+func loadVerifier(dir string, cfg keyConfig) (*OwnershipBundle, error) {
 	if dir == "" {
-		dir = DefaultKeyDir()
+		dir = defaultKeyDir(cfg.DirName)
 	}
 	manifestPath, _, vkPath := ownershipBundlePaths(dir)
 	manifest, err := artifact.ReadKeyManifest(manifestPath)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateManifest(manifest); err != nil {
+	if err := validateManifest(manifest, cfg); err != nil {
 		return nil, err
 	}
 	if err := validateVerifyingKeyFile(manifest, vkPath); err != nil {
@@ -200,8 +294,24 @@ func LoadOwnershipVerifier(dir string) (*OwnershipBundle, error) {
 }
 
 func InspectOwnershipBundle(dir string, requireProvingKey bool) BundleStatus {
+	return inspectBundle(dir, requireProvingKey, ownershipKeyConfig())
+}
+
+func InspectOwnershipDestinationBundle(dir string, requireProvingKey bool) BundleStatus {
+	return inspectBundle(dir, requireProvingKey, ownershipDestinationKeyConfig())
+}
+
+func InspectOwnershipMultiBundle(dir string, requireProvingKey bool) BundleStatus {
+	return InspectOwnershipMultiBundleForCount(dir, requireProvingKey, ownershipmulti.DefaultCredentialCount)
+}
+
+func InspectOwnershipMultiBundleForCount(dir string, requireProvingKey bool, count int) BundleStatus {
+	return inspectBundle(dir, requireProvingKey, ownershipMultiKeyConfigForCount(count))
+}
+
+func inspectBundle(dir string, requireProvingKey bool, cfg keyConfig) BundleStatus {
 	if dir == "" {
-		dir = DefaultKeyDir()
+		dir = defaultKeyDir(cfg.DirName)
 	}
 	manifestPath, pkPath, vkPath := ownershipBundlePaths(dir)
 	if !filesExist(manifestPath, vkPath) || (requireProvingKey && !filesExist(pkPath)) {
@@ -211,7 +321,7 @@ func InspectOwnershipBundle(dir string, requireProvingKey bool) BundleStatus {
 	if err != nil {
 		return BundleStatus{Dir: dir, State: "invalid", Ready: false, Error: err.Error()}
 	}
-	if err := validateManifest(manifest); err != nil {
+	if err := validateManifest(manifest, cfg); err != nil {
 		return BundleStatus{Dir: dir, State: "invalid", Ready: false, Manifest: manifest, Error: err.Error()}
 	}
 	if requireProvingKey {
@@ -398,18 +508,25 @@ func SerializeCardanoProof(proof groth16.Proof) ([]byte, string, error) {
 }
 
 func CardanoProofArtifact(proof groth16.Proof, credential []byte) (*artifact.CardanoProof, error) {
-	proofBytes, format, err := SerializeCardanoProof(proof)
+	digest, err := ownership.PublicInputDigestForCredential(credential)
 	if err != nil {
 		return nil, err
 	}
-	digest, err := ownership.PublicInputDigestForCredential(credential)
+	return CardanoProofArtifactWithDigest(proof, digest)
+}
+
+func CardanoProofArtifactWithDigest(proof groth16.Proof, publicInputDigest []byte) (*artifact.CardanoProof, error) {
+	if len(publicInputDigest) != 32 {
+		return nil, fmt.Errorf("public input digest is %d bytes, want 32", len(publicInputDigest))
+	}
+	proofBytes, format, err := SerializeCardanoProof(proof)
 	if err != nil {
 		return nil, err
 	}
 	return &artifact.CardanoProof{
 		Format:               format,
 		ProofHex:             hex.EncodeToString(proofBytes),
-		PublicInputDigestHex: hex.EncodeToString(digest),
+		PublicInputDigestHex: hex.EncodeToString(publicInputDigest),
 	}, nil
 }
 
@@ -516,12 +633,15 @@ func LoadPK(path string) (groth16.ProvingKey, error) {
 	return pk, nil
 }
 
-func validateManifest(manifest *artifact.KeyManifest) error {
+func validateManifest(manifest *artifact.KeyManifest, cfg keyConfig) error {
 	if strings.TrimSpace(manifest.KeyVersion) == "" {
 		return fmt.Errorf("manifest key_version is required")
 	}
-	if manifest.CircuitID != ownership.CircuitID {
-		return fmt.Errorf("manifest circuit id %q, want %q", manifest.CircuitID, ownership.CircuitID)
+	if manifest.KeyVersion != cfg.KeyVersion {
+		return fmt.Errorf("manifest key version %q, want %q", manifest.KeyVersion, cfg.KeyVersion)
+	}
+	if manifest.CircuitID != cfg.CircuitID {
+		return fmt.Errorf("manifest circuit id %q, want %q", manifest.CircuitID, cfg.CircuitID)
 	}
 	if manifest.Curve != "BLS12-381" {
 		return fmt.Errorf("manifest curve %q, want BLS12-381", manifest.Curve)
@@ -586,6 +706,34 @@ func validateVerifyingKeyFile(manifest *artifact.KeyManifest, path string) error
 
 func ownershipBundlePaths(dir string) (manifestPath, pkPath, vkPath string) {
 	return filepath.Join(dir, "manifest.json"), filepath.Join(dir, "ownership.pk"), filepath.Join(dir, "ownership.vk")
+}
+
+func ownershipKeyConfig() keyConfig {
+	return keyConfig{
+		KeyVersion: DefaultKeyVersion,
+		CircuitID:  ownership.CircuitID,
+		DirName:    DefaultKeyVersion,
+	}
+}
+
+func ownershipDestinationKeyConfig() keyConfig {
+	return keyConfig{
+		KeyVersion: DefaultDestinationKeyVersion,
+		CircuitID:  ownershipdest.CircuitID,
+		DirName:    DefaultDestinationKeyVersion,
+	}
+}
+
+func ownershipMultiKeyConfig() keyConfig {
+	return ownershipMultiKeyConfigForCount(ownershipmulti.DefaultCredentialCount)
+}
+
+func ownershipMultiKeyConfigForCount(count int) keyConfig {
+	return keyConfig{
+		KeyVersion: DefaultMultiKeyVersionForCount(count),
+		CircuitID:  ownershipmulti.CircuitIDForCount(count),
+		DirName:    DefaultMultiKeyVersionForCount(count),
+	}
 }
 
 func filesExist(paths ...string) bool {
