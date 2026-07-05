@@ -9,6 +9,7 @@ import {
   runPreprodPreflight,
 } from "./preflight.mjs";
 import { preparePreprodAppTarget } from "./app-server.mjs";
+import { runPreprodBrowserBootstrap } from "./browser-flow.mjs";
 import { loadCip30HarnessFromEnv } from "./cip30-harness.mjs";
 
 export const TRANSACTION_APPROVAL_ENV = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
@@ -31,6 +32,7 @@ export async function runPreprodE2E(options = {}) {
   const writeFile = options.writeFile ?? writeFileSync;
   const walletHarnessLoader = options.walletHarnessLoader ?? loadCip30HarnessFromEnv;
   const appTargetLoader = options.appTargetLoader ?? preparePreprodAppTarget;
+  const browserBootstrapRunner = options.browserBootstrapRunner ?? runPreprodBrowserBootstrap;
   const outputRoot = options.outputRoot ?? env.RECLAIM_E2E_OUTPUT_DIR ?? "output/preprod-e2e";
   const preflight = await runPreprodPreflight(options.preflightOptions ?? options);
   if (!preflight.ok) {
@@ -169,17 +171,43 @@ export async function runPreprodE2E(options = {}) {
   );
   artifacts.push(appTargetPath);
 
-  await appTarget.stop?.();
+  try {
+    const browserBootstrap = await browserBootstrapRunner({
+      ...(options.browserBootstrapOptions ?? {}),
+      env,
+      appTarget,
+      walletHarness,
+      outputDir,
+    });
+    if (Array.isArray(browserBootstrap?.artifacts)) {
+      artifacts.push(...browserBootstrap.artifacts);
+    }
+  } catch (error) {
+    const result = {
+      ok: false,
+      code: "browser_bootstrap_failed",
+      preflight,
+      outputDir,
+      artifacts,
+      error: sanitizeError(error),
+    };
+    return {
+      ...result,
+      report: formatRunnerReport(result),
+    };
+  } finally {
+    await appTarget.stop?.();
+  }
 
   return {
     ok: false,
-    code: "live_browser_flow_not_implemented",
+    code: "live_product_flow_not_implemented",
     preflight,
     outputDir,
     artifacts,
     report: formatRunnerReport({
       ok: false,
-      code: "live_browser_flow_not_implemented",
+      code: "live_product_flow_not_implemented",
       preflight,
       outputDir,
       artifacts,
@@ -198,8 +226,8 @@ export function formatRunnerReport(result) {
   if (result.code === "live_transaction_gate_missing") {
     lines.push(`Live browser signing and provider submission are blocked until ${TRANSACTION_APPROVAL_ENV}=1 is set.`);
     lines.push("No browser automation, wallet signing, provider submission, proof bytes, witness sets, or CBOR artifacts were produced.");
-  } else if (result.code === "live_browser_flow_not_implemented") {
-    lines.push("Live browser E2E stage execution is not implemented yet.");
+  } else if (result.code === "live_browser_flow_not_implemented" || result.code === "live_product_flow_not_implemented") {
+    lines.push("Live funding-to-claim E2E stage execution is not implemented yet.");
     lines.push(`Pending stages: ${PREPROD_E2E_STAGES.join(", ")}.`);
   } else if (result.code === "cip30_harness_failed") {
     lines.push("CIP-30 preprod wallet harness failed closed before browser automation.");
@@ -208,6 +236,11 @@ export function formatRunnerReport(result) {
     }
   } else if (result.code === "app_server_failed") {
     lines.push("Preprod app target failed closed before browser automation.");
+    if (result.error) {
+      lines.push(`- ${result.error.code}: ${result.error.message}`);
+    }
+  } else if (result.code === "browser_bootstrap_failed") {
+    lines.push("Preprod browser bootstrap failed closed before funding or claim transactions.");
     if (result.error) {
       lines.push(`- ${result.error.code}: ${result.error.message}`);
     }

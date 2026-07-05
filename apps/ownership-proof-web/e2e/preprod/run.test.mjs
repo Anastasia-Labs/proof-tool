@@ -89,12 +89,19 @@ describe("Phase 9A preprod E2E runner", () => {
       execFile: fakeGit({ commit, status: "" }),
       walletHarnessLoader: async () => fakeWalletHarness(),
       appTargetLoader: async () => fakeAppTarget(),
+      browserBootstrapRunner: async () => fakeBrowserBootstrap(repo),
     });
 
     expect(result.ok).toBe(false);
-    expect(result.code).toBe("live_browser_flow_not_implemented");
+    expect(result.code).toBe("live_product_flow_not_implemented");
     expect(result.report).toContain("Pending stages");
-    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "wallet-harness.json", "app-target.json"]);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
+      "run-manifest.json",
+      "wallet-harness.json",
+      "app-target.json",
+      "browser-bootstrap.json",
+      "reclaim-initial.png",
+    ]);
     const manifest = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
     expect(manifest.transactionSubmissionApproved).toBe(true);
     expect(manifest.stages.every((stage) => stage.status === "pending")).toBe(true);
@@ -104,6 +111,8 @@ describe("Phase 9A preprod E2E runner", () => {
     const appTarget = JSON.parse(readFileSync(result.artifacts[2], "utf8"));
     expect(appTarget.schema).toBe("proof-tool-preprod-app-target-v1");
     expect(appTarget.baseUrl).toBe("http://127.0.0.1:3917");
+    const browserBootstrap = JSON.parse(readFileSync(result.artifacts[3], "utf8"));
+    expect(browserBootstrap.schema).toBe("proof-tool-preprod-browser-bootstrap-v1");
   });
 
   it("fails closed when the approved CIP-30 harness cannot be initialized", async () => {
@@ -169,6 +178,42 @@ describe("Phase 9A preprod E2E runner", () => {
     expect(result.code).toBe("app_server_failed");
     expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "wallet-harness.json"]);
     expect(result.report).toContain("app_target_test_failure");
+  });
+
+  it("fails closed when browser bootstrap fails after stopping the app target", async () => {
+    const repo = tempDir();
+    const commit = "89abcdef0123456789abcdef0123456789abcdef";
+    const walletPath = path.join(repo, "wallets.local.json");
+    const appTarget = fakeAppTarget();
+    writeFile(walletPath, JSON.stringify(validWalletFile()));
+
+    const result = await runPreprodE2E({
+      env: {
+        RECLAIM_E2E_LIVE_PREPROD: "1",
+        [TRANSACTION_APPROVAL_ENV]: "1",
+        RECLAIM_REVIEW_TOKEN_SECRET: "test-review-token-secret",
+        PREPROD_TEST_WALLETS_FILE: walletPath,
+        RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
+      },
+      cwd: repo,
+      repoRoot: repo,
+      outputRoot: "output/preprod-e2e",
+      now: () => new Date("2026-07-05T14:30:00.000Z"),
+      execFile: fakeGit({ commit, status: "" }),
+      walletHarnessLoader: async () => fakeWalletHarness(),
+      appTargetLoader: async () => appTarget,
+      browserBootstrapRunner: async () => {
+        const error = new Error("browser launch failed");
+        error.code = "browser_bootstrap_test_failure";
+        throw error;
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("browser_bootstrap_failed");
+    expect(appTarget.stopCalls).toBe(1);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "wallet-harness.json", "app-target.json"]);
+    expect(result.report).toContain("browser_bootstrap_test_failure");
   });
 });
 
@@ -276,6 +321,25 @@ function fakeAppTarget() {
     command: "pnpm",
     args: ["dev"],
     appDir: "/tmp/app",
-    async stop() {},
+    stopCalls: 0,
+    async stop() {
+      this.stopCalls += 1;
+    },
+  };
+}
+
+function fakeBrowserBootstrap(repo) {
+  const jsonPath = path.join(repo, "browser-bootstrap.json");
+  const screenshotPath = path.join(repo, "screenshots", "reclaim-initial.png");
+  writeFile(
+    jsonPath,
+    JSON.stringify({
+      schema: "proof-tool-preprod-browser-bootstrap-v1",
+    }),
+  );
+  writeFile(screenshotPath, "fake png");
+  return {
+    ok: true,
+    artifacts: [jsonPath, screenshotPath],
   };
 }
