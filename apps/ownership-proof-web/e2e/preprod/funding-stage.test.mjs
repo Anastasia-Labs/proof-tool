@@ -2,10 +2,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runAdaOnlyFundingStage } from "./funding-stage.mjs";
+import { runAdaOnlyFundingStage, runNativeAssetFundingStage } from "./funding-stage.mjs";
 
 const tempDirs = [];
 const compromisedCredential = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
+const nativeUnit = `${"a".repeat(56)}4e4654`;
 
 afterEach(() => {
   while (tempDirs.length > 0) {
@@ -93,6 +94,93 @@ describe("ADA-only preprod funding stage", () => {
   });
 });
 
+describe("native-asset preprod funding stage", () => {
+  it("drives repeated native-asset funding transactions and captures redacted artifacts", async () => {
+    const outputDir = tempDir();
+    const page = fakeFundingPage();
+
+    const result = await runNativeAssetFundingStage({
+      env: {
+        RECLAIM_E2E_NATIVE_ADA_AMOUNT: "2.25",
+        RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,
+        RECLAIM_E2E_NATIVE_ASSET_QUANTITY: "3",
+        RECLAIM_E2E_NATIVE_RECLAIM_COUNT: "2",
+      },
+      page,
+      walletHarness: fakeWalletHarness(),
+      outputDir,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(page.calls).toEqual([
+      ["selectOption", "Cardano wallet", "reclaim_funder"],
+      ["click", "connect wallet"],
+      ["waitForText", "/CIP-30 wallet address/iu"],
+      ["fill", "Payment key credential", compromisedCredential],
+      ["fill", "ADA amount", "2.25"],
+      ["fillPlaceholder", "policyId + tokenName hex", nativeUnit],
+      ["fillPlaceholder", "0", "3"],
+      ["click", "refresh assets"],
+      ["waitForText", "/UTxO|assets|No assets/iu"],
+      ["click", "build transaction"],
+      ["waitForText", "Datum CBOR"],
+      ["click", "sign and submit"],
+      ["waitForText", "Transaction submitted"],
+      ["screenshot", path.join(outputDir, "screenshots", "fund-native-asset-reclaims-1.png")],
+      ["fill", "Payment key credential", compromisedCredential],
+      ["fill", "ADA amount", "2.25"],
+      ["fillPlaceholder", "policyId + tokenName hex", nativeUnit],
+      ["fillPlaceholder", "0", "3"],
+      ["click", "refresh assets"],
+      ["waitForText", "/UTxO|assets|No assets/iu"],
+      ["click", "build transaction"],
+      ["waitForText", "Datum CBOR"],
+      ["click", "sign and submit"],
+      ["waitForText", "Transaction submitted"],
+      ["screenshot", path.join(outputDir, "screenshots", "fund-native-asset-reclaims-2.png")],
+    ]);
+
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
+      "fund-native-asset-reclaims.json",
+      "fund-native-asset-reclaims-1.png",
+      "fund-native-asset-reclaims-2.png",
+    ]);
+    const artifact = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
+    expect(artifact).toMatchObject({
+      schema: "proof-tool-preprod-native-funding-stage-v1",
+      stage: "fund-native-asset-reclaims",
+      fundingWalletRole: "reclaim_funder",
+      compromisedWalletRole: "compromised_user",
+      compromisedCredential: "19e07fbc...5a8702e4",
+      expectedReclaimUtxosFunded: 2,
+      adaAmount: "2.25",
+      nativeAssetUnit: nativeUnit,
+      nativeAssetQuantity: "3",
+      screenshots: ["screenshots/fund-native-asset-reclaims-1.png", "screenshots/fund-native-asset-reclaims-2.png"],
+    });
+    expect(artifact.transactions).toHaveLength(2);
+    expect(JSON.stringify(artifact)).not.toContain(compromisedCredential);
+  });
+
+  it("rejects missing native asset unit before touching the page", async () => {
+    const page = fakeFundingPage();
+
+    await expect(
+      runNativeAssetFundingStage({
+        env: {
+          RECLAIM_E2E_NATIVE_RECLAIM_COUNT: "2",
+        },
+        page,
+        walletHarness: fakeWalletHarness(),
+        outputDir: tempDir(),
+      }),
+    ).rejects.toMatchObject({
+      code: "native_asset_unit_missing",
+    });
+    expect(page.calls).toEqual([]);
+  });
+});
+
 function fakeWalletHarness() {
   return {
     roleState(role) {
@@ -114,6 +202,11 @@ function fakeFundingPage() {
       return {
         selectOption: vi.fn(async (value) => calls.push(["selectOption", label, value])),
         fill: vi.fn(async (value) => calls.push(["fill", label, value])),
+      };
+    },
+    getByPlaceholder(placeholder) {
+      return {
+        fill: vi.fn(async (value) => calls.push(["fillPlaceholder", placeholder, value])),
       };
     },
     getByRole(_role, options) {

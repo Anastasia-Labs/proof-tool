@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
-import { runAdaOnlyFundingStage } from "./funding-stage.mjs";
+import { runAdaOnlyFundingStage, runNativeAssetFundingStage } from "./funding-stage.mjs";
 
 export const HEADED_ENV = "RECLAIM_E2E_HEADED";
 export const BROWSER_BOOTSTRAP_STAGE = "browser-bootstrap";
@@ -23,6 +23,7 @@ export async function runPreprodBrowserBootstrap(options = {}) {
   const writeFile = options.writeFile ?? writeFileSync;
   const browserLauncher = options.browserLauncher ?? chromium;
   const fundingStageRunner = options.fundingStageRunner ?? runAdaOnlyFundingStage;
+  const nativeFundingStageRunner = options.nativeFundingStageRunner ?? runNativeAssetFundingStage;
   const screenshotsDir = path.join(outputDir, "screenshots");
   const stagePath = path.join(outputDir, "browser-bootstrap.json");
   const reclaimScreenshotPath = path.join(screenshotsDir, "reclaim-initial.png");
@@ -83,6 +84,16 @@ export async function runPreprodBrowserBootstrap(options = {}) {
     });
     if (Array.isArray(fundingStage?.artifacts)) {
       artifacts.push(...fundingStage.artifacts);
+    }
+    const nativeFundingStage = await nativeFundingStageRunner({
+      ...(options.nativeFundingStageOptions ?? {}),
+      env,
+      page,
+      walletHarness,
+      outputDir,
+    });
+    if (Array.isArray(nativeFundingStage?.artifacts)) {
+      artifacts.push(...nativeFundingStage.artifacts);
     }
 
     return {
