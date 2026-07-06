@@ -29,7 +29,9 @@ describe("destination-bound proof preprod stage", () => {
     const fetch = fakeFetch();
 
     const result = await runDestinationProofStage({
-      env: {},
+      env: {
+        RECLAIM_E2E_SAFE_WALLET_ROLE: "deployer",
+      },
       appTarget: { baseUrl: "http://127.0.0.1:3917" },
       helperTarget: {
         helperUrl: "http://127.0.0.1:49152",

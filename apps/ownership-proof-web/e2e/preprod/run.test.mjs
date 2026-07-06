@@ -104,7 +104,7 @@ describe("Phase 9A preprod E2E runner", () => {
 
     expect(result.ok).toBe(false);
     expect(result.code).toBe("live_product_flow_not_implemented");
-    expect(result.report).toContain("Pending stages");
+    expect(result.report).toContain("Pending stages: final safe-wallet balance evidence and negative-guardrails.");
     expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
       "run-manifest.json",
       "live-config.json",

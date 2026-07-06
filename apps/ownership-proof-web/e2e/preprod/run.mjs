@@ -298,8 +298,9 @@ export function formatRunnerReport(result) {
     lines.push(`Live browser signing and provider submission are blocked until ${TRANSACTION_APPROVAL_ENV}=1 is set.`);
     lines.push("No browser automation, wallet signing, provider submission, proof bytes, witness sets, or CBOR artifacts were produced.");
   } else if (result.code === "live_browser_flow_not_implemented" || result.code === "live_product_flow_not_implemented") {
-    lines.push("Live preprod E2E execution is not complete yet; remaining claim/proof/receipt stages are still pending.");
-    lines.push(`Pending stages: ${PREPROD_E2E_STAGES.join(", ")}.`);
+    lines.push("Live preprod E2E execution is not complete yet; remaining final-state and guardrail stages are still pending.");
+    lines.push("Implemented stages run through first-batch claim plus tail receipt when the configured deployment supports them.");
+    lines.push("Pending stages: final safe-wallet balance evidence and negative-guardrails.");
   } else if (result.code === "cip30_harness_failed") {
     lines.push("CIP-30 preprod wallet harness failed closed before browser automation.");
     if (result.error) {

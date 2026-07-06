@@ -5,6 +5,7 @@ import { runClaimFirstBatchStage } from "./claim-stage.mjs";
 import { runClaimDiscoveryStage } from "./claim-discovery-stage.mjs";
 import { runAdaOnlyFundingStage, runNativeAssetFundingStage } from "./funding-stage.mjs";
 import { runDestinationProofStage } from "./proof-stage.mjs";
+import { runClaimTailAndReceiptStage } from "./tail-stage.mjs";
 
 export const HEADED_ENV = "RECLAIM_E2E_HEADED";
 export const BROWSER_BOOTSTRAP_STAGE = "browser-bootstrap";
@@ -31,6 +32,7 @@ export async function runPreprodBrowserBootstrap(options = {}) {
   const claimDiscoveryStageRunner = options.claimDiscoveryStageRunner ?? runClaimDiscoveryStage;
   const destinationProofStageRunner = options.destinationProofStageRunner ?? runDestinationProofStage;
   const claimFirstBatchStageRunner = options.claimFirstBatchStageRunner ?? runClaimFirstBatchStage;
+  const claimTailReceiptStageRunner = options.claimTailReceiptStageRunner ?? runClaimTailAndReceiptStage;
   const screenshotsDir = path.join(outputDir, "screenshots");
   const stagePath = path.join(outputDir, "browser-bootstrap.json");
   const reclaimScreenshotPath = path.join(screenshotsDir, "reclaim-initial.png");
@@ -143,6 +145,19 @@ export async function runPreprodBrowserBootstrap(options = {}) {
     });
     if (Array.isArray(claimFirstBatchStage?.artifacts)) {
       artifacts.push(...claimFirstBatchStage.artifacts);
+    }
+    const claimTailReceiptStage = await claimTailReceiptStageRunner({
+      ...(options.claimTailReceiptStageOptions ?? {}),
+      env,
+      page,
+      walletHarness,
+      appTarget,
+      helperTarget,
+      outputDir,
+      firstClaimBundle: claimFirstBatchStage.claimBundle,
+    });
+    if (Array.isArray(claimTailReceiptStage?.artifacts)) {
+      artifacts.push(...claimTailReceiptStage.artifacts);
     }
 
     return {

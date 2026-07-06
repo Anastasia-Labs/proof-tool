@@ -120,6 +120,7 @@ export async function runClaimFirstBatchStage(options = {}) {
       destinationAddressSha256: sha256Hex(proof.destinationAddress),
       publicInputDigestSha256: sha256Hex(proof.publicInputDigestHex),
     })),
+    destinationValueSummaries: destinationValueSummaries(build.review.destinationOutputs),
     txCborWritten: false,
     witnessSetWritten: false,
     reviewTokenWritten: false,
@@ -139,6 +140,7 @@ export async function runClaimFirstBatchStage(options = {}) {
       reviewHash: build.reviewHash,
       progress: artifact.progress,
       evaluation: artifact.evaluation,
+      destinationValueSummaries: artifact.destinationValueSummaries,
     },
     claimBundle: {
       deploymentId: proofBundle.deploymentId,
@@ -146,6 +148,8 @@ export async function runClaimFirstBatchStage(options = {}) {
       selectedOutrefs: proofBundle.selectedOutrefs,
       txHash: submit.txHash,
       reviewHash: build.reviewHash,
+      destinationValueSummaries: artifact.destinationValueSummaries,
+      evaluation: artifact.evaluation,
     },
   };
 }
@@ -290,6 +294,17 @@ function summarizeEvaluation(value) {
     memoryPercent,
     cpuPercent,
   };
+}
+
+function destinationValueSummaries(outputs) {
+  if (!Array.isArray(outputs)) {
+    return [];
+  }
+  return outputs.map((output) => ({
+    outRefId: String(output.outRefId ?? ""),
+    destinationAddressSha256: sha256Hex(String(output.destinationAddress ?? "")),
+    value: output.value && typeof output.value === "object" ? output.value : {},
+  }));
 }
 
 function walletState(walletHarness, role) {

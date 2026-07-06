@@ -105,6 +105,13 @@ describe("claim-first-batch preprod stage", () => {
       proofBytesWritten: false,
       screenshots: ["screenshots/claim-first-batch.png"],
     });
+    expect(artifact.destinationValueSummaries).toHaveLength(4);
+    expect(artifact.destinationValueSummaries[0]).toMatchObject({
+      outRefId: selectedOutrefs[0],
+      value: {
+        lovelace: "2000000",
+      },
+    });
     const serializedArtifact = JSON.stringify(artifact);
     expect(serializedArtifact).not.toContain(txCbor);
     expect(serializedArtifact).not.toContain(witnessSetCbor);
@@ -117,6 +124,7 @@ describe("claim-first-batch preprod stage", () => {
       path: path.join(outputDir, "screenshots", "claim-first-batch.png"),
       fullPage: true,
     });
+    expect(result.claimBundle.destinationValueSummaries).toHaveLength(4);
   });
 
   it("always signs with safe_claim_destination even if the local env names another role", async () => {

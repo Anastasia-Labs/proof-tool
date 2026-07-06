@@ -22,6 +22,7 @@ describe("preprod browser bootstrap", () => {
     const claimDiscoveryStageRunner = vi.fn(async () => fakeClaimDiscoveryStage(outputDir));
     const destinationProofStageRunner = vi.fn(async () => fakeDestinationProofStage(outputDir));
     const claimFirstBatchStageRunner = vi.fn(async () => fakeClaimFirstBatchStage(outputDir));
+    const claimTailReceiptStageRunner = vi.fn(async () => fakeClaimTailReceiptStage(outputDir));
 
     const result = await runPreprodBrowserBootstrap({
       env: {},
@@ -36,6 +37,7 @@ describe("preprod browser bootstrap", () => {
       claimDiscoveryStageRunner,
       destinationProofStageRunner,
       claimFirstBatchStageRunner,
+      claimTailReceiptStageRunner,
     });
 
     expect(result.ok).toBe(true);
@@ -94,6 +96,20 @@ describe("preprod browser bootstrap", () => {
         },
       }),
     );
+    expect(claimTailReceiptStageRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: fake.page,
+        walletHarness,
+        outputDir,
+        appTarget: {
+          baseUrl: "http://127.0.0.1:3917",
+        },
+        helperTarget: null,
+        firstClaimBundle: {
+          txHash: "1".repeat(64),
+        },
+      }),
+    );
     expect(fake.context.close).toHaveBeenCalledTimes(1);
     expect(fake.browser.close).toHaveBeenCalledTimes(1);
     expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
@@ -109,6 +125,8 @@ describe("preprod browser bootstrap", () => {
       "generate-destination-bound-proofs.png",
       "claim-first-batch.json",
       "claim-first-batch.png",
+      "claim-tail-and-receipt.json",
+      "claim-tail-and-receipt.png",
     ]);
 
     const artifact = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
@@ -144,6 +162,7 @@ describe("preprod browser bootstrap", () => {
       claimDiscoveryStageRunner: async () => fakeClaimDiscoveryStage(tempDir()),
       destinationProofStageRunner: async () => fakeDestinationProofStage(tempDir()),
       claimFirstBatchStageRunner: async () => fakeClaimFirstBatchStage(tempDir()),
+      claimTailReceiptStageRunner: async () => fakeClaimTailReceiptStage(tempDir()),
     });
 
     expect(fake.launcher.launch).toHaveBeenCalledWith({ headless: false });
@@ -166,6 +185,7 @@ describe("preprod browser bootstrap", () => {
         claimDiscoveryStageRunner: async () => fakeClaimDiscoveryStage(tempDir()),
         destinationProofStageRunner: async () => fakeDestinationProofStage(tempDir()),
         claimFirstBatchStageRunner: async () => fakeClaimFirstBatchStage(tempDir()),
+        claimTailReceiptStageRunner: async () => fakeClaimTailReceiptStage(tempDir()),
       }),
     ).rejects.toMatchObject({
       code: "browser_bootstrap_failed",
@@ -267,6 +287,19 @@ function fakeDestinationProofStage(outputDir) {
 function fakeClaimFirstBatchStage(outputDir) {
   const jsonPath = path.join(outputDir, "claim-first-batch.json");
   const screenshotPath = path.join(outputDir, "screenshots", "claim-first-batch.png");
+  mkdirSync(path.dirname(screenshotPath), { recursive: true });
+  return {
+    ok: true,
+    artifacts: [jsonPath, screenshotPath],
+    claimBundle: {
+      txHash: "1".repeat(64),
+    },
+  };
+}
+
+function fakeClaimTailReceiptStage(outputDir) {
+  const jsonPath = path.join(outputDir, "claim-tail-and-receipt.json");
+  const screenshotPath = path.join(outputDir, "screenshots", "claim-tail-and-receipt.png");
   mkdirSync(path.dirname(screenshotPath), { recursive: true });
   return {
     ok: true,

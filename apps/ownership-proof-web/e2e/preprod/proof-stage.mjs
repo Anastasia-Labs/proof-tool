@@ -5,11 +5,10 @@ import { blake2b } from "@noble/hashes/blake2b";
 import { COMPROMISED_WALLET_ROLE_ENV } from "./funding-stage.mjs";
 
 export const DESTINATION_PROOF_STAGE_NAME = "generate-destination-bound-proofs";
-export const SAFE_WALLET_ROLE_ENV = "RECLAIM_E2E_SAFE_WALLET_ROLE";
 export const CLAIM_BATCH_SIZE_ENV = "RECLAIM_E2E_CLAIM_BATCH_SIZE";
 
 const DEFAULT_COMPROMISED_WALLET_ROLE = "compromised_user";
-const DEFAULT_SAFE_WALLET_ROLE = "safe_claim_destination";
+const SAFE_WALLET_ROLE = "safe_claim_destination";
 const DEFAULT_CLAIM_BATCH_SIZE = 4;
 const HARD_CLAIM_BATCH_SIZE = 5;
 const DESTINATION_PROFILE = "single-destination";
@@ -43,13 +42,12 @@ export async function runDestinationProofStage(options = {}) {
   }
 
   const compromisedRole = env[COMPROMISED_WALLET_ROLE_ENV]?.trim() || DEFAULT_COMPROMISED_WALLET_ROLE;
-  const safeRole = env[SAFE_WALLET_ROLE_ENV]?.trim() || DEFAULT_SAFE_WALLET_ROLE;
   const batchSize = parseBatchSize(env[CLAIM_BATCH_SIZE_ENV]?.trim() || String(DEFAULT_CLAIM_BATCH_SIZE));
   const appOrigin = originFor(appTarget.baseUrl, "appTarget.baseUrl");
   const helperUrl = loopbackHelperOrigin(helperTarget.helperUrl);
   const token = requiredString(helperTarget.token, "helperTarget.token");
   const compromisedState = walletState(walletHarness, compromisedRole, "impacted_wallet_missing");
-  const safeState = walletState(walletHarness, safeRole, "safe_wallet_missing");
+  const safeState = walletState(walletHarness, SAFE_WALLET_ROLE, "safe_wallet_missing");
   const impactedCredential = assertCredential(compromisedState.paymentCredential, "impacted_wallet_credential_missing");
   const safeCredential = assertCredential(safeState.paymentCredential, "safe_wallet_credential_missing");
   if (impactedCredential === safeCredential) {
@@ -59,12 +57,12 @@ export async function runDestinationProofStage(options = {}) {
     );
   }
   if (safeState.canSign !== true) {
-    throw new PreprodDestinationProofStageError("safe_wallet_read_only", `${safeRole} must be able to sign later claim transactions.`);
+    throw new PreprodDestinationProofStageError("safe_wallet_read_only", `${SAFE_WALLET_ROLE} must be able to sign later claim transactions.`);
   }
 
-  const networkId = await walletHarness.call?.(safeRole, "getNetworkId", []);
+  const networkId = await walletHarness.call?.(SAFE_WALLET_ROLE, "getNetworkId", []);
   if (networkId !== 0) {
-    throw new PreprodDestinationProofStageError("safe_wallet_network_mismatch", `${safeRole} must be connected to preprod network id 0.`);
+    throw new PreprodDestinationProofStageError("safe_wallet_network_mismatch", `${SAFE_WALLET_ROLE} must be connected to preprod network id 0.`);
   }
   const masterXPrvBase64 = await loadMasterXPrvBase64(walletHarness, compromisedRole);
   const claimDeployment = await fetchAppJson(fetchFn, appTarget.baseUrl, "/claim-api/deployment");
@@ -140,7 +138,7 @@ export async function runDestinationProofStage(options = {}) {
     },
     impactedWalletRole: compromisedRole,
     impactedPaymentCredential: redactCredential(impactedCredential),
-    safeWalletRole: safeRole,
+    safeWalletRole: SAFE_WALLET_ROLE,
     safePaymentCredential: redactCredential(safeCredential),
     safeWallet: {
       utxoCount: draft.safeWallet?.utxoCount ?? null,
