@@ -85,6 +85,8 @@ export async function deployReclaimPreprod(options = {}) {
   const holderAddress = validatorToAddress(NETWORK, holderScript);
   const baseAddress = validatorToAddress(NETWORK, baseScript);
   const globalRewardAddress = credentialToRewardAddress(NETWORK, scriptHashToCredential(globalScriptHash));
+  const globalRewardAccountRegistered = await isRewardAccountRegistered(env, globalRewardAddress);
+  const registerGlobalRewardAccount = !globalRewardAccountRegistered;
   const paramsUnit = `${paramsPolicyId}${PARAMS_TOKEN_NAME}`;
   const paramsDatum = Data.to(new Constr(0, [baseScriptHash]));
   const paramsLovelace = minOutputLovelace(protocol, {
@@ -104,20 +106,25 @@ export async function deployReclaimPreprod(options = {}) {
     datum: REFERENCE_DATUM,
     scriptRef: globalScript,
   });
-  const minimumOutputLovelace = paramsLovelace + baseReferenceLovelace + globalReferenceLovelace;
+  const rewardAccountRegistrationDeposit = registerGlobalRewardAccount ? protocolKeyDeposit(protocol) : 0n;
+  const minimumOutputLovelace = paramsLovelace + baseReferenceLovelace + globalReferenceLovelace + rewardAccountRegistrationDeposit;
   const availableLovelace = sumLovelace(deployerUtxos);
   if (availableLovelace <= minimumOutputLovelace + FEE_BUFFER_LOVELACE) {
     throw new DeployPreprodError(
       "deployer_balance_too_low",
-      `Deployer wallet has ${lovelaceToAda(availableLovelace)} ADA; deployment outputs require ${lovelaceToAda(minimumOutputLovelace)} ADA before fees.`,
+      `Deployer wallet has ${lovelaceToAda(availableLovelace)} ADA; deployment outputs and reward-account registration require ${lovelaceToAda(minimumOutputLovelace)} ADA before fees.`,
     );
   }
 
-  const signBuilder = await lucid
+  let tx = lucid
     .newTx()
     .collectFrom([seedUtxo])
     .mintAssets({ [paramsUnit]: 1n }, Data.void())
-    .attach.MintingPolicy(oneShotScript)
+    .attach.MintingPolicy(oneShotScript);
+  if (registerGlobalRewardAccount) {
+    tx = tx.register.Stake(globalRewardAddress);
+  }
+  const signBuilder = await tx
     .pay.ToAddressWithData(
       holderAddress,
       { kind: "inline", value: paramsDatum },
@@ -158,6 +165,8 @@ export async function deployReclaimPreprod(options = {}) {
     paramsHolderScriptHash: holderScriptHash,
     paramsHolderAddress: redactAddress(holderAddress),
     reclaimGlobalRewardAddress: globalRewardAddress,
+    globalRewardAccountRegisteredBefore: globalRewardAccountRegistered,
+    globalRewardAccountRegistrationSubmitted: registerGlobalRewardAccount,
     destinationVkHash: destination.vkHash,
     destinationCardanoVkBlake2b256: destination.cardanoVkBlake2b256,
     destinationKeysDir: path.relative(repoRoot, destination.keysDir),
@@ -179,6 +188,7 @@ export async function deployReclaimPreprod(options = {}) {
       reclaimBaseScriptHash: baseScriptHash,
       reclaimGlobalScriptHash: globalScriptHash,
       paramsHolderScriptHash: holderScriptHash,
+      globalRewardAccountRegistration: registerGlobalRewardAccount,
     }),
   );
   const signed = await signBuilder.sign.withWallet().complete();
@@ -213,6 +223,7 @@ export async function deployReclaimPreprod(options = {}) {
     referenceGlobal: deployed.globalReference,
     destination,
     providerName: providerName(env),
+    globalRewardAccountRegistered: true,
   });
   const manifestPath = writeManifest(env, repoRoot, manifest);
   await runNode(repoRoot, [path.join("apps", "ownership-proof-web", "scripts", "verify-reclaim-manifest.mjs"), manifestPath]);
@@ -360,6 +371,52 @@ function createProvider(env) {
 
 function providerName(env) {
   return (env.RECLAIM_PROVIDER?.trim() || "blockfrost").toLowerCase();
+}
+
+async function isRewardAccountRegistered(env, rewardAddress) {
+  const name = providerName(env);
+  if (name === "blockfrost") {
+    const projectId = env.RECLAIM_BLOCKFROST_PROJECT_ID?.trim() || env.BLOCKFROST_PROJECT_ID?.trim();
+    if (!projectId) {
+      throw new DeployPreprodError("blockfrost_project_id_missing", "RECLAIM_BLOCKFROST_PROJECT_ID is required.");
+    }
+    const baseUrl = (env.RECLAIM_BLOCKFROST_URL?.trim() || "https://cardano-preprod.blockfrost.io/api/v0").replace(/\/+$/u, "");
+    const response = await fetch(`${baseUrl}/accounts/${rewardAddress}`, {
+      headers: { project_id: projectId },
+    });
+    if (response.status === 200) {
+      return true;
+    }
+    if (response.status === 404) {
+      return false;
+    }
+    throw new DeployPreprodError(
+      "reward_account_status_unavailable",
+      `Blockfrost account status check returned HTTP ${response.status} for ReclaimGlobal reward account.`,
+    );
+  }
+  if (name === "koios") {
+    const baseUrl = (env.RECLAIM_KOIOS_URL?.trim() || "https://preprod.koios.rest/api/v1").replace(/\/+$/u, "");
+    const headers = { "content-type": "application/json" };
+    const token = env.RECLAIM_KOIOS_TOKEN?.trim();
+    if (token) {
+      headers.authorization = `Bearer ${token}`;
+    }
+    const response = await fetch(`${baseUrl}/account_info`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ _stake_addresses: [rewardAddress] }),
+    });
+    if (!response.ok) {
+      throw new DeployPreprodError(
+        "reward_account_status_unavailable",
+        `Koios account status check returned HTTP ${response.status} for ReclaimGlobal reward account.`,
+      );
+    }
+    const body = await response.json();
+    return Array.isArray(body) && body.length > 0;
+  }
+  throw new DeployPreprodError("provider_unsupported", "RECLAIM_PROVIDER must be blockfrost or koios.");
 }
 
 async function prepareDestinationKeys({ env, repoRoot, git }) {
@@ -521,6 +578,10 @@ function minOutputLovelace(protocol, utxo) {
   });
 }
 
+function protocolKeyDeposit(protocol) {
+  return BigInt(protocol.keyDeposit ?? 0n);
+}
+
 function sumLovelace(utxos) {
   return utxos.reduce((total, utxo) => total + BigInt(utxo.assets?.lovelace ?? 0n), 0n);
 }
@@ -543,6 +604,7 @@ function buildManifest({
   referenceGlobal,
   destination,
   providerName,
+  globalRewardAccountRegistered,
 }) {
   return {
     schema: "proof-tool-reclaim-deployment-v1",
@@ -599,6 +661,7 @@ function buildManifest({
       holder_script_hash: holderScriptHash,
       destination_key_provenance: "single-actor local Preprod setup; not an MPC ceremony",
       global_reward_address: globalRewardAddress,
+      global_reward_account_registered: globalRewardAccountRegistered,
     },
   };
 }
