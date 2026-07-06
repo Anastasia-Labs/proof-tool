@@ -21,6 +21,7 @@ describe("preprod browser bootstrap", () => {
     const nativeFundingStageRunner = vi.fn(async () => fakeNativeFundingStage(outputDir));
     const claimDiscoveryStageRunner = vi.fn(async () => fakeClaimDiscoveryStage(outputDir));
     const destinationProofStageRunner = vi.fn(async () => fakeDestinationProofStage(outputDir));
+    const claimFirstBatchStageRunner = vi.fn(async () => fakeClaimFirstBatchStage(outputDir));
 
     const result = await runPreprodBrowserBootstrap({
       env: {},
@@ -34,6 +35,7 @@ describe("preprod browser bootstrap", () => {
       nativeFundingStageRunner,
       claimDiscoveryStageRunner,
       destinationProofStageRunner,
+      claimFirstBatchStageRunner,
     });
 
     expect(result.ok).toBe(true);
@@ -79,6 +81,19 @@ describe("preprod browser bootstrap", () => {
         helperTarget: null,
       }),
     );
+    expect(claimFirstBatchStageRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: fake.page,
+        walletHarness,
+        outputDir,
+        appTarget: {
+          baseUrl: "http://127.0.0.1:3917",
+        },
+        proofBundle: {
+          selectedOutrefs: ["a".repeat(64) + "#0"],
+        },
+      }),
+    );
     expect(fake.context.close).toHaveBeenCalledTimes(1);
     expect(fake.browser.close).toHaveBeenCalledTimes(1);
     expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
@@ -92,6 +107,8 @@ describe("preprod browser bootstrap", () => {
       "discover-matching-claims.png",
       "generate-destination-bound-proofs.json",
       "generate-destination-bound-proofs.png",
+      "claim-first-batch.json",
+      "claim-first-batch.png",
     ]);
 
     const artifact = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
@@ -126,6 +143,7 @@ describe("preprod browser bootstrap", () => {
       nativeFundingStageRunner: async () => fakeNativeFundingStage(tempDir()),
       claimDiscoveryStageRunner: async () => fakeClaimDiscoveryStage(tempDir()),
       destinationProofStageRunner: async () => fakeDestinationProofStage(tempDir()),
+      claimFirstBatchStageRunner: async () => fakeClaimFirstBatchStage(tempDir()),
     });
 
     expect(fake.launcher.launch).toHaveBeenCalledWith({ headless: false });
@@ -147,6 +165,7 @@ describe("preprod browser bootstrap", () => {
         nativeFundingStageRunner: async () => fakeNativeFundingStage(tempDir()),
         claimDiscoveryStageRunner: async () => fakeClaimDiscoveryStage(tempDir()),
         destinationProofStageRunner: async () => fakeDestinationProofStage(tempDir()),
+        claimFirstBatchStageRunner: async () => fakeClaimFirstBatchStage(tempDir()),
       }),
     ).rejects.toMatchObject({
       code: "browser_bootstrap_failed",
@@ -235,6 +254,19 @@ function fakeClaimDiscoveryStage(outputDir) {
 function fakeDestinationProofStage(outputDir) {
   const jsonPath = path.join(outputDir, "generate-destination-bound-proofs.json");
   const screenshotPath = path.join(outputDir, "screenshots", "generate-destination-bound-proofs.png");
+  mkdirSync(path.dirname(screenshotPath), { recursive: true });
+  return {
+    ok: true,
+    artifacts: [jsonPath, screenshotPath],
+    proofBundle: {
+      selectedOutrefs: ["a".repeat(64) + "#0"],
+    },
+  };
+}
+
+function fakeClaimFirstBatchStage(outputDir) {
+  const jsonPath = path.join(outputDir, "claim-first-batch.json");
+  const screenshotPath = path.join(outputDir, "screenshots", "claim-first-batch.png");
   mkdirSync(path.dirname(screenshotPath), { recursive: true });
   return {
     ok: true,

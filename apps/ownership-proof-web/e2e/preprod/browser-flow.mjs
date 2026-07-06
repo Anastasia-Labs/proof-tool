@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
+import { runClaimFirstBatchStage } from "./claim-stage.mjs";
 import { runClaimDiscoveryStage } from "./claim-discovery-stage.mjs";
 import { runAdaOnlyFundingStage, runNativeAssetFundingStage } from "./funding-stage.mjs";
 import { runDestinationProofStage } from "./proof-stage.mjs";
@@ -29,6 +30,7 @@ export async function runPreprodBrowserBootstrap(options = {}) {
   const nativeFundingStageRunner = options.nativeFundingStageRunner ?? runNativeAssetFundingStage;
   const claimDiscoveryStageRunner = options.claimDiscoveryStageRunner ?? runClaimDiscoveryStage;
   const destinationProofStageRunner = options.destinationProofStageRunner ?? runDestinationProofStage;
+  const claimFirstBatchStageRunner = options.claimFirstBatchStageRunner ?? runClaimFirstBatchStage;
   const screenshotsDir = path.join(outputDir, "screenshots");
   const stagePath = path.join(outputDir, "browser-bootstrap.json");
   const reclaimScreenshotPath = path.join(screenshotsDir, "reclaim-initial.png");
@@ -129,6 +131,18 @@ export async function runPreprodBrowserBootstrap(options = {}) {
     });
     if (Array.isArray(destinationProofStage?.artifacts)) {
       artifacts.push(...destinationProofStage.artifacts);
+    }
+    const claimFirstBatchStage = await claimFirstBatchStageRunner({
+      ...(options.claimFirstBatchStageOptions ?? {}),
+      env,
+      page,
+      walletHarness,
+      appTarget,
+      outputDir,
+      proofBundle: destinationProofStage.proofBundle,
+    });
+    if (Array.isArray(claimFirstBatchStage?.artifacts)) {
+      artifacts.push(...claimFirstBatchStage.artifacts);
     }
 
     return {
