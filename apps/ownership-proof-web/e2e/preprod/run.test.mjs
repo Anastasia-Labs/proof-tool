@@ -165,6 +165,49 @@ describe("Phase 9A preprod E2E runner", () => {
     expect(browserBootstrap.schema).toBe("proof-tool-preprod-browser-bootstrap-v1");
   });
 
+  it("snapshots repo-relative manifest paths when running from the app directory", async () => {
+    const repo = tempDir();
+    const appCwd = path.join(repo, "apps", "ownership-proof-web");
+    mkdirSync(path.join(repo, "deployments", "reclaim", "preprod"), { recursive: true });
+    mkdirSync(appCwd, { recursive: true });
+    const commit = "abcdef1234567890abcdef1234567890abcdef12";
+    const walletPath = path.join(repo, "wallets.local.json");
+    const manifestPath = path.join(repo, "deployments", "reclaim", "preprod", "live.local.json");
+    writeFile(walletPath, JSON.stringify(validWalletFile()));
+    writeFile(manifestPath, JSON.stringify(validManifest(commit)));
+    let appEnv = null;
+
+    const result = await runPreprodE2E({
+      env: {
+        RECLAIM_E2E_LIVE_PREPROD: "1",
+        [TRANSACTION_APPROVAL_ENV]: "1",
+        RECLAIM_REVIEW_TOKEN_SECRET: "test-review-token-secret",
+        PREPROD_TEST_WALLETS_FILE: walletPath,
+        RECLAIM_DEPLOYMENT_MANIFEST_PATH: "deployments/reclaim/preprod/live.local.json",
+        RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,
+        ...helperEnv,
+      },
+      cwd: appCwd,
+      repoRoot: repo,
+      outputRoot: "output/preprod-e2e",
+      now: () => new Date("2026-07-05T13:05:00.000Z"),
+      execFile: fakeGit({ commit, status: "" }),
+      walletHarnessLoader: async () => fakeWalletHarness(),
+      appTargetLoader: async ({ env }) => {
+        appEnv = env;
+        return fakeAppTarget();
+      },
+      deploymentStageRunner: async () => fakeDeploymentStage(repo),
+      browserBootstrapRunner: async () => fakeBrowserBootstrap(repo),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(path.basename(appEnv.RECLAIM_DEPLOYMENT_MANIFEST_PATH)).toBe("deployment-manifest.snapshot.json");
+    const snapshotPath = result.artifacts.find((artifact) => path.basename(artifact) === "deployment-manifest.snapshot.json");
+    const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
+    expect(snapshot.source_commit).toBe(commit);
+  });
+
   it("fails closed before wallet loading when approved live config is incomplete", async () => {
     const repo = tempDir();
     const commit = "ba9876543210abcdef1234567890abcdef123456";

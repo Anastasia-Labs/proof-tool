@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+  MANIFEST_PATH_ENVS,
   REQUIRED_WALLET_ROLES,
   MANIFEST_JSON_ENV,
   formatPreflightReport,
@@ -19,7 +20,7 @@ import { validatePreprodLiveConfig, writePreprodLiveConfigArtifact } from "./liv
 export const TRANSACTION_APPROVAL_ENV = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
 export const MANIFEST_SNAPSHOT_FILE = "deployment-manifest.snapshot.json";
 
-const MANIFEST_PATH_ENVS = ["RECLAIM_DEPLOYMENT_MANIFEST_PATH", "RECLAIM_DEPLOYMENT_MANIFEST", "RECLAIM_MANIFEST_PATH"];
+const DEFAULT_REPO_ROOT = defaultRepoRoot();
 
 export const PREPROD_E2E_STAGES = Object.freeze([
   "deploy-or-verify-preprod-manifest",
@@ -182,6 +183,7 @@ export async function runPreprodE2E(options = {}) {
     const manifestSnapshotPath = writeManifestSnapshotForRun({
       env,
       cwd: options.cwd ?? process.cwd(),
+      repoRoot: options.repoRoot ?? DEFAULT_REPO_ROOT,
       outputDir,
       writeFile,
     });
@@ -408,7 +410,7 @@ function sanitizeError(error, fallbackCode = "cip30_harness_error", fallbackMess
   };
 }
 
-function writeManifestSnapshotForRun({ env, cwd, outputDir, writeFile }) {
+function writeManifestSnapshotForRun({ env, cwd, repoRoot, outputDir, writeFile }) {
   const manifestJson = stringValue(env[MANIFEST_JSON_ENV]);
   let contents = "";
   if (manifestJson) {
@@ -418,7 +420,7 @@ function writeManifestSnapshotForRun({ env, cwd, outputDir, writeFile }) {
     if (!manifestPath) {
       return null;
     }
-    contents = readFileSync(resolveConfigPath(manifestPath, cwd), "utf8");
+    contents = readFileSync(resolveConfigPath(manifestPath, { cwd, repoRoot }), "utf8");
     JSON.parse(contents);
     if (!contents.endsWith("\n")) {
       contents = `${contents}\n`;
@@ -441,8 +443,17 @@ function envWithManifestSnapshot(env, manifestSnapshotPath) {
   return next;
 }
 
-function resolveConfigPath(value, cwd) {
-  return path.isAbsolute(value) ? value : path.resolve(cwd, value);
+function resolveConfigPath(value, { cwd, repoRoot }) {
+  if (path.isAbsolute(value)) {
+    return value;
+  }
+  const candidates = [path.resolve(repoRoot, value), path.resolve(cwd, value)];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return candidates[0];
 }
 
 function firstString(...values) {
@@ -457,6 +468,17 @@ function firstString(...values) {
 
 function stringValue(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function defaultRepoRoot() {
+  if (import.meta.url.startsWith("file:")) {
+    try {
+      return path.resolve(fileURLToPath(new URL("../../../..", import.meta.url)));
+    } catch {
+      return path.resolve(process.cwd(), "../..");
+    }
+  }
+  return path.resolve(process.cwd(), "../..");
 }
 
 async function main() {
