@@ -94,14 +94,14 @@ async function assertWrongNetworkBlocksReclaimPage(page, baseUrl, fundingRole) {
   await forceWalletNetwork(page, fundingRole, WRONG_NETWORK_ID);
   await page.getByLabel("Cardano wallet").selectOption(fundingRole);
   await page.getByRole("button", { name: /connect wallet/iu }).click();
-  await page.getByText("Network mismatch").waitFor();
+  const evidence = await waitForWrongNetworkReclaimEvidence(page);
   return {
     name: "wrong-network-reclaim-page",
     status: "blocked",
     walletRole: fundingRole,
     observedNetworkId: WRONG_NETWORK_ID,
     expectedNetworkId: 0,
-    evidence: "Network mismatch",
+    evidence,
   };
 }
 
@@ -368,6 +368,16 @@ async function forceWalletNetwork(page, role, networkId) {
     },
     { role, networkId },
   );
+}
+
+async function waitForWrongNetworkReclaimEvidence(page) {
+  return Promise.race([
+    page.getByText("Network mismatch").waitFor().then(() => "Network mismatch"),
+    page
+      .getByText(/Wallet address network does not match/iu)
+      .waitFor()
+      .then(() => "Wallet address network does not match the connected wallet."),
+  ]);
 }
 
 async function expectError(fn) {
