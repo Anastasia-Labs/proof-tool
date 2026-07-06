@@ -623,6 +623,29 @@ describe("claim build and submit fail closed", () => {
     ).rejects.toMatchObject({ code: "claim_params_datum_mismatch" });
   });
 
+  it("accepts canonical parameter datum CBOR from provider responses", async () => {
+    const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const provider = providerWith({
+      reclaimUtxos: [selected],
+      selectedUtxos: [selected],
+      safeUtxos: [safeUtxo()],
+      paramsUtxo: paramsUtxo({ datum: `d87981581c${RECLAIM_SCRIPT}` }),
+    });
+    const draft = await selectedDraft(provider, selected);
+
+    await expect(
+      validateClaimBuildRequest(provider, DEPLOYMENT, {
+        deploymentId: DEPLOYMENT.id,
+        networkId: 0,
+        draftId: draft.draftId,
+        selectedOutrefs: [outRefToString(selected)],
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        proofArtifacts: [proofArtifactForDraft(draft, 0)],
+      }),
+    ).rejects.toMatchObject({ code: "claim_build_unsupported" });
+  });
+
   it("rejects unsupported deployments with no parameter reference in the manifest", async () => {
     const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
     const provider = providerWith({

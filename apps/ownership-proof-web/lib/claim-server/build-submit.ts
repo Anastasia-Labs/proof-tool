@@ -458,9 +458,26 @@ function assertParamsUtxo(utxo: UTxO, deployment: ReclaimDeployment): void {
       throw new ClaimValidationError("claim_params_token_mismatch", "Parameter reference UTxO contains unexpected tokens under the parameter policy.");
     }
   }
-  const expectedDatum = Data.to(new Constr(0, [deployment.reclaimBaseScriptHash]));
-  if (!utxo.datum || utxo.datum.toLowerCase() !== expectedDatum) {
+  if (!paramsDatumBindsReclaimBase(utxo.datum, deployment.reclaimBaseScriptHash)) {
     throw new ClaimValidationError("claim_params_datum_mismatch", "Parameter reference datum does not bind the configured ReclaimBase script hash.");
+  }
+}
+
+function paramsDatumBindsReclaimBase(datumCbor: string | null | undefined, expectedScriptHash: string): boolean {
+  if (!datumCbor) {
+    return false;
+  }
+  try {
+    const datum = Data.from(datumCbor);
+    return (
+      datum instanceof Constr &&
+      datum.index === 0 &&
+      datum.fields.length === 1 &&
+      typeof datum.fields[0] === "string" &&
+      datum.fields[0].toLowerCase() === expectedScriptHash.toLowerCase()
+    );
+  } catch {
+    return false;
   }
 }
 
