@@ -803,7 +803,7 @@ async function inspectClaimSubmitRequest(
 
   const signedTxCbor = request.signedTxCbor
     ? assertCborHex(request.signedTxCbor, "signedTxCbor")
-    : await assembleClaimWitnessSet(provider, deployment, unsignedTxCbor, request.witnessSetCbor);
+    : assembleClaimWitnessSet(unsignedTxCbor, request.witnessSetCbor);
   const signedTxHash = parseTransactionHash(signedTxCbor, "signedTxCbor");
   if (signedTxHash !== token.txHash) {
     throw new ClaimValidationError("claim_submit_review_mismatch", "Signed claim transaction body does not match the reviewed build.");
@@ -823,18 +823,11 @@ async function inspectClaimSubmitRequest(
   };
 }
 
-async function assembleClaimWitnessSet(
-  provider: Provider,
-  deployment: ReclaimDeployment,
-  unsignedTxCbor: string,
-  witnessSetCbor: unknown,
-): Promise<string> {
+function assembleClaimWitnessSet(unsignedTxCbor: string, witnessSetCbor: unknown): string {
   if (!unsignedTxCbor) {
     throw new ClaimValidationError("claim_submit_signed_tx_required", "Claim submit requires unsignedTxCbor when witnessSetCbor is provided.");
   }
   const witnessSet = assertCborHex(witnessSetCbor, "witnessSetCbor");
-  void provider;
-  void deployment;
   return assembleTransactionWithWitnessSet(unsignedTxCbor, witnessSet);
 }
 
