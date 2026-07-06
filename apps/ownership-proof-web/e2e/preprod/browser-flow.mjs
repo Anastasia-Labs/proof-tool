@@ -3,6 +3,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { runClaimDiscoveryStage } from "./claim-discovery-stage.mjs";
 import { runAdaOnlyFundingStage, runNativeAssetFundingStage } from "./funding-stage.mjs";
+import { runDestinationProofStage } from "./proof-stage.mjs";
 
 export const HEADED_ENV = "RECLAIM_E2E_HEADED";
 export const BROWSER_BOOTSTRAP_STAGE = "browser-bootstrap";
@@ -27,6 +28,7 @@ export async function runPreprodBrowserBootstrap(options = {}) {
   const fundingStageRunner = options.fundingStageRunner ?? runAdaOnlyFundingStage;
   const nativeFundingStageRunner = options.nativeFundingStageRunner ?? runNativeAssetFundingStage;
   const claimDiscoveryStageRunner = options.claimDiscoveryStageRunner ?? runClaimDiscoveryStage;
+  const destinationProofStageRunner = options.destinationProofStageRunner ?? runDestinationProofStage;
   const screenshotsDir = path.join(outputDir, "screenshots");
   const stagePath = path.join(outputDir, "browser-bootstrap.json");
   const reclaimScreenshotPath = path.join(screenshotsDir, "reclaim-initial.png");
@@ -115,6 +117,18 @@ export async function runPreprodBrowserBootstrap(options = {}) {
     });
     if (Array.isArray(claimDiscoveryStage?.artifacts)) {
       artifacts.push(...claimDiscoveryStage.artifacts);
+    }
+    const destinationProofStage = await destinationProofStageRunner({
+      ...(options.destinationProofStageOptions ?? {}),
+      env,
+      page,
+      walletHarness,
+      appTarget,
+      helperTarget,
+      outputDir,
+    });
+    if (Array.isArray(destinationProofStage?.artifacts)) {
+      artifacts.push(...destinationProofStage.artifacts);
     }
 
     return {

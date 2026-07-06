@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Blockfrost, Koios, Lucid, getAddressDetails, walletFromSeed } from "@lucid-evolution/lucid";
+import { masterXprvFromSeedPhrase } from "@proof-zk-recovery/proof-tool-client";
 import {
   REQUIRED_WALLET_ROLES,
   redactAddress,
@@ -104,6 +105,14 @@ export async function createCip30WalletHarness({
         canSign: state.canSign,
         signAttempts: state.signAttempts,
       };
+    },
+    async masterXPrvBase64ForHelper(role) {
+      const state = roles.get(role);
+      if (!state) {
+        throw new Cip30HarnessError("wallet_role_unknown", `Unknown preprod wallet role: ${role}`);
+      }
+      const masterXPrv = await masterXprvFromSeedPhrase(state.mnemonic);
+      return Buffer.from(masterXPrv).toString("base64");
     },
   };
 }

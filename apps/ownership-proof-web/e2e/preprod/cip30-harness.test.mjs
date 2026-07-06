@@ -58,6 +58,10 @@ describe("preprod CIP-30 wallet harness", () => {
     expect(serializedSummary).not.toContain("drip announce");
     expect(serializedSummary).not.toContain("fix kite");
     expect(serializedSummary).not.toContain(harness.roleState("reclaim_funder").address);
+
+    const helperSecret = await harness.masterXPrvBase64ForHelper("compromised_user");
+    expect(Buffer.from(helperSecret, "base64")).toHaveLength(96);
+    expect(JSON.stringify(harness.summary)).not.toContain(helperSecret);
   });
 
   it("keeps the compromised wallet read-only even when signTx is requested", async () => {
@@ -125,6 +129,9 @@ describe("preprod CIP-30 wallet harness", () => {
     expect(page.exposed.name).toBe(CIP30_HARNESS_WINDOW_BRIDGE);
     expect(page.initScript.args.walletRoles.map((role) => role.id)).toEqual(harness.roles);
     expect(await page.exposed.callback("reclaim_funder", "getNetworkId", [])).toBe(0);
+    await expect(page.exposed.callback("compromised_user", "masterXPrvBase64ForHelper", [])).rejects.toMatchObject({
+      code: "wallet_method_unknown",
+    });
   });
 });
 
