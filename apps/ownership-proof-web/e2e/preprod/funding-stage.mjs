@@ -21,6 +21,7 @@ const DEFAULT_NATIVE_RECLAIM_COUNT = 5;
 const DEFAULT_NATIVE_ADA_AMOUNT = "2";
 const DEFAULT_LIVE_FUNDING_SETTLEMENT_MS = 45_000;
 const WALLET_INVENTORY_READY = /^[0-9]+ UTxOs?, [0-9]+ assets?$/iu;
+const BUILD_RESULT_TIMEOUT_MS = 180_000;
 const SUBMIT_RESULT_TIMEOUT_MS = 120_000;
 
 export class PreprodFundingStageError extends Error {
@@ -187,7 +188,10 @@ async function buildSignSubmitFundingTransaction(page, { compromisedCredential, 
   await page.getByRole("button", { name: /refresh assets/iu }).click();
   await page.locator('section[aria-labelledby="assets-section"] .inventory-empty').filter({ hasText: WALLET_INVENTORY_READY }).waitFor();
   await page.getByRole("button", { name: /build transaction/iu }).click();
-  await page.getByText("Datum CBOR").waitFor();
+  const buildResult = await waitForBuildResult(page);
+  if (buildResult.status === "failed") {
+    throw new PreprodFundingStageError("funding_build_failed", buildResult.message || "Funding transaction build failed.");
+  }
   const reviewedTxHash = sanitizeText(await page.locator(".review-item").filter({ hasText: "Tx hash" }).locator("code").textContent());
   await page.getByRole("button", { name: /sign and submit/iu }).click();
   const submitResult = await waitForSubmitResult(page);
@@ -202,6 +206,28 @@ async function buildSignSubmitFundingTransaction(page, { compromisedCredential, 
     reviewedTxHash,
     submittedTxHash,
   };
+}
+
+async function waitForBuildResult(page) {
+  try {
+    return await Promise.race([
+      page.getByText("Datum CBOR").waitFor({ timeout: BUILD_RESULT_TIMEOUT_MS }).then(() => ({ status: "built" })),
+      page
+        .locator(".result-band.bad")
+        .waitFor({ timeout: BUILD_RESULT_TIMEOUT_MS })
+        .then(async () => ({
+          status: "failed",
+          message: sanitizeText(await page.locator(".result-band.bad span").last().textContent()),
+        })),
+    ]);
+  } catch (error) {
+    throw new PreprodFundingStageError(
+      "funding_build_result_timeout",
+      `Funding transaction build did not reach a success or failure state within ${BUILD_RESULT_TIMEOUT_MS / 1000}s: ${
+        error instanceof Error ? error.message : "timed out"
+      }`,
+    );
+  }
 }
 
 async function waitForSubmitResult(page) {

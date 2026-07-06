@@ -107,6 +107,21 @@ describe("ADA-only preprod funding stage", () => {
       message: "Provider rejected the transaction.",
     });
   });
+
+  it("surfaces funding build failures from the page instead of waiting only for the review", async () => {
+    await expect(
+      runAdaOnlyFundingStage({
+        page: fakeFundingPage({
+          buildFailure: "Wallet UTxOs do not contain enough lovelace.",
+        }),
+        walletHarness: fakeWalletHarness(),
+        outputDir: tempDir(),
+      }),
+    ).rejects.toMatchObject({
+      code: "funding_build_failed",
+      message: "Wallet UTxOs do not contain enough lovelace.",
+    });
+  });
 });
 
 describe("native-asset preprod funding stage", () => {
@@ -234,6 +249,9 @@ function fakeFundingPage(options = {}) {
     getByText(text) {
       return {
         waitFor: vi.fn(async () => {
+          if (text === "Datum CBOR" && options.buildFailure) {
+            return new Promise(() => undefined);
+          }
           if (text === "Transaction submitted" && options.submitFailure) {
             return new Promise(() => undefined);
           }
@@ -267,7 +285,7 @@ function fakeLocator(selector, calls, options) {
   if (selector === ".result-band.bad") {
     return {
       waitFor: vi.fn(async () => {
-        if (!options.submitFailure) {
+        if (!options.submitFailure && !options.buildFailure) {
           return new Promise(() => undefined);
         }
         calls.push(["waitForLocator", selector]);
@@ -277,7 +295,7 @@ function fakeLocator(selector, calls, options) {
   if (selector === ".result-band.bad span") {
     return {
       last: () => ({
-        textContent: async () => options.submitFailure,
+        textContent: async () => options.submitFailure ?? options.buildFailure,
       }),
     };
   }
