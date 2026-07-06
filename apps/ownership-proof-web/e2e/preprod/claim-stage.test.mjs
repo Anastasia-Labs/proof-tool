@@ -214,6 +214,31 @@ describe("claim-first-batch preprod stage", () => {
       code: "safe_wallet_sign_attempt_mismatch",
     });
   });
+
+  it("includes typed submit error bodies in HTTP failures", async () => {
+    await expect(
+      runClaimFirstBatchStage({
+        env: {},
+        appTarget: { baseUrl: "http://127.0.0.1:3917" },
+        walletHarness: fakeWalletHarness(),
+        outputDir: tempDir(),
+        proofBundle: proofBundle(),
+        fetch: fakeFetch({
+          submitResponse: jsonResponse(
+            {
+              code: "claim_submit_provider_rejected",
+              error: "Provider rejected the claim transaction: validation failed",
+            },
+            400,
+          ),
+        }),
+      }),
+    ).rejects.toMatchObject({
+      code: "http_error",
+      message:
+        "/claim-api/submit returned HTTP 400: claim_submit_provider_rejected: Provider rejected the claim transaction: validation failed.",
+    });
+  });
 });
 
 function fakeFetch(options = {}) {
@@ -231,6 +256,9 @@ function fakeFetch(options = {}) {
     }
     if (urlText === "http://127.0.0.1:3917/claim-api/submit") {
       fetch.submitBody = JSON.parse(init.body);
+      if (options.submitResponse) {
+        return options.submitResponse;
+      }
       return jsonResponse({
         txHash: txHash(),
         deploymentId,
@@ -399,9 +427,9 @@ function fakePage() {
   };
 }
 
-function jsonResponse(value) {
+function jsonResponse(value, status = 200) {
   return {
-    status: 200,
+    status,
     async json() {
       return value;
     },

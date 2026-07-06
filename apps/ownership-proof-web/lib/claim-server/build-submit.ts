@@ -309,7 +309,15 @@ export async function submitClaimTx(
   validateClaimSubmitRequest(deployment, request);
   const raw = request as Required<Pick<ClaimSubmitRequest, "claimBuildReviewToken" | "review">> & ClaimSubmitRequest;
   const inspection = await inspectClaimSubmitRequest(provider, deployment, raw);
-  const submittedHash = await provider.submitTx(inspection.signedTxCbor);
+  let submittedHash: string;
+  try {
+    submittedHash = await provider.submitTx(inspection.signedTxCbor);
+  } catch (error) {
+    throw new ClaimValidationError(
+      "claim_submit_provider_rejected",
+      `Provider rejected the claim transaction: ${sanitizeProviderSubmitError(error)}`,
+    );
+  }
   if (submittedHash !== inspection.txHash) {
     throw new ClaimValidationError("claim_submit_hash_mismatch", "Provider returned a transaction hash that does not match the reviewed claim transaction.");
   }
@@ -779,6 +787,16 @@ function summarizeEvaluation(
 
 function percentCeil(value: bigint, max: bigint): number {
   return Number((value * 100n + max - 1n) / max);
+}
+
+function sanitizeProviderSubmitError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : typeof error === "string" ? error : JSON.stringify(error);
+  const normalized = (raw || "submission failed")
+    .replace(/\b[0-9a-f]{128,}\b/giu, "[hex-redacted]")
+    .replace(/(mnemonic|seed|phrase|xprv|private|secret|token|proof|witness|cbor)\s*[:=]\s*\S+/giu, "$1=[redacted]")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return normalized.slice(0, 1000) || "submission failed";
 }
 
 function parseTransactionHash(txCbor: string, field: string): string {

@@ -183,12 +183,25 @@ async function fetchAppJson(fetchFn, baseUrl, endpoint, init) {
     throw new PreprodClaimStageError("fetch_failed", `Claim stage request failed: ${error?.message ?? "request failed"}`);
   }
   if (!response || response.status < 200 || response.status >= 300) {
-    throw new PreprodClaimStageError("http_error", `${endpoint} returned HTTP ${response?.status ?? "unknown"}.`);
+    const detail = response ? await readErrorDetail(response) : "";
+    throw new PreprodClaimStageError("http_error", `${endpoint} returned HTTP ${response?.status ?? "unknown"}${detail}.`);
   }
   try {
     return await response.json();
   } catch {
     throw new PreprodClaimStageError("json_malformed", `${endpoint} did not return valid JSON.`);
+  }
+}
+
+async function readErrorDetail(response) {
+  try {
+    const body = await response.json();
+    const code = typeof body?.code === "string" ? body.code : "";
+    const message = typeof body?.error === "string" ? body.error : "";
+    const parts = [code, message].filter(Boolean);
+    return parts.length > 0 ? `: ${parts.join(": ")}` : "";
+  } catch {
+    return "";
   }
 }
 
