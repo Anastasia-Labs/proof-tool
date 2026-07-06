@@ -164,6 +164,57 @@ describe("claim-tail-and-receipt preprod stage", () => {
     expect(receipt.claimCount).toBe(2);
   });
 
+  it("honors the configured claim batch size for tail batches", async () => {
+    const outputDir = tempDir();
+    const queuedOutrefs = [["e".repeat(64) + "#0"], ["f".repeat(64) + "#1"]];
+    const proofStageRunner = vi.fn(async ({ env, outputDir: batchOutputDir }) => {
+      expect(env.RECLAIM_E2E_CLAIM_BATCH_SIZE).toBe("1");
+      const selectedOutrefs = queuedOutrefs.shift();
+      const artifact = path.join(batchOutputDir, "generate-destination-bound-proofs.json");
+      writeFile(artifact, JSON.stringify({ schema: "proof", proofHex }));
+      return {
+        artifacts: [artifact],
+        proofBundle: {
+          selectedOutrefs,
+          proofArtifacts: selectedOutrefs.map(() => ({ cardano: { proof_hex: proofHex } })),
+        },
+      };
+    });
+    const claimStageRunner = vi.fn(async ({ proofBundle, outputDir: batchOutputDir }) => {
+      expect(proofBundle.selectedOutrefs).toHaveLength(1);
+      const artifact = path.join(batchOutputDir, "claim-first-batch.json");
+      writeFile(artifact, JSON.stringify({ schema: "claim" }));
+      return {
+        artifacts: [artifact],
+        claimBundle: claimBundle({
+          txHash: `${claimStageRunner.mock.calls.length + 4}`.repeat(64).slice(0, 64),
+          selectedOutrefs: proofBundle.selectedOutrefs,
+          lovelace: "2000000",
+        }),
+      };
+    });
+
+    const result = await runClaimTailAndReceiptStage({
+      env: {
+        RECLAIM_E2E_CLAIM_BATCH_SIZE: "1",
+      },
+      appTarget: { baseUrl: "http://127.0.0.1:3917" },
+      helperTarget: { helperUrl: "http://127.0.0.1:49152", token: "pair-secret" },
+      walletHarness: fakeWalletHarness(),
+      outputDir,
+      firstClaimBundle: firstClaim,
+      fetch: fakeFetch([[queuedOutrefs[0][0], queuedOutrefs[1][0]], [queuedOutrefs[1][0]], []]),
+      destinationProofStageRunner: proofStageRunner,
+      claimFirstBatchStageRunner: claimStageRunner,
+    });
+
+    const receipt = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
+    expect(result.ok).toBe(true);
+    expect(proofStageRunner).toHaveBeenCalledTimes(2);
+    expect(claimStageRunner).toHaveBeenCalledTimes(2);
+    expect(receipt.tailBatches.map((batch) => batch.selectedOutrefCount)).toEqual([1, 1]);
+  });
+
   it("writes a receipt without tail batches when no matching UTxOs remain", async () => {
     const outputDir = tempDir();
     const result = await runClaimTailAndReceiptStage({

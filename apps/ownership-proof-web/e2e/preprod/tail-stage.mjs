@@ -36,6 +36,11 @@ export async function runClaimTailAndReceiptStage(options = {}) {
     DEFAULT_MAX_TAIL_BATCHES,
     CLAIM_TAIL_MAX_BATCHES_ENV,
   );
+  const tailBatchSize = parsePositiveInt(
+    env[CLAIM_BATCH_SIZE_ENV]?.trim(),
+    DEFAULT_TAIL_BATCH_SIZE,
+    CLAIM_BATCH_SIZE_ENV,
+  );
   if (typeof fetchFn !== "function") {
     throw new PreprodClaimTailStageError("fetch_unavailable", "fetch is required for claim-tail-and-receipt.");
   }
@@ -63,7 +68,7 @@ export async function runClaimTailAndReceiptStage(options = {}) {
       });
     }
 
-    const batchSize = Math.min(remaining.length, DEFAULT_TAIL_BATCH_SIZE);
+    const batchSize = Math.min(remaining.length, tailBatchSize);
     const batchOutputDir = path.join(outputDir, `claim-tail-batch-${batchIndex}`);
     mkdir(batchOutputDir, { recursive: true });
     const batchEnv = {
