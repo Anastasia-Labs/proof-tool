@@ -10,7 +10,6 @@ import {
   scriptHashToCredential,
   type Assets,
   type Provider,
-  type TransactionWitnesses,
   type UTxO,
 } from "@lucid-evolution/lucid";
 import type { BuildTxWithRedeemer, EvalRedeemer } from "@lucid-evolution/core-types";
@@ -37,6 +36,7 @@ import {
 } from "../claim/validation";
 import { assertWalletAddresses, assertWalletAddress, assertWalletNetwork, assetMapToStringMap } from "../reclaim/validation";
 import { createClaimDraft } from "./draft";
+import { assembleTransactionWithWitnessSet } from "../cardano/transactions";
 
 const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v1/bls12-381/groth16";
 const DESTINATION_PUBLIC_INPUT_DOMAIN = "ROOT-OWNERSHIP-DESTINATION-v1";
@@ -833,9 +833,9 @@ async function assembleClaimWitnessSet(
     throw new ClaimValidationError("claim_submit_signed_tx_required", "Claim submit requires unsignedTxCbor when witnessSetCbor is provided.");
   }
   const witnessSet = assertCborHex(witnessSetCbor, "witnessSetCbor");
-  const lucid = await Lucid(provider, deployment.network);
-  const signedTx = await lucid.fromTx(unsignedTxCbor).assemble([witnessSet as TransactionWitnesses]).complete();
-  return signedTx.toCBOR({ canonical: true });
+  void provider;
+  void deployment;
+  return assembleTransactionWithWitnessSet(unsignedTxCbor, witnessSet);
 }
 
 function assertClaimBuildReview(value: unknown, deployment: ReclaimDeployment): ClaimBuildReview {

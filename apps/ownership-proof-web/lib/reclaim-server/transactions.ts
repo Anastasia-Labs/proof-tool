@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { CML, Constr, Data, Lucid, type Assets, type Provider, type TransactionWitnesses, type UTxO } from "@lucid-evolution/lucid";
+import { CML, Constr, Data, Lucid, type Assets, type Provider, type UTxO } from "@lucid-evolution/lucid";
 import type {
   BuildReclaimTxRequest,
   BuildReclaimTxResponse,
@@ -20,6 +20,7 @@ import {
   assetMapToStringMap,
   sumUtxoAssets,
 } from "../reclaim/validation";
+import { assembleTransactionWithWitnessSet } from "../cardano/transactions";
 
 export async function loadWalletAssets(
   provider: Provider,
@@ -116,9 +117,7 @@ export async function submitReclaimTx(
 
   const unsignedTxCbor = assertCbor(request.unsignedTxCbor, "unsignedTxCbor");
   const witnessSetCbor = assertCbor(request.witnessSetCbor, "witnessSetCbor");
-  const lucid = await Lucid(provider, deployment.network);
-  const signedTx = await lucid.fromTx(unsignedTxCbor).assemble([witnessSetCbor as TransactionWitnesses]).complete();
-  const signedTxCbor = signedTx.toCBOR({ canonical: true });
+  const signedTxCbor = assembleTransactionWithWitnessSet(unsignedTxCbor, witnessSetCbor);
   inspectReclaimTx(deployment, {
     reviewToken: request.reviewToken,
     review: request.review,
