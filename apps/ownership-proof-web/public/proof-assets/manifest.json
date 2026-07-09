@@ -1,0 +1,20 @@
+{
+  "schema": "proof-tool-key-manifest-v1",
+  "key_version": "ownership-destination-v1",
+  "circuit_id": "root-ownership-destination-v1/bls12-381/groth16",
+  "curve": "BLS12-381",
+  "backend": "groth16",
+  "vk_hash": "blake2b256:6057da91b15dea8f8e93997f1b1944c35bc2c86faf9a9de17b814f6a172d430a",
+  "proving_key_sha256": "sha256:9222859a83740f21bebbbbdec3bad48b5369b6d432849410697b1612d71df550",
+  "proving_key_blake2b256": "blake2b256:853b407f842abe176030262e5da0c6035758c98a05306257222316b13001b1ef",
+  "proving_key_size": 2079485517,
+  "verifying_key_sha256": "sha256:58adda429204f64b078d19362fdde8c9dad3cdc50763c5c75fe469391d2a1d94",
+  "verifying_key_size": 784,
+  "constraint_system_hash": "blake2b256:54da79a38f83d47447cd613bb41d16ef0a19e3c29b0b1a3267d0a1c16aeb577e",
+  "circuit_source_commit": "d2c944dd753cde58508a1b80a9c4cd858a2fcc01",
+  "proof_tool_version": "0.1.0",
+  "gnark_version": "v0.15.0",
+  "setup_transcript_hash": "blake2b256:9c95d1231792dda330acceefc1a5b7c52d0cfc357f90c2c1be119b88c6909440",
+  "published_at": "2026-07-06T04:31:38Z",
+  "signature_key_id": "preprod-local-destination-d2c944dd753c-r3"
+}

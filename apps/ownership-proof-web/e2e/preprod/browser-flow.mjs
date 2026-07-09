@@ -1,12 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
-import { runClaimFirstBatchStage } from "./claim-stage.mjs";
 import { runClaimDiscoveryStage } from "./claim-discovery-stage.mjs";
 import { runAdaOnlyFundingStage, runNativeAssetFundingStage } from "./funding-stage.mjs";
 import { runNegativeGuardrailsStage } from "./guardrails-stage.mjs";
-import { runDestinationProofStage } from "./proof-stage.mjs";
-import { runClaimTailAndReceiptStage } from "./tail-stage.mjs";
+import { runDestinationProofStageForProvider } from "./proof-stage.mjs";
+import { runClaimUiAcceptanceStage } from "./claim-ui-stage.mjs";
+import { CLAIM_BATCH_SIZE_ENV } from "./proof-stage.mjs";
+import { installWalletDriverOnPage, probeWalletRoles } from "./wallet-driver.mjs";
 
 export const HEADED_ENV = "RECLAIM_E2E_HEADED";
 export const BROWSER_BOOTSTRAP_STAGE = "browser-bootstrap";
@@ -31,10 +32,16 @@ export async function runPreprodBrowserBootstrap(options = {}) {
   const fundingStageRunner = options.fundingStageRunner ?? runAdaOnlyFundingStage;
   const nativeFundingStageRunner = options.nativeFundingStageRunner ?? runNativeAssetFundingStage;
   const claimDiscoveryStageRunner = options.claimDiscoveryStageRunner ?? runClaimDiscoveryStage;
-  const destinationProofStageRunner = options.destinationProofStageRunner ?? runDestinationProofStage;
+  const destinationProofStageRunner = options.destinationProofStageRunner ?? runDestinationProofStageForProvider;
   const negativeGuardrailsStageRunner = options.negativeGuardrailsStageRunner ?? runNegativeGuardrailsStage;
-  const claimFirstBatchStageRunner = options.claimFirstBatchStageRunner ?? runClaimFirstBatchStage;
-  const claimTailReceiptStageRunner = options.claimTailReceiptStageRunner ?? runClaimTailAndReceiptStage;
+  const claimUiAcceptanceStageRunner = options.claimUiAcceptanceStageRunner ?? runClaimUiAcceptanceStage;
+  const realLaceMode = walletHarness.mode === "lace";
+  const stageEnv = realLaceMode
+    ? {
+        ...env,
+        [CLAIM_BATCH_SIZE_ENV]: env[CLAIM_BATCH_SIZE_ENV]?.trim() || "1",
+      }
+    : env;
   const screenshotsDir = path.join(outputDir, "screenshots");
   const stagePath = path.join(outputDir, "browser-bootstrap.json");
   const reclaimScreenshotPath = path.join(screenshotsDir, "reclaim-initial.png");
@@ -42,31 +49,23 @@ export async function runPreprodBrowserBootstrap(options = {}) {
   let context = null;
 
   try {
-    browser = await browserLauncher.launch({
-      headless: (env[HEADED_ENV] ?? "").trim() !== "1",
-    });
-    context = await browser.newContext();
+    const headless = (env[HEADED_ENV] ?? "").trim() !== "1";
+    if (typeof walletHarness.launchBrowserContext === "function") {
+      context = await walletHarness.launchBrowserContext(browserLauncher, { headless });
+    } else {
+      browser = await browserLauncher.launch({
+        headless,
+      });
+      context = await browser.newContext();
+    }
     const page = await context.newPage();
-    await walletHarness.installOnPage(page);
+    await installWalletDriverOnPage(page, walletHarness);
 
     const reclaimUrl = new URL("/reclaim", appTarget.baseUrl).toString();
     await page.goto(reclaimUrl, {
       waitUntil: "domcontentloaded",
     });
-    const walletProbe = await page.evaluate(async (requiredRoles) => {
-      const cardano = globalThis.cardano && typeof globalThis.cardano === "object" ? globalThis.cardano : {};
-      const roles = {};
-      for (const role of requiredRoles) {
-        const provider = cardano[role];
-        const api = provider && typeof provider.enable === "function" ? await provider.enable() : null;
-        roles[role] = {
-          present: Boolean(provider),
-          canEnable: Boolean(api),
-          networkId: api && typeof api.getNetworkId === "function" ? await api.getNetworkId() : null,
-        };
-      }
-      return roles;
-    }, walletHarness.roles);
+    const walletProbe = await probeWalletRoles(page, walletHarness);
 
     mkdir(screenshotsDir, { recursive: true });
     await page.screenshot({
@@ -94,7 +93,7 @@ export async function runPreprodBrowserBootstrap(options = {}) {
 
     const fundingStage = await fundingStageRunner({
       ...(options.fundingStageOptions ?? {}),
-      env,
+      env: stageEnv,
       page,
       walletHarness,
       outputDir,
@@ -102,32 +101,35 @@ export async function runPreprodBrowserBootstrap(options = {}) {
     if (Array.isArray(fundingStage?.artifacts)) {
       artifacts.push(...fundingStage.artifacts);
     }
-    const nativeFundingStage = await nativeFundingStageRunner({
-      ...(options.nativeFundingStageOptions ?? {}),
-      env,
-      page,
-      walletHarness,
-      outputDir,
-      previousFundingTxHashes: collectSubmittedTxHashes(fundingStage),
-    });
-    if (Array.isArray(nativeFundingStage?.artifacts)) {
-      artifacts.push(...nativeFundingStage.artifacts);
+    if (!realLaceMode) {
+      const nativeFundingStage = await nativeFundingStageRunner({
+        ...(options.nativeFundingStageOptions ?? {}),
+        env: stageEnv,
+        page,
+        walletHarness,
+        outputDir,
+        previousFundingTxHashes: collectSubmittedTxHashes(fundingStage),
+      });
+      if (Array.isArray(nativeFundingStage?.artifacts)) {
+        artifacts.push(...nativeFundingStage.artifacts);
+      }
     }
     const claimDiscoveryStage = await claimDiscoveryStageRunner({
       ...(options.claimDiscoveryStageOptions ?? {}),
-      env,
+      env: stageEnv,
       page,
       walletHarness,
       appTarget,
       helperTarget,
       outputDir,
+      ...(realLaceMode ? { expectedMinimumMatchingUtxos: 1 } : {}),
     });
     if (Array.isArray(claimDiscoveryStage?.artifacts)) {
       artifacts.push(...claimDiscoveryStage.artifacts);
     }
     const destinationProofStage = await destinationProofStageRunner({
       ...(options.destinationProofStageOptions ?? {}),
-      env,
+      env: stageEnv,
       page,
       walletHarness,
       appTarget,
@@ -137,43 +139,33 @@ export async function runPreprodBrowserBootstrap(options = {}) {
     if (Array.isArray(destinationProofStage?.artifacts)) {
       artifacts.push(...destinationProofStage.artifacts);
     }
-    const negativeGuardrailsStage = await negativeGuardrailsStageRunner({
-      ...(options.negativeGuardrailsStageOptions ?? {}),
-      env,
+    if (!realLaceMode) {
+      const negativeGuardrailsStage = await negativeGuardrailsStageRunner({
+        ...(options.negativeGuardrailsStageOptions ?? {}),
+        env: stageEnv,
+        page,
+        walletHarness,
+        appTarget,
+        helperTarget,
+        outputDir,
+        proofBundle: destinationProofStage.proofBundle,
+      });
+      if (Array.isArray(negativeGuardrailsStage?.artifacts)) {
+        artifacts.push(...negativeGuardrailsStage.artifacts);
+      }
+    }
+    const claimUiAcceptanceStage = await claimUiAcceptanceStageRunner({
+      ...(options.claimUiAcceptanceStageOptions ?? {}),
+      env: stageEnv,
       page,
       walletHarness,
       appTarget,
       helperTarget,
       outputDir,
-      proofBundle: destinationProofStage.proofBundle,
+      diagnosticProofBundle: destinationProofStage.proofBundle,
     });
-    if (Array.isArray(negativeGuardrailsStage?.artifacts)) {
-      artifacts.push(...negativeGuardrailsStage.artifacts);
-    }
-    const claimFirstBatchStage = await claimFirstBatchStageRunner({
-      ...(options.claimFirstBatchStageOptions ?? {}),
-      env,
-      page,
-      walletHarness,
-      appTarget,
-      outputDir,
-      proofBundle: destinationProofStage.proofBundle,
-    });
-    if (Array.isArray(claimFirstBatchStage?.artifacts)) {
-      artifacts.push(...claimFirstBatchStage.artifacts);
-    }
-    const claimTailReceiptStage = await claimTailReceiptStageRunner({
-      ...(options.claimTailReceiptStageOptions ?? {}),
-      env,
-      page,
-      walletHarness,
-      appTarget,
-      helperTarget,
-      outputDir,
-      firstClaimBundle: claimFirstBatchStage.claimBundle,
-    });
-    if (Array.isArray(claimTailReceiptStage?.artifacts)) {
-      artifacts.push(...claimTailReceiptStage.artifacts);
+    if (Array.isArray(claimUiAcceptanceStage?.artifacts)) {
+      artifacts.push(...claimUiAcceptanceStage.artifacts);
     }
 
     return {

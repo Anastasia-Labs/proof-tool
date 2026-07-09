@@ -5,6 +5,7 @@ import {
   COMPROMISED_WALLET_ROLE_ENV,
   NATIVE_RECLAIM_COUNT_ENV,
 } from "./funding-stage.mjs";
+import { approveWalletConnection, selectClaimRole } from "./wallet-driver.mjs";
 
 export const CLAIM_DISCOVERY_STAGE_NAME = "discover-matching-claims";
 export const CLAIM_DISCOVERY_WAIT_MS_ENV = "RECLAIM_E2E_CLAIM_DISCOVERY_WAIT_MS";
@@ -32,7 +33,8 @@ export async function runClaimDiscoveryStage(options = {}) {
   const writeFile = options.writeFile ?? writeFileSync;
   const sleep = options.sleep ?? defaultSleep;
   const compromisedRole = env[COMPROMISED_WALLET_ROLE_ENV]?.trim() || DEFAULT_COMPROMISED_WALLET_ROLE;
-  const expectedMinimumMatchingUtxos = parseExpectedMinimum(env[NATIVE_RECLAIM_COUNT_ENV]?.trim() || String(DEFAULT_NATIVE_RECLAIM_COUNT)) + 1;
+  const expectedMinimumMatchingUtxos =
+    options.expectedMinimumMatchingUtxos ?? parseExpectedMinimum(env[NATIVE_RECLAIM_COUNT_ENV]?.trim() || String(DEFAULT_NATIVE_RECLAIM_COUNT)) + 1;
   const discoveryWaitMs = parseClaimDiscoveryWaitMs(env);
   const beforeState = walletHarness.roleState?.(compromisedRole);
   if (!beforeState) {
@@ -46,8 +48,9 @@ export async function runClaimDiscoveryStage(options = {}) {
   });
   await page.getByRole("button", { name: /I reviewed deployment/iu }).click();
   await page.getByRole("heading", { name: "Connect impacted wallet" }).waitFor();
-  await page.getByRole("button", { name: walletButtonName(compromisedRole) }).click();
+  await selectClaimRole(page, walletHarness, compromisedRole);
   await page.getByRole("button", { name: /Connect impacted wallet/iu }).click();
+  await approveWalletConnection(walletHarness, compromisedRole);
   await page.getByRole("heading", { name: "Available claims" }).waitFor();
 
   const discoveredMatchingUtxos = await readMatchingUtxoCount(page, {
@@ -142,10 +145,6 @@ async function readCurrentMatchingUtxoCount(page) {
   return Number(match[1]);
 }
 
-function walletButtonName(role) {
-  return new RegExp(`Proof Tool Preprod ${escapeRegex(role.replaceAll("_", " "))}`, "iu");
-}
-
 function parseExpectedMinimum(value) {
   if (!/^[1-9][0-9]*$/u.test(value)) {
     throw new PreprodClaimDiscoveryStageError("native_reclaim_count_invalid", `${NATIVE_RECLAIM_COUNT_ENV} must be a positive integer.`);
@@ -184,8 +183,4 @@ function redactCredential(value) {
     return "[redacted-credential]";
   }
   return `${value.slice(0, 8)}...${value.slice(-8)}`;
-}
-
-function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }

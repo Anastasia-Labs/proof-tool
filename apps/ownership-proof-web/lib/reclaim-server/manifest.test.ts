@@ -187,6 +187,71 @@ describe("reclaim deployment manifest validation", () => {
     });
   });
 
+  it("accepts a browser proving descriptor and surfaces it through claim capabilities", () => {
+    const manifest = withBrowserProving(validManifest());
+    const result = validateReclaimDeploymentManifest(manifest);
+
+    expect(result.available).toBe(true);
+    if (!result.available) {
+      throw new Error("expected manifest with browser proving to validate");
+    }
+    expect(result.manifest.proof.browser_proving?.enabled).toBe(true);
+    expect(result.manifest.proof.browser_proving?.tuning).toEqual({
+      worker_count: 8,
+      shard_count: 32,
+      range_fetch_concurrency: 2,
+      pinned_decode: true,
+      gogc: 50,
+      gomemlimit: "3000MiB",
+    });
+
+    const dir = mkdtempSync(path.join(tmpdir(), "proof-tool-reclaim-manifest-"));
+    tempDirs.push(dir);
+    const manifestPath = path.join(dir, "manifest.json");
+    writeFileSync(manifestPath, JSON.stringify(manifest), "utf8");
+    const claim = loadClaimDeployment({ env: { RECLAIM_DEPLOYMENT_MANIFEST_PATH: manifestPath } });
+    expect(claim.available).toBe(true);
+    if (!claim.available) {
+      throw new Error("expected claim deployment with browser proving to validate");
+    }
+    expect(claim.capabilities.browserProving?.pk_url).toBe("https://assets.example.com/proof-assets/ownership.pk");
+    expect(claim.deployment.proof?.browser_proving?.enabled).toBe(true);
+  });
+
+  it("reports null browser proving capability when the descriptor is absent", () => {
+    const result = loadClaimDeployment({ env: envFromManifest(validManifest()) });
+
+    expect(result.available).toBe(true);
+    if (!result.available) {
+      throw new Error("expected claim deployment to validate");
+    }
+    expect(result.capabilities.browserProving).toBeNull();
+  });
+
+  it("rejects browser proving runtime URLs that are not same-origin paths", () => {
+    const manifest = withBrowserProving(validManifest());
+    manifest.proof.browser_proving!.proof_wasm_url = "https://cdn.example.com/proof-destination.wasm";
+
+    const result = validateReclaimDeploymentManifest(manifest);
+
+    expect(errorCodes(result)).toContain("browser_proving_url_not_same_origin");
+    expect(errorFields(result)).toContain("proof.browser_proving.proof_wasm_url");
+  });
+
+  it("rejects malformed browser proving descriptor fields", () => {
+    const manifest = withBrowserProving(validManifest());
+    manifest.proof.browser_proving!.manifest_public_key_hex = "not-hex";
+    manifest.proof.browser_proving!.ccs_blake2b256 = "blake2b256:zz";
+    (manifest.proof.browser_proving as Record<string, unknown>).enabled = "yes";
+
+    const result = validateReclaimDeploymentManifest(manifest);
+
+    expect(errorCodes(result)).toContain("malformed_hex");
+    expect(errorFields(result)).toContain("proof.browser_proving.manifest_public_key_hex");
+    expect(errorCodes(result)).toContain("malformed_hash");
+    expect(errorFields(result)).toContain("proof.browser_proving.enabled");
+  });
+
   it("reports transaction-build reference script readiness when configured", () => {
     const result = loadClaimDeployment({ env: envFromManifest(withReferenceScripts(validManifest())) });
 
@@ -252,6 +317,42 @@ function validManifest(): ReclaimDeploymentManifest {
     provider: {
       primary: "koios",
       fallback: "blockfrost",
+    },
+  };
+}
+
+function withBrowserProving(manifest: ReclaimDeploymentManifest): ReclaimDeploymentManifest {
+  return {
+    ...manifest,
+    proof: {
+      ...manifest.proof,
+      browser_proving: {
+        enabled: true,
+        runtime_base_url: "/proof-runtime",
+        manifest_url: "/proof-assets/manifest.json",
+        manifest_sig_url: "/proof-assets/manifest.sig",
+        manifest_public_key_hex: hash64("3"),
+        chunk_manifest_url: "/proof-assets/chunk-manifest.json",
+        chunk_manifest_sig_url: "/proof-assets/chunk-manifest.sig",
+        chunk_manifest_public_key_hex: hash64("3"),
+        deployment_manifest_url: "/proof-assets/reclaim-deployment.json",
+        vk_url: "/proof-assets/ownership.vk",
+        pk_url: "https://assets.example.com/proof-assets/ownership.pk",
+        pk_index_url: "/proof-assets/ownership.pk.idx.json",
+        ccs_url: "https://assets.example.com/proof-assets/ownership.ccs",
+        ccs_blake2b256: prefixedHash("4"),
+        proof_wasm_url: "/proof-runtime/proof-destination.wasm",
+        worker_js_url: "/proof-runtime/msm-worker.js",
+        msm_worker_wasm_url: "/proof-runtime/msmworker.wasm",
+        tuning: {
+          worker_count: 8,
+          shard_count: 32,
+          range_fetch_concurrency: 2,
+          pinned_decode: true,
+          gogc: 50,
+          gomemlimit: "3000MiB",
+        },
+      },
     },
   };
 }

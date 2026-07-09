@@ -5,15 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "dev:proof-assets": "node scripts/proof-assets-dev-server.mjs",
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
     "deploy:reclaim:preprod": "node e2e/preprod/deploy-reclaim-preprod.mjs",
+    "e2e:preprod:lace:setup": "node e2e/preprod/lace-profile-setup.mjs",
     "test:e2e:preprod": "node e2e/preprod/run.mjs",
+    "test:e2e:preprod:lace-smoke": "RECLAIM_E2E_WALLET_MODE=lace node e2e/preprod/run.mjs",
     "typecheck": "tsc --noEmit",
     "verify:reclaim-manifest": "node scripts/verify-reclaim-manifest.mjs",
     "visual:claim": "node scripts/claim-ui-visual-check.mjs",
-    "visual:claim:strict": "CLAIM_VISUAL_STRICT=1 node scripts/claim-ui-visual-check.mjs"
+    "visual:claim:strict": "CLAIM_VISUAL_STRICT=1 node scripts/claim-ui-visual-check.mjs",
+    "visual:lock-funds": "NEXT_PUBLIC_LOCK_FUNDS_UI_FIXTURE=1 node scripts/lock-funds-ui-visual-check.mjs",
+    "visual:lock-funds:strict": "NEXT_PUBLIC_LOCK_FUNDS_UI_FIXTURE=1 LOCK_FUNDS_VISUAL_STRICT=1 node scripts/lock-funds-ui-visual-check.mjs"
   },
   "dependencies": {
     "@lucid-evolution/core-types": "0.2.1",

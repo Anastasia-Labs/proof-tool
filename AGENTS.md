@@ -59,6 +59,10 @@ inventing credentials, proof bytes, public inputs, or Cardano wire values.
 For security or protocol changes, prefer real derive/prove/verify/export and
 contract-path evidence with negative tests over compile-only evidence.
 
+When serving `apps/ownership-proof-web` locally, source the repo-root
+`.env.local` or otherwise set the reclaim deployment manifest/`RECLAIM_*` env
+so fresh-user testing has the canonical deployment context.
+
 Preserve in-flight work in the dirty tree. Scope edits tightly and do not clean
 or regenerate unrelated artifacts just to make status look tidy.
 

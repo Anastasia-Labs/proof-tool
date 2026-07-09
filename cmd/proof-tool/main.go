@@ -72,6 +72,8 @@ func run(args []string) error {
 		return cmdSetupCeremony(args[2:])
 	case "verify-key-bundle":
 		return cmdVerifyKeyBundle(args[2:])
+	case "generate-chunk-manifest":
+		return cmdGenerateChunkManifest(args[2:])
 	case "serve-verifier":
 		return cmdServeVerifier(args[2:])
 	case "serve-helper":
@@ -1271,5 +1273,5 @@ func writeTextFile(path, text string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: proof-tool <master-xprv-from-seed-phrase|prove|prove-destination|prove-multi|verify|verify-destination|verify-multi|export-cardano|export-cardano-vk|generate-destination-benchmark-fixtures|generate-multi-benchmark-fixtures|setup-ceremony|verify-key-bundle|serve-verifier|serve-helper> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: proof-tool <master-xprv-from-seed-phrase|prove|prove-destination|prove-multi|verify|verify-destination|verify-multi|export-cardano|export-cardano-vk|generate-destination-benchmark-fixtures|generate-multi-benchmark-fixtures|setup-ceremony|verify-key-bundle|generate-chunk-manifest|serve-verifier|serve-helper> [flags]")
 }

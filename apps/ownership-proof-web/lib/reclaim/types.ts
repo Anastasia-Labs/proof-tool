@@ -1,5 +1,36 @@
 export type ReclaimNetwork = "Mainnet" | "Preprod" | "Preview";
 
+export type BrowserProvingTuning = {
+  worker_count?: number;
+  shard_count?: number;
+  shard_multiplier?: number;
+  range_fetch_concurrency?: number;
+  pinned_decode?: boolean;
+  gogc?: number;
+  gomemlimit?: string;
+};
+
+export type BrowserProvingDescriptor = {
+  enabled: boolean;
+  runtime_base_url: string;
+  manifest_url: string;
+  manifest_sig_url: string;
+  manifest_public_key_hex: string;
+  chunk_manifest_url: string;
+  chunk_manifest_sig_url: string;
+  chunk_manifest_public_key_hex: string;
+  deployment_manifest_url: string;
+  vk_url: string;
+  pk_url: string;
+  pk_index_url: string;
+  ccs_url: string;
+  ccs_blake2b256: string;
+  proof_wasm_url: string;
+  worker_js_url: string;
+  msm_worker_wasm_url: string;
+  tuning?: BrowserProvingTuning;
+};
+
 export type ReclaimDeployment = {
   id: string;
   network: ReclaimNetwork;
@@ -28,6 +59,7 @@ export type ReclaimDeployment = {
     destination_address_encoding: string;
     vk_hash: string;
     cardano_vk_blake2b256: string;
+    browser_proving?: BrowserProvingDescriptor;
   };
   batching?: {
     default_utxo_count: number;

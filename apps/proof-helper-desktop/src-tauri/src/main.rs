@@ -1,5 +1,8 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod commands;
 mod key_bundle;
+mod proof_assets_release;
 mod sidecar;
 
 fn proof_helper_builder<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
@@ -12,9 +15,11 @@ fn proof_helper_builder<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri:
             key_bundle::key_status,
             key_bundle::delete_key_cache,
             key_bundle::cancel_key_bundle_activation,
+            proof_assets_release::install_proof_assets_release,
             sidecar::start_helper,
             sidecar::stop_helper,
-            sidecar::helper_process_status
+            sidecar::helper_process_status,
+            sidecar::runtime_diagnostics
         ])
 }
 
@@ -73,6 +78,34 @@ mod tests {
         assert!(!pairing_url.contains("?pair="));
         assert_eq!(process.get("running").and_then(Value::as_bool), Some(true));
         assert_eq!(stopped.get("running").and_then(Value::as_bool), Some(false));
+    }
+
+    #[test]
+    fn ipc_reports_runtime_diagnostics() {
+        let app = proof_helper_builder(mock_builder())
+            .build(mock_context(noop_assets()))
+            .expect("build mock Tauri app");
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("build mock webview");
+
+        let diagnostics = invoke_json(&webview, "runtime_diagnostics", Value::Null);
+
+        assert_eq!(
+            diagnostics.get("os").and_then(Value::as_str),
+            Some(std::env::consts::OS)
+        );
+        assert_eq!(
+            diagnostics.get("arch").and_then(Value::as_str),
+            Some(std::env::consts::ARCH)
+        );
+        assert!(
+            diagnostics
+                .get("bundled_sidecar_candidates")
+                .and_then(Value::as_array)
+                .is_some(),
+            "diagnostics include bundled sidecar candidates"
+        );
     }
 
     fn invoke_json(

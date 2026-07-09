@@ -438,13 +438,13 @@ function StateBand({
     return <ResultBand tone="warn" title="Install Proof Helper" body="Open the desktop helper to pair this browser automatically." />;
   }
   if (helperState === "key_missing") {
-    return <ResultBand tone="warn" title="Key bundle needed" body="Return to Proof Helper to install the local proving key." />;
+    return <ResultBand tone="warn" title="Proof assets needed" body="Open Proof Helper to install proof assets." />;
   }
   if (helperState === "key_downloading") {
-    return <ResultBand tone="warn" title="Key download running" body="Proof Helper is preparing the local proving key." />;
+    return <ResultBand tone="warn" title="Proof assets installing" body="Proof Helper is installing proof assets." />;
   }
   if (helperState === "update_required") {
-    return <ResultBand tone="bad" title="Update Proof Helper" body="The paired helper is not compatible with this verifier." />;
+    return <ResultBand tone="bad" title="Update required" body="Update Proof Helper or proof assets." />;
   }
   if (helperState === "not_ready") {
     return <ResultBand tone="warn" title="Helper not ready" body="Proof Helper is reachable but not ready to prove." />;
@@ -597,11 +597,11 @@ function helperStateFromStatus(status: HelperStatusResponse): HelperState {
 function helperActionMessage(state: HelperState) {
   switch (state) {
     case "key_missing":
-      return "Open Proof Helper to install the local proving key.";
+      return "Open Proof Helper to install proof assets.";
     case "key_downloading":
-      return "Wait for Proof Helper to finish the proving-key download.";
+      return "Proof Helper is installing proof assets.";
     case "update_required":
-      return "Update Proof Helper before generating a proof.";
+      return "Update Proof Helper or proof assets.";
     default:
       return "Open Proof Helper. It will connect to this page automatically.";
   }

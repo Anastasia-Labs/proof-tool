@@ -6,6 +6,9 @@ import { COMPROMISED_WALLET_ROLE_ENV } from "./funding-stage.mjs";
 
 export const DESTINATION_PROOF_STAGE_NAME = "generate-destination-bound-proofs";
 export const CLAIM_BATCH_SIZE_ENV = "RECLAIM_E2E_CLAIM_BATCH_SIZE";
+export const PROOF_PROVIDER_ENV = "RECLAIM_E2E_PROOF_PROVIDER";
+export const PROOF_PROVIDER_DESKTOP_HELPER = "desktop-helper";
+export const PROOF_PROVIDER_BROWSER_WASM = "browser-wasm";
 
 const DEFAULT_COMPROMISED_WALLET_ROLE = "compromised_user";
 const SAFE_WALLET_ROLE = "safe_claim_destination";
@@ -28,8 +31,73 @@ export class PreprodDestinationProofStageError extends Error {
   }
 }
 
+export function resolveProofProvider(env = process.env) {
+  const value = env?.[PROOF_PROVIDER_ENV]?.trim() ?? "";
+  if (value === "" || value === PROOF_PROVIDER_DESKTOP_HELPER) {
+    return PROOF_PROVIDER_DESKTOP_HELPER;
+  }
+  if (value === PROOF_PROVIDER_BROWSER_WASM) {
+    return PROOF_PROVIDER_BROWSER_WASM;
+  }
+  throw new PreprodDestinationProofStageError(
+    "proof_provider_invalid",
+    `${PROOF_PROVIDER_ENV} must be "${PROOF_PROVIDER_DESKTOP_HELPER}" or "${PROOF_PROVIDER_BROWSER_WASM}".`,
+  );
+}
+
+export async function runDestinationProofStageForProvider(options = {}) {
+  const provider = resolveProofProvider(options.env ?? process.env);
+  if (provider === PROOF_PROVIDER_BROWSER_WASM) {
+    return runBrowserWasmDestinationProofStage(options);
+  }
+  return runDestinationProofStage(options);
+}
+
+export async function runBrowserWasmDestinationProofStage(options = {}) {
+  const env = options.env ?? process.env;
+  const provider = resolveProofProvider(env);
+  if (provider !== PROOF_PROVIDER_BROWSER_WASM) {
+    throw new PreprodDestinationProofStageError(
+      "proof_provider_mismatch",
+      `runBrowserWasmDestinationProofStage requires ${PROOF_PROVIDER_ENV}=${PROOF_PROVIDER_BROWSER_WASM}.`,
+    );
+  }
+  const appTarget = requireOption(options.appTarget, "appTarget");
+  const fetchFn = options.fetch ?? globalThis.fetch;
+  if (typeof fetchFn !== "function") {
+    throw new PreprodDestinationProofStageError("fetch_unavailable", "fetch is required for destination proof generation.");
+  }
+
+  const claimDeployment = await fetchAppJson(fetchFn, appTarget.baseUrl, "/claim-api/deployment");
+  const deployment = assertClaimDeployment(claimDeployment);
+  const descriptor = deployment.proof?.browser_proving ?? null;
+  if (!descriptor) {
+    throw new PreprodDestinationProofStageError(
+      "browser_proving_descriptor_missing",
+      `${PROOF_PROVIDER_ENV}=${PROOF_PROVIDER_BROWSER_WASM} requires the claim deployment to publish a hosted ` +
+        "proof.browser_proving descriptor (signed asset manifest plus the multi-GiB proving assets served from the app " +
+        "origin). This deployment does not publish one, so the destination proof stage fails closed instead of faking a proof.",
+    );
+  }
+  throw new PreprodDestinationProofStageError(
+    "browser_wasm_ui_drive_unimplemented",
+    `${PROOF_PROVIDER_ENV}=${PROOF_PROVIDER_BROWSER_WASM} found a proof.browser_proving descriptor, but the preprod ` +
+      "harness cannot yet drive the claim UI proof method selection to produce a destination proof bundle (the claim UI " +
+      "stage exposes no proof method selector or proofBundle output, and the browser provider is only reachable inside " +
+      "the page). The stage fails closed instead of faking a proof.",
+  );
+}
+
 export async function runDestinationProofStage(options = {}) {
   const env = options.env ?? process.env;
+  const provider = resolveProofProvider(env);
+  if (provider !== PROOF_PROVIDER_DESKTOP_HELPER) {
+    throw new PreprodDestinationProofStageError(
+      "proof_provider_mismatch",
+      `runDestinationProofStage only implements the ${PROOF_PROVIDER_DESKTOP_HELPER} provider; ` +
+        "use runDestinationProofStageForProvider to route other providers.",
+    );
+  }
   const appTarget = requireOption(options.appTarget, "appTarget");
   const helperTarget = requireOption(options.helperTarget, "helperTarget");
   const walletHarness = requireOption(options.walletHarness, "walletHarness");
@@ -122,6 +190,7 @@ export async function runDestinationProofStage(options = {}) {
   const artifact = {
     schema: "proof-tool-preprod-destination-proof-stage-v1",
     stage: DESTINATION_PROOF_STAGE_NAME,
+    provider,
     deploymentId: deployment.id,
     network: deployment.network,
     networkId: deployment.networkId,
@@ -166,6 +235,7 @@ export async function runDestinationProofStage(options = {}) {
     artifacts: screenshotPath ? [artifactPath, screenshotPath] : [artifactPath],
     summary: {
       stage: DESTINATION_PROOF_STAGE_NAME,
+      provider,
       deploymentId: deployment.id,
       draftId: draft.draftId,
       selectedOutrefs,

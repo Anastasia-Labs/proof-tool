@@ -1,5 +1,5 @@
-import { ProofFlow } from "../components/ProofFlow";
+import { HomeLanding } from "../components/HomeLanding";
 
 export default function Page() {
-  return <ProofFlow />;
+  return <HomeLanding />;
 }

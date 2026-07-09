@@ -3,7 +3,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { blake2b } from "@noble/hashes/blake2b";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runDestinationProofStage } from "./proof-stage.mjs";
+import {
+  PROOF_PROVIDER_BROWSER_WASM,
+  PROOF_PROVIDER_DESKTOP_HELPER,
+  PROOF_PROVIDER_ENV,
+  resolveProofProvider,
+  runDestinationProofStage,
+  runDestinationProofStageForProvider,
+} from "./proof-stage.mjs";
 
 const tempDirs = [];
 const verifierVkHash = "b".repeat(64);
@@ -79,6 +86,7 @@ describe("destination-bound proof preprod stage", () => {
     expect(artifact).toMatchObject({
       schema: "proof-tool-preprod-destination-proof-stage-v1",
       stage: "generate-destination-bound-proofs",
+      provider: "desktop-helper",
       deploymentId: deployment().id,
       proofProfile: "single-destination",
       helper: {
@@ -223,6 +231,130 @@ describe("destination-bound proof preprod stage", () => {
   });
 });
 
+describe("proof provider parameterization", () => {
+  it("resolves to desktop-helper when the env is unset or blank", () => {
+    expect(resolveProofProvider({})).toBe(PROOF_PROVIDER_DESKTOP_HELPER);
+    expect(resolveProofProvider({ [PROOF_PROVIDER_ENV]: "" })).toBe(PROOF_PROVIDER_DESKTOP_HELPER);
+    expect(resolveProofProvider({ [PROOF_PROVIDER_ENV]: "   " })).toBe(PROOF_PROVIDER_DESKTOP_HELPER);
+  });
+
+  it("resolves an explicit desktop-helper provider", () => {
+    expect(resolveProofProvider({ [PROOF_PROVIDER_ENV]: "desktop-helper" })).toBe(PROOF_PROVIDER_DESKTOP_HELPER);
+  });
+
+  it("resolves the browser-wasm provider", () => {
+    expect(resolveProofProvider({ [PROOF_PROVIDER_ENV]: "browser-wasm" })).toBe(PROOF_PROVIDER_BROWSER_WASM);
+  });
+
+  it("rejects any other provider value", () => {
+    expect(() => resolveProofProvider({ [PROOF_PROVIDER_ENV]: "gpu-farm" })).toThrowError(
+      expect.objectContaining({
+        name: "PreprodDestinationProofStageError",
+        code: "proof_provider_invalid",
+      }),
+    );
+  });
+
+  it("routes the default provider through the desktop helper stage", async () => {
+    const fetch = fakeFetch();
+
+    const result = await runDestinationProofStageForProvider({
+      env: {},
+      appTarget: { baseUrl: "http://127.0.0.1:3917" },
+      helperTarget: {
+        helperUrl: "http://127.0.0.1:49152",
+        token: "pair-secret",
+      },
+      walletHarness: fakeWalletHarness(),
+      outputDir: tempDir(),
+      fetch,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.summary.provider).toBe(PROOF_PROVIDER_DESKTOP_HELPER);
+    expect(fetch.calls.map((call) => call.url)).toContain("http://127.0.0.1:49152/prove-destination");
+    const artifact = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
+    expect(artifact.provider).toBe(PROOF_PROVIDER_DESKTOP_HELPER);
+    expect(artifact).toMatchObject({
+      helper: { token: "[redacted]" },
+      pathMetadataPresent: false,
+      helperRequestBodyWritten: false,
+      proofBytesWritten: false,
+    });
+  });
+
+  it("fails closed in browser-wasm mode when the deployment publishes no browser_proving descriptor", async () => {
+    const fetch = fakeFetch();
+    const walletHarness = fakeWalletHarness();
+
+    await expect(
+      runDestinationProofStageForProvider({
+        env: { [PROOF_PROVIDER_ENV]: "browser-wasm" },
+        appTarget: { baseUrl: "http://127.0.0.1:3917" },
+        helperTarget: {
+          helperUrl: "http://127.0.0.1:49152",
+          token: "pair-secret",
+        },
+        walletHarness,
+        outputDir: tempDir(),
+        fetch,
+      }),
+    ).rejects.toMatchObject({
+      code: "browser_proving_descriptor_missing",
+    });
+    expect(fetch.calls.map((call) => call.url)).toEqual(["http://127.0.0.1:3917/claim-api/deployment"]);
+    expect(walletHarness.masterXPrvCalls).toBe(0);
+  });
+
+  it("fails closed in browser-wasm mode even with a descriptor because the UI drive is not implemented", async () => {
+    const fetch = fakeFetch({
+      deploymentMutator(response) {
+        response.deployment.proof = {
+          browser_proving: {
+            enabled: true,
+            asset_manifest_url: "/proof-runtime/asset-manifest.json",
+          },
+        };
+      },
+    });
+
+    await expect(
+      runDestinationProofStageForProvider({
+        env: { [PROOF_PROVIDER_ENV]: "browser-wasm" },
+        appTarget: { baseUrl: "http://127.0.0.1:3917" },
+        helperTarget: {
+          helperUrl: "http://127.0.0.1:49152",
+          token: "pair-secret",
+        },
+        walletHarness: fakeWalletHarness(),
+        outputDir: tempDir(),
+        fetch,
+      }),
+    ).rejects.toMatchObject({
+      code: "browser_wasm_ui_drive_unimplemented",
+    });
+    expect(fetch.calls.map((call) => call.url)).toEqual(["http://127.0.0.1:3917/claim-api/deployment"]);
+  });
+
+  it("rejects a direct desktop stage call when the env selects another provider", async () => {
+    await expect(
+      runDestinationProofStage({
+        env: { [PROOF_PROVIDER_ENV]: "browser-wasm" },
+        appTarget: { baseUrl: "http://127.0.0.1:3917" },
+        helperTarget: {
+          helperUrl: "http://127.0.0.1:49152",
+          token: "pair-secret",
+        },
+        walletHarness: fakeWalletHarness(),
+        outputDir: tempDir(),
+        fetch: fakeFetch(),
+      }),
+    ).rejects.toMatchObject({
+      code: "proof_provider_mismatch",
+    });
+  });
+});
+
 function fakeFetch(options = {}) {
   const calls = [];
   const fetch = vi.fn(async (url, init = {}) => {
@@ -230,14 +362,16 @@ function fakeFetch(options = {}) {
     const method = init.method ?? "GET";
     calls.push({ method, url: urlText });
     if (urlText === "http://127.0.0.1:3917/claim-api/deployment") {
-      return jsonResponse({
+      const response = {
         available: true,
         deployment: deployment(),
         capabilities: {
           proofProfile: "single-destination",
           destinationAddressEncoding: "destination-address-v1",
         },
-      });
+      };
+      options.deploymentMutator?.(response);
+      return jsonResponse(response);
     }
     if (urlText === "http://127.0.0.1:49152/status") {
       const status = helperStatus();

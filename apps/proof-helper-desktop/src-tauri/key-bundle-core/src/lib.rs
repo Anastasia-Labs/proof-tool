@@ -15,6 +15,7 @@ pub const MANIFEST_FILE: &str = "manifest.json";
 pub const MANIFEST_SIGNATURE_FILE: &str = "manifest.sig";
 pub const PROVING_KEY_FILE: &str = "ownership.pk";
 pub const VERIFYING_KEY_FILE: &str = "ownership.vk";
+pub const RELEASE_METADATA_FILE: &str = "proof-assets-release.json";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct KeyManifest {
@@ -39,6 +40,9 @@ pub struct BundleInspection {
     pub key_version: Option<String>,
     pub vk_hash: Option<String>,
     pub circuit_id: Option<String>,
+    pub signature_key_id: Option<String>,
+    pub installed_release_tag: Option<String>,
+    pub installed_at: Option<String>,
     pub error: Option<String>,
 }
 
@@ -50,6 +54,16 @@ pub struct InstallRequest {
     pub trusted_manifest_public_key_hex: String,
     pub expected_signature_key_id: String,
     pub min_free_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BundleValidationRequest<'a> {
+    pub bundle_dir: &'a Path,
+    pub trusted_manifest_public_key_hex: &'a str,
+    pub expected_signature_key_id: &'a str,
+    pub expected_key_version: &'a str,
+    pub expected_circuit_id: &'a str,
+    pub expected_vk_hash: Option<&'a str>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +84,12 @@ pub struct FileDigest {
     pub sha256: String,
     pub blake2b256: String,
     pub size: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InstalledReleaseMetadata {
+    pub release_tag: String,
+    pub installed_at: String,
 }
 
 pub fn inspect_active_bundle(active_dir: &Path) -> BundleInspection {
@@ -103,7 +123,8 @@ pub fn inspect_active_bundle(active_dir: &Path) -> BundleInspection {
     if let Err(err) = validate_key_files(&manifest, &pk_path, &vk_path) {
         return inspection("invalid", false, Some(manifest), Some(err));
     }
-    inspection("ready", true, Some(manifest), None)
+    let release = read_release_metadata(&active_dir.join(RELEASE_METADATA_FILE)).ok();
+    inspection_with_release("ready", true, Some(manifest), release, None)
 }
 
 pub fn install_bundle(request: &InstallRequest) -> Result<InstallOutcome, String> {
@@ -126,22 +147,14 @@ where
     let pk_path = request.source_dir.join(PROVING_KEY_FILE);
     let vk_path = request.source_dir.join(VERIFYING_KEY_FILE);
 
-    let manifest_bytes = fs::read(&manifest_path).map_err(|err| format!("read manifest: {err}"))?;
-    let manifest: KeyManifest =
-        serde_json::from_slice(&manifest_bytes).map_err(|err| format!("parse manifest: {err}"))?;
-    validate_manifest_metadata(&manifest)?;
-    if manifest.signature_key_id != request.expected_signature_key_id {
-        return Err(format!(
-            "manifest signature key id {:?}, want {:?}",
-            manifest.signature_key_id, request.expected_signature_key_id
-        ));
-    }
-    verify_manifest_signature(
-        &manifest_bytes,
-        &fs::read_to_string(&sig_path).map_err(|err| format!("read manifest signature: {err}"))?,
-        &request.trusted_manifest_public_key_hex,
-    )?;
-    validate_key_files(&manifest, &pk_path, &vk_path)?;
+    let manifest = validate_staged_bundle(&BundleValidationRequest {
+        bundle_dir: &request.source_dir,
+        trusted_manifest_public_key_hex: &request.trusted_manifest_public_key_hex,
+        expected_signature_key_id: &request.expected_signature_key_id,
+        expected_key_version: KEY_VERSION,
+        expected_circuit_id: CIRCUIT_ID,
+        expected_vk_hash: None,
+    })?;
 
     if request.downloading_dir.exists() {
         fs::remove_dir_all(&request.downloading_dir)
@@ -162,34 +175,100 @@ where
         return Err(err);
     }
 
-    let tmp_manifest = request.downloading_dir.join(MANIFEST_FILE);
-    let tmp_sig = request.downloading_dir.join(MANIFEST_SIGNATURE_FILE);
-    let tmp_pk = request.downloading_dir.join(PROVING_KEY_FILE);
-    let tmp_vk = request.downloading_dir.join(VERIFYING_KEY_FILE);
-    let tmp_manifest_bytes =
-        fs::read(&tmp_manifest).map_err(|err| format!("read temporary manifest: {err}"))?;
-    verify_manifest_signature(
-        &tmp_manifest_bytes,
-        &fs::read_to_string(&tmp_sig)
-            .map_err(|err| format!("read temporary manifest signature: {err}"))?,
-        &request.trusted_manifest_public_key_hex,
-    )?;
-    validate_key_files(&manifest, &tmp_pk, &tmp_vk)?;
+    validate_staged_bundle(&BundleValidationRequest {
+        bundle_dir: &request.downloading_dir,
+        trusted_manifest_public_key_hex: &request.trusted_manifest_public_key_hex,
+        expected_signature_key_id: &request.expected_signature_key_id,
+        expected_key_version: KEY_VERSION,
+        expected_circuit_id: CIRCUIT_ID,
+        expected_vk_hash: None,
+    })?;
 
-    if request.active_dir.exists() {
-        fs::remove_dir_all(&request.active_dir)
-            .map_err(|err| format!("remove existing active key bundle: {err}"))?;
-    }
-    if let Some(parent) = request.active_dir.parent() {
-        fs::create_dir_all(parent).map_err(|err| format!("create key cache root: {err}"))?;
-    }
-    fs::rename(&request.downloading_dir, &request.active_dir)
-        .map_err(|err| format!("activate key bundle: {err}"))?;
+    activate_staged_bundle(&request.active_dir, &request.downloading_dir)?;
 
     Ok(InstallOutcome {
         manifest,
         active_dir: request.active_dir.clone(),
     })
+}
+
+pub fn validate_staged_bundle(
+    request: &BundleValidationRequest<'_>,
+) -> Result<KeyManifest, String> {
+    let manifest_path = request.bundle_dir.join(MANIFEST_FILE);
+    let sig_path = request.bundle_dir.join(MANIFEST_SIGNATURE_FILE);
+    let pk_path = request.bundle_dir.join(PROVING_KEY_FILE);
+    let vk_path = request.bundle_dir.join(VERIFYING_KEY_FILE);
+
+    let manifest_bytes = fs::read(&manifest_path).map_err(|err| format!("read manifest: {err}"))?;
+    let manifest: KeyManifest =
+        serde_json::from_slice(&manifest_bytes).map_err(|err| format!("parse manifest: {err}"))?;
+    validate_manifest_metadata_with_expected(
+        &manifest,
+        request.expected_key_version,
+        request.expected_circuit_id,
+    )?;
+    if manifest.signature_key_id != request.expected_signature_key_id {
+        return Err(format!(
+            "manifest signature key id {:?}, want {:?}",
+            manifest.signature_key_id, request.expected_signature_key_id
+        ));
+    }
+    if let Some(expected_vk_hash) = request.expected_vk_hash {
+        if manifest.vk_hash != expected_vk_hash {
+            return Err(format!(
+                "manifest vk_hash {:?}, want {:?}",
+                manifest.vk_hash, expected_vk_hash
+            ));
+        }
+    }
+    verify_manifest_signature(
+        &manifest_bytes,
+        &fs::read_to_string(&sig_path).map_err(|err| format!("read manifest signature: {err}"))?,
+        request.trusted_manifest_public_key_hex,
+    )?;
+    validate_key_files(&manifest, &pk_path, &vk_path)?;
+    Ok(manifest)
+}
+
+pub fn write_release_metadata(
+    bundle_dir: &Path,
+    metadata: &InstalledReleaseMetadata,
+) -> Result<(), String> {
+    let bytes = serde_json::to_vec_pretty(metadata)
+        .map_err(|err| format!("serialize release metadata: {err}"))?;
+    fs::write(bundle_dir.join(RELEASE_METADATA_FILE), bytes)
+        .map_err(|err| format!("write release metadata: {err}"))
+}
+
+pub fn activate_staged_bundle(active_dir: &Path, downloading_dir: &Path) -> Result<(), String> {
+    if let Some(parent) = active_dir.parent() {
+        fs::create_dir_all(parent).map_err(|err| format!("create key cache root: {err}"))?;
+    }
+    let backup_dir = active_dir.with_file_name("active.previous.tmp");
+    if backup_dir.exists() {
+        fs::remove_dir_all(&backup_dir)
+            .map_err(|err| format!("remove stale active key backup: {err}"))?;
+    }
+
+    let mut active_moved = false;
+    if active_dir.exists() {
+        fs::rename(active_dir, &backup_dir)
+            .map_err(|err| format!("move active key bundle aside: {err}"))?;
+        active_moved = true;
+    }
+
+    if let Err(err) = fs::rename(downloading_dir, active_dir) {
+        if active_moved {
+            let _ = fs::rename(&backup_dir, active_dir);
+        }
+        return Err(format!("activate key bundle: {err}"));
+    }
+    if backup_dir.exists() {
+        fs::remove_dir_all(&backup_dir)
+            .map_err(|err| format!("remove previous active key bundle: {err}"))?;
+    }
+    Ok(())
 }
 
 fn stage_bundle_files<F>(
@@ -298,22 +377,30 @@ fn read_manifest(path: &Path) -> Result<KeyManifest, String> {
 }
 
 fn validate_manifest_metadata(manifest: &KeyManifest) -> Result<(), String> {
+    validate_manifest_metadata_with_expected(manifest, KEY_VERSION, CIRCUIT_ID)
+}
+
+fn validate_manifest_metadata_with_expected(
+    manifest: &KeyManifest,
+    expected_key_version: &str,
+    expected_circuit_id: &str,
+) -> Result<(), String> {
     if manifest.schema != "proof-tool-key-manifest-v1" {
         return Err(format!(
             "manifest schema {:?} is not supported",
             manifest.schema
         ));
     }
-    if manifest.key_version != KEY_VERSION {
+    if manifest.key_version != expected_key_version {
         return Err(format!(
             "manifest key version {:?}, want {:?}",
-            manifest.key_version, KEY_VERSION
+            manifest.key_version, expected_key_version
         ));
     }
-    if manifest.circuit_id != CIRCUIT_ID {
+    if manifest.circuit_id != expected_circuit_id {
         return Err(format!(
             "manifest circuit id {:?}, want {:?}",
-            manifest.circuit_id, CIRCUIT_ID
+            manifest.circuit_id, expected_circuit_id
         ));
     }
     if manifest.curve != "BLS12-381" {
@@ -468,10 +555,25 @@ fn existing_ancestor(path: &Path) -> PathBuf {
     }
 }
 
+fn read_release_metadata(path: &Path) -> Result<InstalledReleaseMetadata, String> {
+    let bytes = fs::read(path).map_err(|err| format!("read release metadata: {err}"))?;
+    serde_json::from_slice(&bytes).map_err(|err| format!("parse release metadata: {err}"))
+}
+
 fn inspection(
     state: &str,
     ready: bool,
     manifest: Option<KeyManifest>,
+    error: Option<String>,
+) -> BundleInspection {
+    inspection_with_release(state, ready, manifest, None, error)
+}
+
+fn inspection_with_release(
+    state: &str,
+    ready: bool,
+    manifest: Option<KeyManifest>,
+    release: Option<InstalledReleaseMetadata>,
     error: Option<String>,
 ) -> BundleInspection {
     BundleInspection {
@@ -480,6 +582,9 @@ fn inspection(
         key_version: manifest.as_ref().map(|value| value.key_version.clone()),
         vk_hash: manifest.as_ref().map(|value| value.vk_hash.clone()),
         circuit_id: manifest.as_ref().map(|value| value.circuit_id.clone()),
+        signature_key_id: manifest.as_ref().map(|value| value.signature_key_id.clone()),
+        installed_release_tag: release.as_ref().map(|value| value.release_tag.clone()),
+        installed_at: release.map(|value| value.installed_at),
         error,
     }
 }

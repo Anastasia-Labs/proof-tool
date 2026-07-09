@@ -171,6 +171,38 @@ func TestHelperPnaPreflightForAllowedOrigin(t *testing.T) {
 	}
 }
 
+func TestHelperCorsAllowsSiblingLoopbackDevOrigin(t *testing.T) {
+	server := NewServer(&fakeGenerator{}, testToken, []string{"http://127.0.0.1:3002"})
+	req := httptest.NewRequest(http.MethodOptions, "/status", nil)
+	req.Header.Set("Origin", "http://127.0.0.1:3001")
+	req.Header.Set("Access-Control-Request-Headers", TokenHeader)
+	req.Header.Set("Access-Control-Request-Private-Network", "true")
+	rr := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "http://127.0.0.1:3001" {
+		t.Fatalf("allow origin = %q", got)
+	}
+	if rr.Header().Get("Access-Control-Allow-Private-Network") != "true" {
+		t.Fatalf("private network header = %q", rr.Header().Get("Access-Control-Allow-Private-Network"))
+	}
+}
+
+func TestHelperAcceptsSiblingLoopbackDevOriginWithToken(t *testing.T) {
+	fake := &fakeGenerator{artifact: validArtifact()}
+	rr := postProve(t, NewServer(fake, testToken, []string{"http://127.0.0.1:3002"}), validProveRequest(), "http://127.0.0.1:3001", testToken)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	if !fake.called {
+		t.Fatal("generator was not called")
+	}
+}
+
 func TestProductionGeneratorFailsClosedWhenKeysAreMissing(t *testing.T) {
 	generator := &OwnershipGenerator{KeysDir: t.TempDir()}
 	_, err := generator.GenerateProof(context.Background(), ProveInput{

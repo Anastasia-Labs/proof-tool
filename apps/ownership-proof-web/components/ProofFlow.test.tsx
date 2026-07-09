@@ -132,13 +132,13 @@ describe("ProofFlow", () => {
 
     renderPaired(<ProofFlow createWorker={fakeWorkerSuccess} />);
 
-    expect(await screen.findByText("Update Proof Helper")).toBeInTheDocument();
+    expect((await screen.findAllByText("Update required")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText("Payment key credential"), { target: { value: target } });
     fireEvent.change(screen.getByLabelText("Recovery phrase"), { target: { value: "valid phrase" } });
     fireEvent.click(screen.getByRole("button", { name: /generate proof/i }));
 
     expect(await screen.findByText("Action needed")).toBeInTheDocument();
-    expect(screen.getByText("Update Proof Helper before generating a proof.")).toBeInTheDocument();
+    expect(screen.getByText("Update Proof Helper or proof assets.")).toBeInTheDocument();
   });
 });
 

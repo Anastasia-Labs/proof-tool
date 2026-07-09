@@ -8,6 +8,12 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, Runtime, State};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Default)]
 pub struct SidecarState {
     child: Mutex<Option<Child>>,
@@ -26,6 +32,16 @@ pub struct StartHelperRequest {
 #[derive(Debug, Serialize)]
 pub struct HelperProcessStatus {
     pub running: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RuntimeDiagnostics {
+    pub os: String,
+    pub arch: String,
+    pub family: String,
+    pub current_exe: Option<String>,
+    pub resource_dir: Option<String>,
+    pub bundled_sidecar_candidates: Vec<String>,
 }
 
 #[tauri::command]
@@ -59,10 +75,13 @@ pub fn start_helper<R: Runtime>(
     })
     .map_err(|err| err.to_string())?;
 
-    let mut child = Command::new(&sidecar_path)
+    let mut command = Command::new(&sidecar_path);
+    command
         .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    hide_sidecar_console(&mut command);
+    let mut child = command
         .spawn()
         .map_err(|err| format!("start sidecar {}: {err}", sidecar_path.display()))?;
 
@@ -113,12 +132,41 @@ pub fn helper_process_status(
     Ok(HelperProcessStatus { running })
 }
 
+#[tauri::command]
+pub fn runtime_diagnostics<R: Runtime>(app: AppHandle<R>) -> RuntimeDiagnostics {
+    RuntimeDiagnostics {
+        os: env::consts::OS.to_string(),
+        arch: env::consts::ARCH.to_string(),
+        family: env::consts::FAMILY.to_string(),
+        current_exe: env::current_exe()
+            .ok()
+            .map(|path| path.display().to_string()),
+        resource_dir: app
+            .path()
+            .resource_dir()
+            .ok()
+            .map(|path| path.display().to_string()),
+        bundled_sidecar_candidates: bundled_candidates(&app)
+            .into_iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+    }
+}
+
 fn process_running(child: Option<&mut Child>) -> bool {
     match child {
         Some(child) => matches!(child.try_wait(), Ok(None)),
         None => false,
     }
 }
+
+#[cfg(windows)]
+fn hide_sidecar_console(command: &mut Command) {
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_sidecar_console(_command: &mut Command) {}
 
 fn resolve_sidecar_path<R: Runtime>(
     app: &AppHandle<R>,

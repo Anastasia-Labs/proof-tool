@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -253,7 +254,36 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) originAllowed(origin string) bool {
 	_, ok := s.AllowedOrigins[origin]
-	return ok
+	if ok {
+		return true
+	}
+	return s.loopbackDevOriginAllowed(origin)
+}
+
+func (s *Server) loopbackDevOriginAllowed(origin string) bool {
+	requestOrigin, err := url.Parse(origin)
+	if err != nil || !isLoopbackOrigin(requestOrigin) {
+		return false
+	}
+	for allowed := range s.AllowedOrigins {
+		allowedOrigin, err := url.Parse(allowed)
+		if err == nil && allowedOrigin.Scheme == requestOrigin.Scheme && isLoopbackOrigin(allowedOrigin) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLoopbackOrigin(origin *url.URL) bool {
+	if origin.Scheme != "http" && origin.Scheme != "https" {
+		return false
+	}
+	switch origin.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) tokenAllowed(token string) bool {
@@ -266,7 +296,7 @@ func (s *Server) tokenAllowed(token string) bool {
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if _, ok := s.AllowedOrigins[origin]; ok {
+		if s.originAllowed(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin, Access-Control-Request-Private-Network")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, "+TokenHeader)

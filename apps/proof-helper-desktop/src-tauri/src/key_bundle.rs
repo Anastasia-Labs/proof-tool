@@ -1,3 +1,4 @@
+use crate::proof_assets_release;
 use key_bundle_core::{self, InstallProgress, InstallRequest};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -9,7 +10,7 @@ const KEY_BUNDLE_PROGRESS_EVENT: &str = "key-bundle-progress";
 
 #[derive(Default)]
 pub struct KeyBundleState {
-    cancel_activation: AtomicBool,
+    pub(crate) cancel_activation: AtomicBool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -22,6 +23,11 @@ pub struct KeyBundleStatus {
     pub circuit_id: Option<String>,
     pub app_data_dir: String,
     pub active_dir: String,
+    pub installed_release_tag: Option<String>,
+    pub expected_release_tag: Option<String>,
+    pub signature_key_id: Option<String>,
+    pub expected_vk_hash: Option<String>,
+    pub installed_at: Option<String>,
     pub error: Option<String>,
 }
 
@@ -86,6 +92,7 @@ pub fn active_key_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String>
 pub fn inspect_key_bundle<R: Runtime>(app: &AppHandle<R>) -> Result<KeyBundleStatus, String> {
     let paths = key_cache_paths(app)?;
     let inspection = key_bundle_core::inspect_active_bundle(&paths.active_dir);
+    let descriptor = proof_assets_release::active_descriptor();
     Ok(KeyBundleStatus {
         state: inspection.state,
         ready: inspection.ready,
@@ -94,17 +101,22 @@ pub fn inspect_key_bundle<R: Runtime>(app: &AppHandle<R>) -> Result<KeyBundleSta
         circuit_id: inspection.circuit_id,
         app_data_dir: paths.app_data_dir.display().to_string(),
         active_dir: paths.active_dir.display().to_string(),
+        installed_release_tag: inspection.installed_release_tag,
+        expected_release_tag: Some(descriptor.release_tag),
+        signature_key_id: inspection.signature_key_id,
+        expected_vk_hash: Some(descriptor.expected_vk_hash),
+        installed_at: inspection.installed_at,
         error: inspection.error,
     })
 }
 
-struct KeyCachePaths {
-    app_data_dir: PathBuf,
-    active_dir: PathBuf,
-    downloading_dir: PathBuf,
+pub(crate) struct KeyCachePaths {
+    pub(crate) app_data_dir: PathBuf,
+    pub(crate) active_dir: PathBuf,
+    pub(crate) downloading_dir: PathBuf,
 }
 
-fn key_cache_paths<R: Runtime>(app: &AppHandle<R>) -> Result<KeyCachePaths, String> {
+pub(crate) fn key_cache_paths<R: Runtime>(app: &AppHandle<R>) -> Result<KeyCachePaths, String> {
     let app_data_dir = app
         .path()
         .app_data_dir()

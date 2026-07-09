@@ -7,6 +7,7 @@
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc -p tsconfig.json && vite build",
     "check:tauri-prereqs": "bash scripts/check-tauri-linux-prereqs.sh",
+    "release:stage-windows": "node scripts/stage-windows-release.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "tauri": "tauri"

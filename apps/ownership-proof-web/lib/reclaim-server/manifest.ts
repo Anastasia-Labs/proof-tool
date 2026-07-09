@@ -1,6 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { ReclaimDeployment, ReclaimNetwork, ReclaimReferenceScriptDeployment } from "../reclaim/types";
+import type {
+  BrowserProvingDescriptor,
+  BrowserProvingTuning,
+  ReclaimDeployment,
+  ReclaimNetwork,
+  ReclaimReferenceScriptDeployment,
+} from "../reclaim/types";
 
 export const RECLAIM_DEPLOYMENT_SCHEMA = "proof-tool-reclaim-deployment-v1";
 export const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v1/bls12-381/groth16";
@@ -45,6 +51,7 @@ export type ReclaimDeploymentManifest = {
     destination_address_encoding: typeof DESTINATION_ADDRESS_ENCODING;
     vk_hash: string;
     cardano_vk_blake2b256: string;
+    browser_proving?: BrowserProvingDescriptor;
   };
   batching: {
     default_utxo_count: number;
@@ -95,6 +102,7 @@ export type ClaimDeploymentCapabilities = {
     referenceScriptsConfigured: boolean;
     missing: string[];
   };
+  browserProving: BrowserProvingDescriptor | null;
 };
 
 export type DeploymentConfigResult =
@@ -400,6 +408,7 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       ),
       vk_hash: hashField(proof.vk_hash, "proof.vk_hash", errors),
       cardano_vk_blake2b256: hashField(proof.cardano_vk_blake2b256, "proof.cardano_vk_blake2b256", errors),
+      ...browserProvingFromField(proof.browser_proving, errors),
     },
     batching: {
       default_utxo_count: positiveIntegerField(batching.default_utxo_count, "batching.default_utxo_count", errors),
@@ -783,7 +792,120 @@ function claimCapabilities(manifest: ReclaimDeploymentManifest): ClaimDeployment
       referenceScriptsConfigured: Boolean(manifest.reference_scripts),
       missing: manifest.reference_scripts ? [] : ["reference_scripts.reclaim_base", "reference_scripts.reclaim_global"],
     },
+    browserProving: manifest.proof.browser_proving ?? null,
   };
+}
+
+const BROWSER_PROVING_SAME_ORIGIN_URLS = ["runtime_base_url", "proof_wasm_url", "worker_js_url", "msm_worker_wasm_url"] as const;
+
+const BROWSER_PROVING_ASSET_URLS = [
+  "manifest_url",
+  "manifest_sig_url",
+  "chunk_manifest_url",
+  "chunk_manifest_sig_url",
+  "deployment_manifest_url",
+  "vk_url",
+  "pk_url",
+  "pk_index_url",
+  "ccs_url",
+] as const;
+
+function browserProvingFromField(
+  value: unknown,
+  errors: ManifestValidationError[],
+): { browser_proving: BrowserProvingDescriptor } | Record<never, never> {
+  if (value === undefined) {
+    return {};
+  }
+  const field = "proof.browser_proving";
+  const root = objectField(value, field, errors);
+
+  if (typeof root.enabled !== "boolean") {
+    errors.push({ code: "invalid_type", field: `${field}.enabled`, message: `${field}.enabled must be a boolean.` });
+  }
+
+  const descriptor: BrowserProvingDescriptor = {
+    enabled: root.enabled === true,
+    runtime_base_url: "",
+    manifest_url: "",
+    manifest_sig_url: "",
+    manifest_public_key_hex: hexField(root.manifest_public_key_hex, `${field}.manifest_public_key_hex`, 64, errors),
+    chunk_manifest_url: "",
+    chunk_manifest_sig_url: "",
+    chunk_manifest_public_key_hex: hexField(root.chunk_manifest_public_key_hex, `${field}.chunk_manifest_public_key_hex`, 64, errors),
+    deployment_manifest_url: "",
+    vk_url: "",
+    pk_url: "",
+    pk_index_url: "",
+    ccs_url: "",
+    ccs_blake2b256: hashField(root.ccs_blake2b256, `${field}.ccs_blake2b256`, errors),
+    proof_wasm_url: "",
+    worker_js_url: "",
+    msm_worker_wasm_url: "",
+  };
+
+  for (const key of BROWSER_PROVING_SAME_ORIGIN_URLS) {
+    const url = stringField(root[key], `${field}.${key}`, errors);
+    if (url && !url.startsWith("/")) {
+      errors.push({
+        code: "browser_proving_url_not_same_origin",
+        field: `${field}.${key}`,
+        message: `${field}.${key} must be a same-origin path starting with /.`,
+      });
+    }
+    descriptor[key] = url;
+  }
+  for (const key of BROWSER_PROVING_ASSET_URLS) {
+    const url = stringField(root[key], `${field}.${key}`, errors);
+    if (url && !url.startsWith("/") && !/^https?:\/\//u.test(url)) {
+      errors.push({
+        code: "browser_proving_url_malformed",
+        field: `${field}.${key}`,
+        message: `${field}.${key} must be a same-origin path or an absolute http(s) URL.`,
+      });
+    }
+    descriptor[key] = url;
+  }
+
+  const tuning = browserProvingTuningField(root.tuning, `${field}.tuning`, errors);
+  if (tuning) {
+    descriptor.tuning = tuning;
+  }
+  return { browser_proving: descriptor };
+}
+
+function browserProvingTuningField(
+  value: unknown,
+  field: string,
+  errors: ManifestValidationError[],
+): BrowserProvingTuning | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const root = objectField(value, field, errors);
+  const tuning: BrowserProvingTuning = {};
+  for (const key of ["worker_count", "shard_count", "shard_multiplier", "range_fetch_concurrency", "gogc"] as const) {
+    if (root[key] === undefined) {
+      continue;
+    }
+    tuning[key] = positiveIntegerField(root[key], `${field}.${key}`, errors);
+  }
+  if (root.pinned_decode !== undefined) {
+    if (typeof root.pinned_decode !== "boolean") {
+      errors.push({ code: "invalid_type", field: `${field}.pinned_decode`, message: `${field}.pinned_decode must be a boolean.` });
+    } else {
+      tuning.pinned_decode = root.pinned_decode;
+    }
+  }
+  if (root.gomemlimit !== undefined) {
+    const gomemlimit = stringField(root.gomemlimit, `${field}.gomemlimit`, errors);
+    if (gomemlimit && !/^\d+(?:[KMGT]i?B)?$/u.test(gomemlimit)) {
+      errors.push({ code: "invalid_type", field: `${field}.gomemlimit`, message: `${field}.gomemlimit must be a Go memory limit like 3000MiB.` });
+    } else if (gomemlimit) {
+      tuning.gomemlimit = gomemlimit;
+    }
+  }
+  return tuning;
 }
 
 function optionalReferenceScriptsField(

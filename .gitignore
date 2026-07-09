@@ -19,3 +19,23 @@ apps/proof-helper-desktop/src-tauri/*/target/
 apps/proof-helper-desktop/src-tauri/binaries/proof-tool-*
 contracts/ownership-verifier/dist-newstyle/
 .codex/*
+vendor/
+# Reproducible WASM build products (regenerate via scripts/build-wasm-prover.sh
+# then scripts/stage-proof-assets.sh). Too large for git; hash-pinned by the
+# chunk manifest.
+dist/
+apps/ownership-proof-web/public/proof-runtime/*.wasm
+# experiments/ is scratch (benchmark harnesses, traces, the golden-XPrv
+# browser-prover.js, the 214MB web/ assets, output/ dumps) — ignored EXCEPT the
+# two files the production Go build depends on: shim.go (imported by the vendored
+# gnark) and prove-stream.patch (used by scripts/bootstrap-vendor.sh to rebuild
+# vendor/). Without those two, a fresh clone / CI / Vercel build cannot compile.
+experiments/*
+!experiments/wasm-prover
+experiments/wasm-prover/*
+!experiments/wasm-prover/msmengine
+!experiments/wasm-prover/patches
+experiments/wasm-prover/msmengine/*
+!experiments/wasm-prover/msmengine/shim.go
+experiments/wasm-prover/patches/*
+!experiments/wasm-prover/patches/prove-stream.patch

@@ -22,13 +22,16 @@ describe("preprod browser bootstrap", () => {
     const claimDiscoveryStageRunner = vi.fn(async () => fakeClaimDiscoveryStage(outputDir));
     const destinationProofStageRunner = vi.fn(async () => fakeDestinationProofStage(outputDir));
     const negativeGuardrailsStageRunner = vi.fn(async () => fakeNegativeGuardrailsStage(outputDir));
-    const claimFirstBatchStageRunner = vi.fn(async () => fakeClaimFirstBatchStage(outputDir));
-    const claimTailReceiptStageRunner = vi.fn(async () => fakeClaimTailReceiptStage(outputDir));
+    const claimUiAcceptanceStageRunner = vi.fn(async () => fakeClaimUiAcceptanceStage(outputDir));
 
     const result = await runPreprodBrowserBootstrap({
       env: {},
       appTarget: {
         baseUrl: "http://127.0.0.1:3917",
+      },
+      helperTarget: {
+        helperUrl: "http://127.0.0.1:49152",
+        token: "pair-secret",
       },
       walletHarness,
       outputDir,
@@ -38,8 +41,7 @@ describe("preprod browser bootstrap", () => {
       claimDiscoveryStageRunner,
       destinationProofStageRunner,
       negativeGuardrailsStageRunner,
-      claimFirstBatchStageRunner,
-      claimTailReceiptStageRunner,
+      claimUiAcceptanceStageRunner,
     });
 
     expect(result.ok).toBe(true);
@@ -83,10 +85,13 @@ describe("preprod browser bootstrap", () => {
         appTarget: {
           baseUrl: "http://127.0.0.1:3917",
         },
-        helperTarget: null,
+        helperTarget: {
+          helperUrl: "http://127.0.0.1:49152",
+          token: "pair-secret",
+        },
       }),
     );
-    expect(claimFirstBatchStageRunner).toHaveBeenCalledWith(
+    expect(claimUiAcceptanceStageRunner).toHaveBeenCalledWith(
       expect.objectContaining({
         page: fake.page,
         walletHarness,
@@ -94,7 +99,11 @@ describe("preprod browser bootstrap", () => {
         appTarget: {
           baseUrl: "http://127.0.0.1:3917",
         },
-        proofBundle: {
+        helperTarget: {
+          helperUrl: "http://127.0.0.1:49152",
+          token: "pair-secret",
+        },
+        diagnosticProofBundle: {
           selectedOutrefs: ["a".repeat(64) + "#0"],
         },
       }),
@@ -107,23 +116,12 @@ describe("preprod browser bootstrap", () => {
         appTarget: {
           baseUrl: "http://127.0.0.1:3917",
         },
-        helperTarget: null,
+        helperTarget: {
+          helperUrl: "http://127.0.0.1:49152",
+          token: "pair-secret",
+        },
         proofBundle: {
           selectedOutrefs: ["a".repeat(64) + "#0"],
-        },
-      }),
-    );
-    expect(claimTailReceiptStageRunner).toHaveBeenCalledWith(
-      expect.objectContaining({
-        page: fake.page,
-        walletHarness,
-        outputDir,
-        appTarget: {
-          baseUrl: "http://127.0.0.1:3917",
-        },
-        helperTarget: null,
-        firstClaimBundle: {
-          txHash: "1".repeat(64),
         },
       }),
     );
@@ -142,10 +140,8 @@ describe("preprod browser bootstrap", () => {
       "generate-destination-bound-proofs.png",
       "negative-guardrails.json",
       "negative-guardrails.png",
-      "claim-first-batch.json",
-      "claim-first-batch.png",
-      "claim-tail-and-receipt.json",
-      "claim-tail-and-receipt.png",
+      "claim-ui-acceptance.json",
+      "claim-ui-acceptance.png",
     ]);
 
     const artifact = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
@@ -173,6 +169,10 @@ describe("preprod browser bootstrap", () => {
       appTarget: {
         baseUrl: "http://127.0.0.1:3917",
       },
+      helperTarget: {
+        helperUrl: "http://127.0.0.1:49152",
+        token: "pair-secret",
+      },
       walletHarness: fakeWalletHarness(),
       outputDir: tempDir(),
       browserLauncher: fake.launcher,
@@ -181,11 +181,70 @@ describe("preprod browser bootstrap", () => {
       claimDiscoveryStageRunner: async () => fakeClaimDiscoveryStage(tempDir()),
       destinationProofStageRunner: async () => fakeDestinationProofStage(tempDir()),
       negativeGuardrailsStageRunner: async () => fakeNegativeGuardrailsStage(tempDir()),
-      claimFirstBatchStageRunner: async () => fakeClaimFirstBatchStage(tempDir()),
-      claimTailReceiptStageRunner: async () => fakeClaimTailReceiptStage(tempDir()),
+      claimUiAcceptanceStageRunner: async () => fakeClaimUiAcceptanceStage(tempDir()),
     });
 
     expect(fake.launcher.launch).toHaveBeenCalledWith({ headless: false });
+  });
+
+  it("uses a persistent Lace profile and runs the single-wallet smoke stage set", async () => {
+    const outputDir = tempDir();
+    const fake = fakeBrowserStack();
+    const walletHarness = fakeLaceWalletDriver(fake.context);
+    const nativeFundingStageRunner = vi.fn(async () => {
+      throw new Error("native funding should stay out of Lace smoke");
+    });
+    const negativeGuardrailsStageRunner = vi.fn(async () => {
+      throw new Error("negative guardrails should stay out of Lace smoke");
+    });
+    const claimDiscoveryStageRunner = vi.fn(async () => fakeClaimDiscoveryStage(outputDir));
+    const destinationProofStageRunner = vi.fn(async () => fakeDestinationProofStage(outputDir));
+
+    const result = await runPreprodBrowserBootstrap({
+      env: {},
+      appTarget: {
+        baseUrl: "http://127.0.0.1:3917",
+      },
+      helperTarget: {
+        helperUrl: "http://127.0.0.1:49152",
+        token: "pair-secret",
+      },
+      walletHarness,
+      outputDir,
+      browserLauncher: fake.launcher,
+      fundingStageRunner: async () => fakeFundingStage(outputDir),
+      nativeFundingStageRunner,
+      claimDiscoveryStageRunner,
+      destinationProofStageRunner,
+      negativeGuardrailsStageRunner,
+      claimUiAcceptanceStageRunner: async () => fakeClaimUiAcceptanceStage(outputDir),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(fake.launcher.launch).not.toHaveBeenCalled();
+    expect(walletHarness.launchBrowserContext).toHaveBeenCalledWith(fake.launcher, { headless: true });
+    expect(nativeFundingStageRunner).not.toHaveBeenCalled();
+    expect(negativeGuardrailsStageRunner).not.toHaveBeenCalled();
+    expect(claimDiscoveryStageRunner).toHaveBeenCalledWith(expect.objectContaining({ expectedMinimumMatchingUtxos: 1 }));
+    expect(destinationProofStageRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: expect.objectContaining({
+          RECLAIM_E2E_CLAIM_BATCH_SIZE: "1",
+        }),
+      }),
+    );
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
+      "browser-bootstrap.json",
+      "reclaim-initial.png",
+      "fund-ada-only-reclaim.json",
+      "fund-ada-only-reclaim.png",
+      "discover-matching-claims.json",
+      "discover-matching-claims.png",
+      "generate-destination-bound-proofs.json",
+      "generate-destination-bound-proofs.png",
+      "claim-ui-acceptance.json",
+      "claim-ui-acceptance.png",
+    ]);
   });
 
   it("closes browser resources when navigation fails", async () => {
@@ -197,6 +256,10 @@ describe("preprod browser bootstrap", () => {
         appTarget: {
           baseUrl: "http://127.0.0.1:3917",
         },
+        helperTarget: {
+          helperUrl: "http://127.0.0.1:49152",
+          token: "pair-secret",
+        },
         walletHarness: fakeWalletHarness(),
         outputDir: tempDir(),
         browserLauncher: fake.launcher,
@@ -205,8 +268,7 @@ describe("preprod browser bootstrap", () => {
         claimDiscoveryStageRunner: async () => fakeClaimDiscoveryStage(tempDir()),
         destinationProofStageRunner: async () => fakeDestinationProofStage(tempDir()),
         negativeGuardrailsStageRunner: async () => fakeNegativeGuardrailsStage(tempDir()),
-        claimFirstBatchStageRunner: async () => fakeClaimFirstBatchStage(tempDir()),
-        claimTailReceiptStageRunner: async () => fakeClaimTailReceiptStage(tempDir()),
+        claimUiAcceptanceStageRunner: async () => fakeClaimUiAcceptanceStage(tempDir()),
       }),
     ).rejects.toMatchObject({
       code: "browser_bootstrap_failed",
@@ -259,6 +321,25 @@ function fakeWalletHarness() {
   return {
     roles: ["deployer", "reclaim_funder", "compromised_user", "safe_claim_destination"],
     installOnPage: vi.fn(async () => undefined),
+    recoveryPhraseForBrowserUi: vi.fn(async () => "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
+  };
+}
+
+function fakeLaceWalletDriver(context) {
+  return {
+    mode: "lace",
+    roles: ["deployer", "reclaim_funder", "compromised_user", "safe_claim_destination"],
+    launchBrowserContext: vi.fn(async () => context),
+    installOnPage: vi.fn(async () => undefined),
+    probeWalletRoles: vi.fn(async () => ({
+      reclaim_funder: {
+        providerId: "lace",
+        present: true,
+        canEnable: null,
+        networkId: null,
+      },
+    })),
+    recoveryPhraseForBrowserUi: vi.fn(async () => "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
   };
 }
 
@@ -318,26 +399,16 @@ function fakeNegativeGuardrailsStage(outputDir) {
   };
 }
 
-function fakeClaimFirstBatchStage(outputDir) {
-  const jsonPath = path.join(outputDir, "claim-first-batch.json");
-  const screenshotPath = path.join(outputDir, "screenshots", "claim-first-batch.png");
+function fakeClaimUiAcceptanceStage(outputDir) {
+  const jsonPath = path.join(outputDir, "claim-ui-acceptance.json");
+  const screenshotPath = path.join(outputDir, "screenshots", "claim-ui-acceptance.png");
   mkdirSync(path.dirname(screenshotPath), { recursive: true });
   return {
     ok: true,
     artifacts: [jsonPath, screenshotPath],
-    claimBundle: {
-      txHash: "1".repeat(64),
+    summary: {
+      browserUiDriven: true,
     },
-  };
-}
-
-function fakeClaimTailReceiptStage(outputDir) {
-  const jsonPath = path.join(outputDir, "claim-tail-and-receipt.json");
-  const screenshotPath = path.join(outputDir, "screenshots", "claim-tail-and-receipt.png");
-  mkdirSync(path.dirname(screenshotPath), { recursive: true });
-  return {
-    ok: true,
-    artifacts: [jsonPath, screenshotPath],
   };
 }
 

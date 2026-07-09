@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as defaultSleep } from "node:timers/promises";
+import { approveWalletSigning, connectFundingRole } from "./wallet-driver.mjs";
 
 export const ADA_ONLY_FUNDING_STAGE_NAME = "fund-ada-only-reclaim";
 export const NATIVE_ASSET_FUNDING_STAGE_NAME = "fund-native-asset-reclaims";
@@ -47,10 +48,12 @@ export async function runAdaOnlyFundingStage(options = {}) {
   validateAdaAmount(ADA_ONLY_AMOUNT_ENV, adaAmount);
   const compromisedCredential = getCompromisedCredential(walletHarness, compromisedRole);
 
-  await connectFundingWallet(page, fundingRole);
+  await connectFundingRole(page, walletHarness, fundingRole);
   const transaction = await buildSignSubmitFundingTransaction(page, {
     compromisedCredential,
     adaAmount,
+    walletDriver: walletHarness,
+    signingRole: fundingRole,
   });
   await waitForFundingSettlement(sleep, settlementWaitMs);
   const screenshotPath = path.join(outputDir, "screenshots", "fund-ada-only-reclaim.png");
@@ -107,13 +110,15 @@ export async function runNativeAssetFundingStage(options = {}) {
   validateNativeAssetQuantity(nativeAssetQuantity);
   const compromisedCredential = getCompromisedCredential(walletHarness, compromisedRole);
 
-  await connectFundingWallet(page, fundingRole);
+  await connectFundingRole(page, walletHarness, fundingRole);
   const screenshots = [];
   const transactions = [];
   for (let index = 0; index < nativeReclaimCount; index += 1) {
     const transaction = await buildSignSubmitFundingTransaction(page, {
       compromisedCredential,
       adaAmount,
+      walletDriver: walletHarness,
+      signingRole: fundingRole,
       nativeAsset: {
         unit: nativeAssetUnit,
         quantity: nativeAssetQuantity,
@@ -175,13 +180,10 @@ function requireOption(value, name) {
   return value;
 }
 
-async function connectFundingWallet(page, fundingRole) {
-  await page.getByLabel("Cardano wallet").selectOption(fundingRole);
-  await page.getByRole("button", { name: /connect wallet/iu }).click();
-  await page.getByText(/CIP-30 wallet address/iu).waitFor();
-}
-
-async function buildSignSubmitFundingTransaction(page, { compromisedCredential, adaAmount, nativeAsset = null, disallowedTxHashes = new Set() }) {
+async function buildSignSubmitFundingTransaction(
+  page,
+  { compromisedCredential, adaAmount, walletDriver, signingRole, nativeAsset = null, disallowedTxHashes = new Set() },
+) {
   await page.getByLabel("Payment key credential").fill(compromisedCredential);
   await page.getByLabel("ADA amount").fill(adaAmount);
   if (nativeAsset) {
@@ -203,6 +205,7 @@ async function buildSignSubmitFundingTransaction(page, { compromisedCredential, 
     );
   }
   await page.getByRole("button", { name: /sign and submit/iu }).click();
+  await approveWalletSigning(walletDriver, signingRole, "funding");
   const submitResult = await waitForSubmitResult(page);
   if (submitResult.status === "failed") {
     throw new PreprodFundingStageError("funding_submit_failed", submitResult.message || "Funding transaction submission failed.");

@@ -30,7 +30,34 @@
     "key_version": "ownership-destination-v1",
     "destination_address_encoding": "destination-address-v1",
     "vk_hash": "blake2b256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-    "cardano_vk_blake2b256": "blake2b256:1111111111111111111111111111111111111111111111111111111111111111"
+    "cardano_vk_blake2b256": "blake2b256:1111111111111111111111111111111111111111111111111111111111111111",
+    "browser_proving": {
+      "enabled": false,
+      "runtime_base_url": "/proof-runtime",
+      "manifest_url": "/proof-assets/manifest.json",
+      "manifest_sig_url": "/proof-assets/manifest.sig",
+      "manifest_public_key_hex": "e20b0fb38fb6dc0a66284a8f3a6e8d05bf55b8e966d86f53b77d284b524463d6",
+      "chunk_manifest_url": "/proof-assets/chunk-manifest.json",
+      "chunk_manifest_sig_url": "/proof-assets/chunk-manifest.sig",
+      "chunk_manifest_public_key_hex": "e20b0fb38fb6dc0a66284a8f3a6e8d05bf55b8e966d86f53b77d284b524463d6",
+      "deployment_manifest_url": "/proof-assets/reclaim-deployment.json",
+      "vk_url": "/proof-assets/ownership.vk",
+      "pk_url": "https://REPLACE-WITH-RANGED-ASSET-HOST/proof-assets/ownership.pk",
+      "pk_index_url": "/proof-assets/ownership.pk.idx.json",
+      "ccs_url": "https://REPLACE-WITH-RANGED-ASSET-HOST/proof-assets/ownership-destination.ccs",
+      "ccs_blake2b256": "blake2b256:54da79a38f83d47447cd613bb41d16ef0a19e3c29b0b1a3267d0a1c16aeb577e",
+      "proof_wasm_url": "/proof-runtime/proof-destination.wasm",
+      "worker_js_url": "/proof-runtime/msm-worker.js",
+      "msm_worker_wasm_url": "/proof-runtime/msmworker.wasm",
+      "tuning": {
+        "worker_count": 8,
+        "shard_count": 32,
+        "range_fetch_concurrency": 2,
+        "pinned_decode": true,
+        "gogc": 50,
+        "gomemlimit": "3000MiB"
+      }
+    }
   },
   "batching": {
     "default_utxo_count": 4,

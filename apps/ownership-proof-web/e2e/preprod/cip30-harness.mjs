@@ -115,6 +115,13 @@ export async function createCip30WalletHarness({
       const masterXPrv = await masterXprvFromSeedPhrase(state.mnemonic);
       return Buffer.from(masterXPrv).toString("base64");
     },
+    async recoveryPhraseForBrowserUi(role) {
+      const state = roles.get(role);
+      if (!state) {
+        throw new Cip30HarnessError("wallet_role_unknown", `Unknown preprod wallet role: ${role}`);
+      }
+      return state.mnemonic;
+    },
     async roleUtxoAssetSummary(role) {
       if (role !== "safe_claim_destination") {
         throw new Cip30HarnessError("wallet_role_balance_forbidden", "Only safe_claim_destination balance summaries are available.");

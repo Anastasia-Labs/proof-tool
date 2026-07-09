@@ -1,0 +1,68 @@
+{
+  "schema": "proof-tool-reclaim-deployment-v1",
+  "deployment_id": "preprod:2fa284c094db10d9bf916a6f42199c883cc55a199ebe23b6b9070c54:71c224623824d44a648e42d1a7653535a78879bc",
+  "network": "Preprod",
+  "network_id": 0,
+  "source_commit": "71c224623824d44a648e42d1a7653535a78879bc",
+  "contract_version": "ownership-verifier-0.1.0.0",
+  "reclaim_base": {
+    "address": "addr_test1wqh69pxqjnd3pkdlj94x7ssenjyre326rx0tugakhyrsc4qqtu94f",
+    "script_hash": "2fa284c094db10d9bf916a6f42199c883cc55a199ebe23b6b9070c54",
+    "required_global_credential": "1e837d0ee6c9e042375365b0194e463460c21f468afbc8cc0f8ff155"
+  },
+  "reclaim_global": {
+    "script_hash": "1e837d0ee6c9e042375365b0194e463460c21f468afbc8cc0f8ff155",
+    "rewarding_credential": "1e837d0ee6c9e042375365b0194e463460c21f468afbc8cc0f8ff155",
+    "params_currency_symbol": "05291445b5a19600fd357a3287bd812a6adb5349464e455d7a0f25c1",
+    "verifier_vk_hash": "blake2b256:6057da91b15dea8f8e93997f1b1944c35bc2c86faf9a9de17b814f6a172d430a",
+    "proof_profile": "single-destination"
+  },
+  "params_utxo": {
+    "tx_hash": "a1d0677b0b29281b422c0cd2fb6614d615d773e908d02eed20b6f98c772a0b8b",
+    "output_index": 0,
+    "policy_id": "05291445b5a19600fd357a3287bd812a6adb5349464e455d7a0f25c1",
+    "token_name": "5245434c41494d504152414d53",
+    "holder_address": "addr_test1wr4mrzsjwa6pquu0m6480mq06kpxsht80d4nfh56dcak6lsejdm28",
+    "datum_reclaim_base_script_hash": "2fa284c094db10d9bf916a6f42199c883cc55a199ebe23b6b9070c54"
+  },
+  "proof": {
+    "circuit_id": "root-ownership-destination-v1/bls12-381/groth16",
+    "key_version": "ownership-destination-v1",
+    "destination_address_encoding": "destination-address-v1",
+    "vk_hash": "blake2b256:6057da91b15dea8f8e93997f1b1944c35bc2c86faf9a9de17b814f6a172d430a",
+    "cardano_vk_blake2b256": "blake2b256:d35ce80449fddb17cacbf922dfe27e57c28afcd59bee44bcef8eecbd7b317acf"
+  },
+  "batching": {
+    "default_utxo_count": 4,
+    "optimization_utxo_count": 5,
+    "hard_max_utxo_count": 5,
+    "max_tx_cpu_percent": 80,
+    "max_tx_mem_percent": 80
+  },
+  "provider": {
+    "primary": "blockfrost",
+    "fallback": "koios"
+  },
+  "reference_scripts": {
+    "reclaim_base": {
+      "tx_hash": "a1d0677b0b29281b422c0cd2fb6614d615d773e908d02eed20b6f98c772a0b8b",
+      "output_index": 1,
+      "script_hash": "2fa284c094db10d9bf916a6f42199c883cc55a199ebe23b6b9070c54",
+      "holder_address": "addr_test1wr4mrzsjwa6pquu0m6480mq06kpxsht80d4nfh56dcak6lsejdm28"
+    },
+    "reclaim_global": {
+      "tx_hash": "a1d0677b0b29281b422c0cd2fb6614d615d773e908d02eed20b6f98c772a0b8b",
+      "output_index": 2,
+      "script_hash": "1e837d0ee6c9e042375365b0194e463460c21f468afbc8cc0f8ff155",
+      "holder_address": "addr_test1wr4mrzsjwa6pquu0m6480mq06kpxsht80d4nfh56dcak6lsejdm28"
+    }
+  },
+  "enabled": true,
+  "preprod_notes": {
+    "holder_model": "local-preprod-unspendable-params-holder",
+    "holder_script_hash": "ebb18a12777410738fdeaa77ec0fd582685d677b6b34de9a6e3b6d7e",
+    "destination_key_provenance": "single-actor local Preprod setup; not an MPC ceremony",
+    "global_reward_address": "stake_test17q0gxlgwumy7qs3h2djmqx2wgc6xpsslg690hjxvp78lz4ges3sry",
+    "global_reward_account_registered": true
+  }
+}

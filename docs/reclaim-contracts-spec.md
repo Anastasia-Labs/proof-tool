@@ -1,9 +1,11 @@
 # Reclaim Contracts Specification
 
-This document specifies the two reclaim contracts implemented in
+This document specifies the reclaim contract family implemented in
 `contracts/ownership-verifier/src/Ownership/ReclaimBase.hs` and
-`contracts/ownership-verifier/src/Ownership/ReclaimGlobal.hs`. The supporting
-one-shot NFT minting policy lives in
+`contracts/ownership-verifier/src/Ownership/ReclaimGlobal.hs`. The aggregate
+single-proof path is implemented in
+`contracts/ownership-verifier/src/Ownership/ReclaimGlobalMulti.hs`. The
+supporting one-shot NFT minting policy lives in
 `contracts/ownership-verifier/src/Ownership/OneShotNFT.hs`.
 
 ## Existing State
@@ -153,6 +155,83 @@ Transactions with no reclaim-base inputs should fail by default. The rewarding
 script exists only to authorize reclaim spends; allowing no-op withdrawals makes
 off-chain mistakes harder to detect.
 
+## Contract 3: Reclaim Global Multi Rewarding Validator
+
+### Purpose
+
+`ReclaimGlobalMulti` authorizes a batch of matching `ReclaimBase` inputs with one
+destination-bound proof. It scans all spending inputs whose payment credential is
+the deployed `ReclaimBase` script hash, aggregates their credential hashes and
+values, and requires one proof that covers the full ordered credential set and
+the destination address.
+
+### Parameters
+
+The parameters mirror `ReclaimGlobal`:
+
+- `paramsCurrencySymbol :: CurrencySymbol`
+- `verifierKey :: BuiltinByteString`
+
+The referenced parameter UTxO uses the same `ReclaimGlobalParams` datum shape
+with the concrete `reclaimBaseScriptHash`.
+
+### Redeemer
+
+```haskell
+data ReclaimGlobalMultiRedeemer = ReclaimGlobalMultiRedeemer
+  { reclaimParamsIdx :: Integer
+  , reclaimDestinationOutIdx :: Integer
+  , reclaimProof :: BuiltinByteString
+  }
+```
+
+`reclaimDestinationOutIdx` is the first `txInfoOutputs` index in the destination
+run. The validator derives the 58-byte `destinationAddressV1` value from that
+output and aggregates the value of that output plus immediately following
+outputs with the same address. The run stops at the first output with a different
+address.
+
+### Public Input
+
+The multi-proof public input is:
+
+```text
+blake2b_256(
+  "ROOT-OWNERSHIP-MULTI-v1"
+  || credential_count_u16_be
+  || credential_hash_0
+  || ...
+  || credential_hash_n
+  || destinationAddressV1
+)
+```
+
+Each credential hash is the 28-byte `reclaimPaymentKeyHash` from a matching
+`ReclaimBase` input's inline datum, traversed in `txInfoInputs` order.
+`credential_count_u16_be` must be between 1 and 65535. `destinationAddressV1`
+must be exactly 58 bytes.
+
+### Validation Rules
+
+For every withdrawal under
+`ReclaimGlobalMulti(paramsCurrencySymbol, verifierKey)`:
+
+1. The script purpose must be `RewardingScript ownCredential`.
+2. Resolve and validate the parameter reference input selected by
+   `reclaimParamsIdx`.
+3. Traverse `txInfoInputs` in ledger order and include every input whose payment
+   credential is `ScriptCredential reclaimBaseScriptHash`.
+4. Fail if no matching `ReclaimBase` input is present.
+5. Decode each matching input's inline `ReclaimBaseDatum`; each payment key hash
+   must be exactly 28 bytes.
+6. Derive `destinationAddressV1` from `txInfoOutputs[reclaimDestinationOutIdx]`.
+   Enterprise addresses are encoded with a zero stake credential; base addresses
+   encode the stake credential; pointer staking credentials are unsupported.
+7. Verify the single proof against the multi-proof public input.
+8. Require the aggregate protected value from all matching base inputs to be
+   less than or equal to the aggregate contiguous destination-run value using
+   full multi-asset comparison.
+
 ### Invariants
 
 - `ReclaimBase` enforces invocation of `ReclaimGlobal`.
@@ -160,6 +239,9 @@ off-chain mistakes harder to detect.
   input.
 - `ReclaimGlobal` enforces one proof-bound corresponding destination output per
   matching input, and each destination output must cover the full input value.
+- `ReclaimGlobalMulti` enforces one proof-bound destination address for every
+  matching `ReclaimBase` input in the transaction, and its contiguous
+  destination output run must cover the aggregate protected value.
 - The parameter NFT fixes the reclaim-base script hash.
 - The global script hash commits to the verifier key script parameter.
 - The always-fails holder script prevents silent parameter mutation.
