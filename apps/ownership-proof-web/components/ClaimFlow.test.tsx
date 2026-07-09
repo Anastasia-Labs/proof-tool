@@ -627,7 +627,7 @@ describe("ClaimFlow", () => {
     await waitFor(() => expect(screen.getByText(/Recovery complete/i)).toBeInTheDocument());
     expect(screen.getByRole("link", { name: /11111\.\.\.11111/i })).toHaveAttribute(
       "href",
-      `https://cexplorer.io/tx/${"1".repeat(64)}`,
+      `https://preprod.cexplorer.io/tx/${"1".repeat(64)}`,
     );
     expect(impactedSignTx).not.toHaveBeenCalled();
     expect(safeSignTx).toHaveBeenCalledTimes(1);

@@ -48,7 +48,7 @@ import type {
   IndexedReclaimUtxo,
   ReclaimUtxosResponse,
 } from "../lib/claim/types";
-import type { AssetMap, BrowserProvingDescriptor, DeploymentResponse, ReclaimApiError } from "../lib/reclaim/types";
+import type { AssetMap, BrowserProvingDescriptor, DeploymentResponse, ReclaimApiError, ReclaimNetwork } from "../lib/reclaim/types";
 import { LOVELACE_UNIT } from "../lib/reclaim/types";
 import { ProvingCancelledError, checkBrowserProving, proveDestinationInBrowser } from "../lib/proving/browser-wasm";
 import { proveDestinationViaHelper } from "../lib/proving/desktop-helper";
@@ -1891,6 +1891,7 @@ function renderScreen(
           submittedClaims={runtime.submittedClaims}
           progress={runtime.progress}
           safeWallet={runtime.safeWallet}
+          explorerNetwork={runtime.deployment?.available ? runtime.deployment.deployment.network : undefined}
           onNext={runtime.refreshSubmittedProgress}
           onBack={goBack}
         />
@@ -1901,6 +1902,7 @@ function renderScreen(
           submittedClaims={runtime.submittedClaims}
           progress={runtime.progress}
           safeWallet={runtime.safeWallet}
+          explorerNetwork={runtime.deployment?.available ? runtime.deployment.deployment.network : undefined}
           onNext={goNext}
           onBack={goBack}
         />
@@ -3104,6 +3106,7 @@ function ClaimReview({
   submittedClaims,
   progress,
   safeWallet,
+  explorerNetwork,
   onNext,
   onBack,
 }: {
@@ -3111,6 +3114,7 @@ function ClaimReview({
   submittedClaims?: SubmittedClaimTx[];
   progress?: ClaimProgressResponse | null;
   safeWallet?: SafeWalletSummary | null;
+  explorerNetwork?: ReclaimNetwork;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -3165,7 +3169,11 @@ function ClaimReview({
       <div className="claim-content-with-aside">
         <Panel title="Claim transactions" className="claim-table-panel">
           {rows.length > 0 ? (
-            <TransactionTable rows={rows} totalRecovered={recoveredSummary ? formatValueSummary(recoveredSummary) : fixtureMode ? "15.87 ADA + 23 tokens" : undefined} />
+            <TransactionTable
+              rows={rows}
+              explorerNetwork={explorerNetwork}
+              totalRecovered={recoveredSummary ? formatValueSummary(recoveredSummary) : fixtureMode ? "15.87 ADA + 23 tokens" : undefined}
+            />
           ) : (
             <TableEmpty icon={FileText} title="No submitted claim transactions" body="Submit a real claim batch before a receipt is available." />
           )}
@@ -4100,7 +4108,16 @@ function AssetDots({ labels }: { labels: string[] }) {
   );
 }
 
-function TransactionTable({ rows, totalRecovered }: { rows: TransactionRow[]; totalRecovered?: string }) {
+function TransactionTable({
+  rows,
+  explorerNetwork,
+  totalRecovered,
+}: {
+  rows: TransactionRow[];
+  explorerNetwork?: ReclaimNetwork;
+  totalRecovered?: string;
+}) {
+  const explorerHost = cexplorerHost(explorerNetwork);
   return (
     <table className="claim-table">
       <thead>
@@ -4116,10 +4133,10 @@ function TransactionTable({ rows, totalRecovered }: { rows: TransactionRow[]; to
           <tr key={row.txHash}>
             <td>{row.batch}</td>
             <td>
-              <a className="claim-tx-link" href={`https://cexplorer.io/tx/${row.txHash}`} title={row.txHash}>
+              <a className="claim-tx-link" href={cexplorerTxUrl(row.txHash, explorerNetwork)} title={row.txHash}>
                 {row.displayHash} <ExternalLink size={14} aria-hidden="true" />
               </a>
-              <small>cexplorer.io/tx/{row.displayHash}</small>
+              <small>{explorerHost}/tx/{row.displayHash}</small>
             </td>
             <td>{row.value}</td>
             <td><span className={`claim-badge ${row.status === "Confirmed" ? "ready" : "generating"}`}>{row.status}</span></td>
@@ -4136,6 +4153,20 @@ function TransactionTable({ rows, totalRecovered }: { rows: TransactionRow[]; to
       </tbody>
     </table>
   );
+}
+
+function cexplorerTxUrl(txHash: string, network?: ReclaimNetwork): string {
+  return `https://${cexplorerHost(network)}/tx/${txHash}`;
+}
+
+function cexplorerHost(network?: ReclaimNetwork): string {
+  if (network === "Preprod") {
+    return "preprod.cexplorer.io";
+  }
+  if (network === "Preview") {
+    return "preview.cexplorer.io";
+  }
+  return "cexplorer.io";
 }
 
 function Assurance({ icon: Icon, title, body }: { icon: LucideIcon; title: string; body: string }) {
