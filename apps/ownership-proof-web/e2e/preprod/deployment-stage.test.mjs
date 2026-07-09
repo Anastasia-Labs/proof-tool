@@ -14,7 +14,11 @@ afterEach(() => {
 
 describe("deploy-or-verify preprod manifest stage", () => {
   it("accepts coherent reclaim and claim deployment endpoints", () => {
-    const result = verifyDeploymentPair(validDeploymentResponse(), validClaimDeploymentResponse(), preflight());
+    const result = verifyDeploymentPair(
+      validDeploymentResponse(),
+      validClaimDeploymentResponse(),
+      preflight({ gitCommit: "fedcba9876543210fedcba9876543210fedcba98" }),
+    );
 
     expect(result).toMatchObject({
       deploymentId: "preprod:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:1234567890abcdef1234567890abcdef12345678",
@@ -56,6 +60,18 @@ describe("deploy-or-verify preprod manifest stage", () => {
     claim.deployment.id = reclaim.deployment.id;
 
     expect(() => verifyDeploymentPair(reclaim, claim, preflight())).toThrow(/Deployment endpoint id does not match/u);
+  });
+
+  it("rejects an endpoint source commit that differs from the deployment manifest", () => {
+    const expectedSourceCommit = "ffffffffffffffffffffffffffffffffffffffff";
+
+    expect(() =>
+      verifyDeploymentPair(
+        validDeploymentResponse(),
+        validClaimDeploymentResponse(),
+        preflight({ sourceCommit: expectedSourceCommit }),
+      ),
+    ).toThrow(/source commit does not match the preflight deployment manifest/u);
   });
 
   it("rejects unsupported claim capabilities", () => {
@@ -146,14 +162,18 @@ function deployment() {
   };
 }
 
-function preflight() {
+function preflight({
+  gitCommit = "1234567890abcdef1234567890abcdef12345678",
+  sourceCommit = "1234567890abcdef1234567890abcdef12345678",
+} = {}) {
   return {
     context: {
       git: {
-        commit: "1234567890abcdef1234567890abcdef12345678",
+        commit: gitCommit,
       },
       manifest: {
-        deployment_id: "preprod:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:1234567890abcdef1234567890abcdef12345678",
+        deployment_id: `preprod:${"a".repeat(56)}:${sourceCommit}`,
+        source_commit: sourceCommit,
       },
     },
   };

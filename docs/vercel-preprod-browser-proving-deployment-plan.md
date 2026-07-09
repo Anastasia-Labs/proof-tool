@@ -177,10 +177,12 @@ but the browser-proving surface that **must** be committed together is:
        pnpm --dir apps/ownership-proof-web test
        pnpm --dir apps/ownership-proof-web build     # next build, the Vercel command
 
-5. **The commit you deploy must be clean and pushed.** The deployment id binds
-   `network:reclaimBaseScriptHash:sourceCommit`, and the manifest validator rejects
-   any `source_commit` containing `dirty`/`uncommitted`. Note the commit SHA — it
-   becomes the manifest `source_commit` in Step 5.
+5. **The webapp commit you deploy must be clean and pushed.** The manifest's
+   `source_commit` identifies the contract deployment source, so an existing
+   deployment normally keeps its original commit while the webapp advances. The
+   release commit must contain that deployment commit in its Git history. Only a
+   new contract deployment replaces `source_commit` and its bound
+   `deployment_id`.
 
 > Do a normal branch → PR → merge if that is your flow; just ensure the deployed
 > commit contains everything above and is not dirty.
@@ -193,7 +195,10 @@ but the browser-proving surface that **must** be committed together is:
 
 2. Record the identity values you will reuse: `deployment_id`, `network: Preprod`,
    `network_id: 0`, and `reclaim_global.verifier_vk_hash` == `proof.vk_hash` ==
-   `blake2b256:6057da91…d430a`. Update `source_commit` to the commit from Step 0.5.
+   `blake2b256:6057da91…d430a`. Keep the existing `source_commit` for this
+   on-chain deployment and verify it is an ancestor of the webapp release commit:
+
+       git merge-base --is-ancestor "$(jq -r .source_commit deployments/reclaim/preprod/live.local.json)" HEAD
 
 The descriptor's browser-proving `vk_hash` chain must terminate at this
 `verifierVkHash` or the client refuses to prove.
@@ -489,8 +494,8 @@ COOP/COEP ship automatically from `next.config.mjs`. Verify on the live site:
 
 ### Step 7 — Deploy and run acceptance
 
-1. Deploy the clean commit named in the manifest `source_commit` (`vercel --prod`
-   or via Git).
+1. Deploy the clean webapp release commit (`vercel --prod` or via Git). Its Git
+   history must contain the manifest's contract-deployment `source_commit`.
 2. **Deployment health:** `/claim` shows preprod as available;
    `GET /claim-api/deployment` returns `available: true` with
    `capabilities.browserProving` non-null.
@@ -513,7 +518,10 @@ COOP/COEP ship automatically from `next.config.mjs`. Verify on the live site:
 
 ## Part 4 — Go / no-go checklist
 
-- [ ] Browser-proving code + workers + Go packages + scripts **committed**; WASM and `ownership.vk` force-added past `.gitignore`; `next build` green off the commit; `source_commit` clean and pushed.
+- [ ] Browser-proving code + workers + Go packages + scripts **committed**; WASM
+  and `ownership.vk` force-added past `.gitignore`; `next build` green off the
+  webapp release commit; manifest `source_commit` clean, pushed, and an ancestor
+  of that release commit.
 - [x] Ranged host (R2) serves PK chunks + CCS with range, `identity` encoding,
   wildcard read-only CORS, immutable cache headers, and preflight handling; full
   chunk and CCS requests were edge-cache `HIT` on 2026-07-09.

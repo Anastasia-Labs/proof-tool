@@ -70,11 +70,11 @@ export function verifyDeploymentPair(reclaim, claim, preflight) {
   assertEqual("source_commit", reclaimDeployment.sourceCommit, claimDeployment.sourceCommit);
   assertEqual("verifier_vk_hash", reclaimDeployment.verifierVkHash, claimDeployment.verifierVkHash);
 
-  const currentCommit = preflight?.context?.git?.commit;
-  if (currentCommit && reclaimDeployment.sourceCommit !== currentCommit) {
+  const expectedSourceCommit = preflight?.context?.manifest?.source_commit;
+  if (expectedSourceCommit && reclaimDeployment.sourceCommit !== expectedSourceCommit) {
     throw new PreprodDeploymentStageError(
       "deployment_source_commit_mismatch",
-      "Deployment endpoint source commit does not match the clean preflight git commit.",
+      "Deployment endpoint source commit does not match the preflight deployment manifest.",
     );
   }
   const expectedDeploymentId = preflight?.context?.manifest?.deployment_id;

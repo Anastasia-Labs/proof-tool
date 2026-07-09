@@ -14,8 +14,9 @@ must not be run with `NODE_ENV=production`.
 
 - `run.mjs`: preflight, run manifest, transaction approval, app lifecycle,
   stage orchestration, redaction, and final leakage scan.
-- `preflight.mjs`: explicit live gate, wallet-role file, clean git/source
-  identity, deployment-manifest coherence, provider and server-secret checks.
+- `preflight.mjs`: explicit live gate, wallet-role file, clean Git state,
+  deployment-source ancestry and manifest coherence, provider and server-secret
+  checks.
 - `deploy-reclaim-preprod.mjs`: one-shot NFT, parameter holder, parameterized
   ReclaimGlobal/ReclaimBase scripts, reference scripts, reward-account
   registration, and enabled manifest creation.
@@ -41,7 +42,9 @@ destination). Never place these values in tracked files or command arguments.
 
 The harness also requires:
 
-- a clean source commit matching the enabled Preprod manifest;
+- a clean webapp commit whose history contains the enabled Preprod manifest's
+  `source_commit` (the contract deployment may legitimately predate the webapp
+  release);
 - `RECLAIM_REVIEW_TOKEN_SECRET` and a configured Preprod provider;
 - `RECLAIM_DEPLOYMENT_MANIFEST_JSON` or one supported manifest path variable;
 - a loopback destination helper target and token for the desktop provider;

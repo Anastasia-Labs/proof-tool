@@ -4,8 +4,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   formatPreflightReport,
+  gitCommitIsAncestor,
   redactSensitiveValue,
   runPreprodPreflight,
+  validateDeploymentSourceCommit,
   validateExecutionGate,
   validatePreprodManifest,
   validatePreprodWalletFile,
@@ -48,10 +50,11 @@ describe("Phase 9A preprod preflight", () => {
     ).toContain("production_node_env");
   });
 
-  it("passes the scoped preflight with preprod wallet roles, matching source commit, and injected preprod health", async () => {
+  it("passes the scoped preflight with preprod wallet roles, an ancestor deployment commit, and injected preprod health", async () => {
     const repo = tempDir();
     const walletPath = path.join(repo, "deployments/reclaim/preprod/test-wallets.local.json");
-    const commit = "0e3c88005d771149269e7bb5829183f296aa1e17";
+    const deploymentCommit = "0e3c88005d771149269e7bb5829183f296aa1e17";
+    const webCommit = "9f8217920f604f78b588da74a9cbbc99a63455a1";
     writeFile(walletPath, JSON.stringify(validWalletFile()));
 
     const result = await runPreprodPreflight({
@@ -59,12 +62,12 @@ describe("Phase 9A preprod preflight", () => {
         RECLAIM_E2E_LIVE_PREPROD: "1",
         RECLAIM_REVIEW_TOKEN_SECRET: "test-review-token-secret",
         PREPROD_TEST_WALLETS_FILE: "deployments/reclaim/preprod/test-wallets.local.json",
-        RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(commit)),
+        RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify(validManifest(deploymentCommit)),
         RECLAIM_E2E_PROVIDER_HEALTH_JSON: JSON.stringify({ network: "preprod", network_id: 0 }),
       },
       cwd: path.join(repo, "apps/ownership-proof-web"),
       repoRoot: repo,
-      execFile: fakeGit({ commit, status: "" }),
+      execFile: fakeGit({ commit: webCommit, status: "", ancestors: [deploymentCommit] }),
     });
 
     expect(result.ok).toBe(true);
@@ -159,7 +162,7 @@ describe("Phase 9A preprod preflight", () => {
     expect(result.summary.safe_claim_destination.configured).toBe(true);
   });
 
-  it("requires the deployment manifest to be Preprod and match the current clean commit", () => {
+  it("requires the deployment manifest to be Preprod and use a full commit SHA", () => {
     expect(
       validatePreprodManifest(
         {
@@ -167,15 +170,22 @@ describe("Phase 9A preprod preflight", () => {
           network: "Mainnet",
           network_id: 1,
         },
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       ).map((error) => error.code),
     ).toEqual(expect.arrayContaining(["manifest_network_not_preprod", "manifest_network_id_not_preprod"]));
 
     expect(
-      validatePreprodManifest(validManifest("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), "cccccccccccccccccccccccccccccccccccccccc").map(
-        (error) => error.code,
-      ),
-    ).toContain("manifest_source_commit_mismatch");
+      validatePreprodManifest(validManifest("not-a-full-commit")).map((error) => error.code),
+    ).toContain("manifest_source_commit_invalid");
+  });
+
+  it("accepts an ancestor deployment commit and rejects an unrelated commit", () => {
+    const sourceCommit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const currentCommit = "cccccccccccccccccccccccccccccccccccccccc";
+
+    expect(validateDeploymentSourceCommit(sourceCommit, currentCommit, { ok: true, isAncestor: true })).toEqual([]);
+    expect(
+      validateDeploymentSourceCommit(sourceCommit, currentCommit, { ok: true, isAncestor: false }).map((error) => error.code),
+    ).toContain("manifest_source_commit_not_ancestor");
   });
 
   it("rejects dirty git state before live preprod work", async () => {
@@ -213,9 +223,23 @@ describe("Phase 9A preprod preflight", () => {
 
     const manifest = validManifest("4444444444444444444444444444444444444444");
     delete manifest.reference_scripts;
-    expect(validatePreprodManifest(manifest, manifest.source_commit).map((error) => error.code)).toContain(
+    expect(validatePreprodManifest(manifest).map((error) => error.code)).toContain(
       "manifest_reference_scripts_missing",
     );
+  });
+
+  it("checks commit ancestry with git merge-base", async () => {
+    const ancestor = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const descendant = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const execFile = fakeGit({ commit: descendant, status: "", ancestors: [ancestor] });
+
+    await expect(gitCommitIsAncestor({ ancestor, descendant, cwd: "/repo", execFile })).resolves.toEqual({
+      ok: true,
+      isAncestor: true,
+    });
+    await expect(
+      gitCommitIsAncestor({ ancestor: "cccccccccccccccccccccccccccccccccccccccc", descendant, cwd: "/repo", execFile }),
+    ).resolves.toEqual({ ok: true, isAncestor: false });
   });
 
   it("redacts nested secret-shaped fields", () => {
@@ -307,7 +331,7 @@ function writeFile(filePath, contents) {
   writeFileSync(filePath, contents, { encoding: "utf8", flag: "w" });
 }
 
-function fakeGit({ commit, status }) {
+function fakeGit({ commit, status, ancestors = [] }) {
   return (_command, args, _options, callback) => {
     if (args[0] === "rev-parse") {
       callback(null, `${commit}\n`, "");
@@ -315,6 +339,16 @@ function fakeGit({ commit, status }) {
     }
     if (args[0] === "status") {
       callback(null, status, "");
+      return;
+    }
+    if (args[0] === "merge-base" && args[1] === "--is-ancestor") {
+      if (args[3] === commit && ancestors.includes(args[2])) {
+        callback(null, "", "");
+        return;
+      }
+      const error = new Error("not an ancestor");
+      error.code = 1;
+      callback(error, "", "");
       return;
     }
     callback(new Error(`unexpected git command: ${args.join(" ")}`), "", "");

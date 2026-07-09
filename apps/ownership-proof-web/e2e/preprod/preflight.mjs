@@ -77,9 +77,18 @@ export async function runPreprodPreflight(options = {}) {
   errors.push(...validateGitState(git));
 
   if (manifestResult.ok && git.ok) {
-    const manifestErrors = validatePreprodManifest(manifestResult.manifest, git.commit);
+    const manifestErrors = validatePreprodManifest(manifestResult.manifest);
     errors.push(...validateManifestEnvCoherence(manifestResult.manifest, env));
     errors.push(...manifestErrors);
+    if (!manifestErrors.some((error) => error.field === "manifest.source_commit")) {
+      const ancestry = await gitCommitIsAncestor({
+        ancestor: manifestResult.manifest.source_commit,
+        descendant: git.commit,
+        cwd: repoRoot,
+        execFile: execFileFn,
+      });
+      errors.push(...validateDeploymentSourceCommit(manifestResult.manifest.source_commit, git.commit, ancestry));
+    }
     context.manifest = redactedManifestSummary(manifestResult.manifest);
   }
 
@@ -204,7 +213,7 @@ export function normalizePreprodWalletRoles(raw) {
   };
 }
 
-export function validatePreprodManifest(manifest, currentCommit) {
+export function validatePreprodManifest(manifest) {
   const errors = [];
   const root = objectValue(manifest, "manifest", errors);
   if (errors.length > 0) {
@@ -251,17 +260,42 @@ export function validatePreprodManifest(manifest, currentCommit) {
       field: "manifest.source_commit",
       message: "Deployment manifest source_commit must be a clean commit.",
     });
-  } else if (root.source_commit !== currentCommit) {
+  } else if (!/^[0-9a-f]{40}$/iu.test(root.source_commit)) {
     errors.push({
-      code: "manifest_source_commit_mismatch",
+      code: "manifest_source_commit_invalid",
       field: "manifest.source_commit",
-      message: "Deployment manifest source_commit must match the current clean git commit.",
+      message: "Deployment manifest source_commit must be a full 40-character Git commit SHA.",
     });
   }
 
   errors.push(...validateReferenceScriptManifest(root));
 
   return errors;
+}
+
+export function validateDeploymentSourceCommit(sourceCommit, currentCommit, ancestry) {
+  if (sourceCommit === currentCommit) {
+    return [];
+  }
+  if (!ancestry?.ok) {
+    return [
+      {
+        code: "manifest_source_commit_ancestry_unavailable",
+        field: "manifest.source_commit",
+        message: "Could not verify that the deployment source commit is in the current Git history; fetch the commit history and retry.",
+      },
+    ];
+  }
+  if (!ancestry.isAncestor) {
+    return [
+      {
+        code: "manifest_source_commit_not_ancestor",
+        field: "manifest.source_commit",
+        message: "Deployment manifest source_commit must be the current Git commit or an ancestor of it.",
+      },
+    ];
+  }
+  return [];
 }
 
 export function validateServerSecretEnv(env) {
@@ -488,10 +522,10 @@ export function formatPreflightReport(result) {
   }
 
   lines.push("Phase 9A live-preprod preflight passed.");
-  lines.push(`- git commit: ${result.context.git.commit}`);
+  lines.push(`- web commit: ${result.context.git.commit}`);
   if (result.context.manifest) {
     lines.push(`- manifest: ${result.context.manifest.network} ${result.context.manifest.deployment_id}`);
-    lines.push(`- source_commit: ${result.context.manifest.source_commit}`);
+    lines.push(`- deployment source_commit: ${result.context.manifest.source_commit}`);
   }
   lines.push(`- wallet roles: ${REQUIRED_WALLET_ROLES.join(", ")}`);
   if (result.context.providerHealth === "not_injected") {
@@ -567,6 +601,24 @@ export async function currentGitState({ cwd, execFile: execFileFn = execFile } =
     clean: status.stdout.trim() === "",
     commit: commit.stdout.trim(),
   };
+}
+
+export async function gitCommitIsAncestor({ ancestor, descendant, cwd, execFile: execFileFn = execFile } = {}) {
+  if (ancestor === descendant) {
+    return { ok: true, isAncestor: true };
+  }
+  if (!/^[0-9a-f]{40}$/iu.test(String(ancestor ?? "")) || !/^[0-9a-f]{40}$/iu.test(String(descendant ?? ""))) {
+    return { ok: false, isAncestor: false };
+  }
+
+  const result = await execFileResult(execFileFn, "git", ["merge-base", "--is-ancestor", ancestor, descendant], cwd);
+  if (result.ok) {
+    return { ok: true, isAncestor: true };
+  }
+  if (result.code === 1) {
+    return { ok: true, isAncestor: false };
+  }
+  return { ok: false, isAncestor: false };
 }
 
 function loadPreprodWalletsFromEnv(env, options) {
@@ -857,6 +909,19 @@ function execFileText(execFileFn, command, args, cwd) {
     execFileFn(command, args, { cwd, windowsHide: true }, (error, stdout, stderr) => {
       resolve({
         ok: !error,
+        stdout: String(stdout ?? ""),
+        stderr: String(stderr ?? ""),
+      });
+    });
+  });
+}
+
+function execFileResult(execFileFn, command, args, cwd) {
+  return new Promise((resolve) => {
+    execFileFn(command, args, { cwd, windowsHide: true }, (error, stdout, stderr) => {
+      resolve({
+        ok: !error,
+        code: typeof error?.code === "number" ? error.code : null,
         stdout: String(stdout ?? ""),
         stderr: String(stderr ?? ""),
       });
