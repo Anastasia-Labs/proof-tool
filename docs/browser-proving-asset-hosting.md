@@ -14,6 +14,7 @@ and Rules; do not replace it with the non-production `r2.dev` endpoint.
 | --- | --- |
 | Cloudflare zone | `reclaim-proof.com` |
 | R2 bucket | `proof-assets` (`WNAM`) |
+| Stored footprint | 126 objects, approximately 4.35 GB |
 | Custom domain | `proof-assets.reclaim-proof.com` |
 | Object-key prefix | `proof-assets/preprod-d2c944d-r3/` |
 | Browser chunk base URL | `https://proof-assets.reclaim-proof.com/proof-assets/preprod-d2c944d-r3/` |
@@ -98,11 +99,12 @@ Use a complete chunk or CCS request when checking for `HIT`; never use a GET
 Range probe against the current monolithic fallback.
 
 Cloudflare references: [R2 custom domains], [R2 caching], [R2 CORS],
-[Compression Rules], and [Tiered Cache].
+[R2 pricing], [Compression Rules], and [Tiered Cache].
 
 [R2 custom domains]: https://developers.cloudflare.com/r2/buckets/public-buckets/
 [R2 caching]: https://developers.cloudflare.com/cache/interaction-cloudflare-products/r2/
 [R2 CORS]: https://developers.cloudflare.com/r2/buckets/cors/
+[R2 pricing]: https://developers.cloudflare.com/r2/pricing/
 [Compression Rules]: https://developers.cloudflare.com/rules/compression-rules/settings/
 [Tiered Cache]: https://developers.cloudflare.com/cache/how-to/tiered-cache/
 
@@ -149,8 +151,8 @@ curl -si -X OPTIONS \
 curl -sS -o /dev/null -D - "$BASE/ownership.pk.part0000" \
   | tr -d '\r' | grep -iE '^(HTTP/|cf-cache-status:|age:|content-encoding:)'
 
-# The oversized fallback should remain directly accessible and normally BYPASS.
-# HEAD avoids accidentally downloading the complete 2.08 GB object.
+# The oversized fallback must remain directly accessible. HEAD avoids accidentally
+# downloading 2.08 GB; HEAD may report DYNAMIC even though the full GET bypasses.
 curl -sSI "$BASE/ownership.pk" \
   | tr -d '\r' | grep -iE '^(HTTP/|cf-cache-status:|content-length:)'
 ```
@@ -205,9 +207,10 @@ above. Required behavior:
 
 - `Accept-Ranges: bytes` with correct 206/416 semantics on the chunks and CCS.
 - **CORS** — the prover fetches these cross-origin from a worker and *reads the
-  body*, so the response must send `Access-Control-Allow-Origin: <app-origin>`
-  (plus `Access-Control-Allow-Headers: range` and a handled `OPTIONS` preflight for
-  the range-fetched CCS/PK). Under COEP a body-reading cross-origin `fetch()` is a
+  body*, so the response must send `Access-Control-Allow-Origin` for the app
+  (the current public bucket intentionally sends `*`), plus
+  `Access-Control-Allow-Headers: range` and a handled `OPTIONS` preflight for
+  range-fetched chunks/CCS. Under COEP a body-reading cross-origin `fetch()` is a
   CORS request; `Cross-Origin-Resource-Policy: cross-origin` alone is **not**
   sufficient (CORP only covers no-cors embeds like `<img>`/`<script>`). Setting
   CORP additionally is harmless. NOTE: `experiments/wasm-prover/web/server.mjs`
@@ -238,9 +241,10 @@ the last path segment: `ResolveReference("ownership.pk.part0100")` against
 When that fetch 404s the engine logs `demoting from "sharded" to cpu` and
 silently falls back to the (working but ~4x slower) CPU path via `pk_url`.
 
-Always pass `--base-url https://<ranged-host>/proof-assets/` **with a trailing
-slash** (or a bare host root). Symptom of getting it wrong: proofs still succeed
-and verify, but the result engine is `streampk-cpu-groth16` at ~500 s instead of
+For this release, always pass
+`--base-url https://proof-assets.reclaim-proof.com/proof-assets/preprod-d2c944d-r3/`
+**with the trailing slash**. Symptom of getting it wrong: proofs still succeed and
+verify, but the result engine is `streampk-cpu-groth16` at ~500 s instead of
 `streampk-sharded-groth16` at ~120 s.
 
 ## Verification record

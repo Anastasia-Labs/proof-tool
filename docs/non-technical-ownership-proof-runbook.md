@@ -145,11 +145,14 @@ The helper returns a backend-bound artifact without `path` by default. Use
 
 ## Vercel Deployment Shape
 
-Deploy from `/home/gumbo/playground/proof-zk-recovery/proof-tool` so Vercel
-uses the root `vercel.json`.
+Create a standard Next.js Vercel project with Root Directory
+`apps/ownership-proof-web`. The app-local `vercel.json` pins the framework and
+build commands. Keep Vercel's **Include source files outside of the Root
+Directory** setting enabled so the `file:../../packages/client-ts` dependency is
+available during installation.
 
-- `web` is the Next.js service rooted at `apps/ownership-proof-web`.
-- All public requests route to the Next.js web service.
+- Pages, `/claim-api/*`, and `/reclaim-api/*` deploy together as one Next.js
+  project; Route Handlers become Vercel Functions automatically.
 - `/dev/credential-proof` and `/api/verify` both return 404 in Vercel Preview
   and Production deployments.
 - `scripts/dev-credential-proof.sh` starts the Go verifier and Next.js with the

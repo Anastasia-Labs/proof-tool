@@ -90,11 +90,11 @@ The browser-proving feature is **code-complete and locally verified**. Concretel
 
 | Origin | Serves | Notes |
 |---|---|---|
-| **Vercel `web` service** (`apps/ownership-proof-web`, Next.js) | The app; `/claim-api/*` route handlers; same-origin `/proof-runtime/*` (WASM + workers) and `/proof-assets/*` (manifests, VK, PK index) | COOP/COEP already in `next.config.mjs`. `public/` served from Vercel's CDN. |
+| **Vercel Next.js project** (Root Directory `apps/ownership-proof-web`) | The app; `/claim-api/*` and `/reclaim-api/*` Route Handlers; same-origin `/proof-runtime/*` (WASM + workers) and `/proof-assets/*` (manifests, VK, PK index) | Route Handlers deploy as Vercel Functions. COOP/COEP is in `next.config.mjs`; `public/` is served from Vercel's CDN. |
 | **Cloudflare R2 custom domain** (`proof-assets.reclaim-proof.com`, not Vercel) | `ownership.pk` chunks (~2.08 GB), `ownership-destination.ccs` (~187 MB), and the monolithic CPU fallback | Live with CORS, identity encoding, immutable headers, edge caching for chunks/CCS, and Smart Tiered Cache. Exact configuration: `docs/browser-proving-asset-hosting.md`. |
 
 The legacy `/dev/credential-proof` page and its Go `/api/verify` service are
-local-only. Production `vercel.json` routes only to the Next.js web service;
+local-only. Production deploys only the Next.js project;
 `scripts/dev-credential-proof.sh` starts the verifier plus the developer-only
 Next.js proxy locally.
 
@@ -207,8 +207,10 @@ record is `docs/browser-proving-asset-hosting.md`.
 **2.1 Deployed host — Cloudflare R2.** The workload range-fetches ~2 GB of
 proving key **per proof** (up to ~10 GB per batch session), so **egress, not
 storage, is the entire cost story**. R2 was selected because it has **zero
-egress fees**, native HTTP range, one service, and Cloudflare-native header control;
-storage for the ~2.3 GB is ~$0.03/mo. Alternatives, for the record:
+egress fees**, native HTTP range, one service, and Cloudflare-native header
+control. The 4.35 GB stored footprint is below R2 Standard's 10 GB-month monthly
+free tier by itself; usage elsewhere in the account still counts toward that
+allowance. Alternatives, for the record:
 
 | Host | Egress at 2 GB/proof | Verdict |
 |---|---|---|
@@ -258,8 +260,8 @@ the signed `chunk-manifest.json`.
 `ownership.pk.part####` chunks and `ownership-destination.ccs`. **Also upload the
 single `ownership.pk`** (the 2 GB file from the key bundle) if you want the
 CPU-fallback proving path to work — it is fetched via `pk_url` when the sharded
-engine can't run; storage is cheap (~$0.03/mo more) and it lets a proof still
-complete (slowly) instead of failing to desktop. If you'd rather fail fast to
+engine can't run; it adds about 2.08 GB to the stored footprint and lets a proof
+still complete (slowly) instead of failing to desktop. If you'd rather fail fast to
 desktop-helper when sharding is unavailable, omit it. (The small integrity-root
 files — manifests, VK, PK index — go to Vercel same-origin in Step 4, not here.)
 
@@ -419,9 +421,9 @@ set `enabled: true` and the real host URLs:
       "chunk_manifest_public_key_hex": "e20b0fb38fb6dc0a66284a8f3a6e8d05bf55b8e966d86f53b77d284b524463d6",
       "deployment_manifest_url": "/proof-assets/reclaim-deployment.json",
       "vk_url": "/proof-assets/ownership.vk",
-      "pk_url": "https://proof-assets.<your-domain>/preprod-d2c944d-r3/ownership.pk",
+      "pk_url": "https://proof-assets.reclaim-proof.com/proof-assets/preprod-d2c944d-r3/ownership.pk",
       "pk_index_url": "/proof-assets/ownership.pk.idx.json",
-      "ccs_url": "https://proof-assets.<your-domain>/preprod-d2c944d-r3/ownership-destination.ccs",
+      "ccs_url": "https://proof-assets.reclaim-proof.com/proof-assets/preprod-d2c944d-r3/ownership-destination.ccs",
       "ccs_blake2b256": "blake2b256:54da79a38f83d47447cd613bb41d16ef0a19e3c29b0b1a3267d0a1c16aeb577e",
       "proof_wasm_url": "/proof-runtime/proof-destination.wasm",
       "worker_js_url": "/proof-runtime/msm-worker.js",
@@ -441,13 +443,15 @@ hex/hash formats, and the `vk_hash` chain):
 
 ### Step 5 — Vercel project + environment variables
 
-**5.1 Project.** Import the repo. Production `vercel.json` declares only the
-Next.js `web` service and routes every request to it. The local-only credential
-proof demo is intentionally absent, so `/dev/credential-proof` and `/api/verify`
-must both return 404 on Preview and Production. For local development with the
-Go verifier, run `scripts/dev-credential-proof.sh`. Use
-`pnpm install --frozen-lockfile`; build `pnpm build`; Node 20+; ensure the
-monorepo root resolves the `packages/client-ts` `file:` workspace dependency.
+**5.1 Project.** Import the repo as a standard Next.js project with Root
+Directory `apps/ownership-proof-web`. Do not select the Services framework.
+The app-local `vercel.json` pins `pnpm install --frozen-lockfile` and
+`pnpm build`; leave the output directory at the Next.js default. Keep **Include
+source files outside of the Root Directory** enabled so the
+`file:../../packages/client-ts` dependency is available. The local-only
+credential proof demo is intentionally absent, so `/dev/credential-proof` and
+`/api/verify` must both return 404 on Preview and Production. For local
+development with the Go verifier, run `scripts/dev-credential-proof.sh`.
 
 **5.2 Environment variables (Production).** Inject the whole manifest as one JSON
 var — cleanest, and avoids the 40+ flat `RECLAIM_*` fields:
@@ -465,10 +469,10 @@ exactly — the loader runs an env/manifest coherence check and disables the
 deployment on any mismatch. Browser-proving enablement is entirely
 `browser_proving.enabled` in the JSON — there is no client env flag.
 
-**5.3 Custom domain.** Assign it. The resulting `https://<app-origin>` must be in
-the ranged host's CORS `AllowedOrigins` (Step 2.3) — the app origin is the value
-the R2 CORS policy allows, so set the domain before finalizing that policy (or
-update the policy after).
+**5.3 Custom domain.** Assign it. The current public R2 CORS policy allows `*`, so
+Preview and Production app origins are already accepted for credential-free
+asset reads. If the policy is tightened later, add every deployed app origin and
+purge cached asset responses after changing CORS.
 
 ### Step 6 — Cross-origin isolation & wallet (Lace) validation on the deployed site
 
@@ -510,7 +514,9 @@ COOP/COEP ship automatically from `next.config.mjs`. Verify on the live site:
 ## Part 4 — Go / no-go checklist
 
 - [ ] Browser-proving code + workers + Go packages + scripts **committed**; WASM and `ownership.vk` force-added past `.gitignore`; `next build` green off the commit; `source_commit` clean and pushed.
-- [ ] Ranged host (R2) serves PK chunks + CCS with range, `identity` encoding, and **CORS** (`Access-Control-Allow-Origin: <app-origin>`, `Allow-Headers: range`, preflight handled); a cross-origin range fetch from the app origin is byte-identical to the bundle.
+- [x] Ranged host (R2) serves PK chunks + CCS with range, `identity` encoding,
+  wildcard read-only CORS, immutable cache headers, and preflight handling; full
+  chunk and CCS requests were edge-cache `HIT` on 2026-07-09.
 - [ ] Chunk manifest generated with a **trailing-slash** base URL; `worker.js` pin == served `msm-worker.js` bytes.
 - [ ] `public/proof-runtime/*` (5 files) + `public/proof-assets/*` present in the deploy and byte-match the pins.
 - [ ] Manifest `browser_proving.enabled: true`; `vk_hash` chain terminates at `verifierVkHash`; manifest passes `verify-reclaim-manifest.mjs`.
