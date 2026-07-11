@@ -1,5 +1,9 @@
 export type ReclaimNetwork = "Mainnet" | "Preprod" | "Preview";
 
+export type ReclaimGlobalProofSlotEncoding =
+  | "bytes-empty-same-as-previous-v1"
+  | "full-proof-plus-public-input-digest-v2";
+
 export type BrowserProvingTuning = {
   worker_count?: number;
   shard_count?: number;
@@ -39,6 +43,8 @@ export type ReclaimDeployment = {
   reclaimBaseScriptHash: string;
   reclaimGlobalCredential: string;
   reclaimGlobalScriptHash: string;
+  reclaimGlobalProofSlotEncoding?: ReclaimGlobalProofSlotEncoding;
+  reclaimGlobalBatchTranscriptVkHash?: string;
   paramsCurrencySymbol: string;
   paramsTokenName: string;
   verifierVkHash: string;

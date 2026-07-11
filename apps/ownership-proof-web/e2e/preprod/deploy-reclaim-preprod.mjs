@@ -31,6 +31,7 @@ const execFileAsync = promisify(execFile);
 
 const NETWORK = "Preprod";
 const NETWORK_ID = 0;
+const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 = "full-proof-plus-public-input-digest-v2";
 const REQUIRED_LIVE_GATE = "RECLAIM_E2E_LIVE_PREPROD";
 const REQUIRED_GATE = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
 const DEFAULT_MANIFEST_PATH = "deployments/reclaim/preprod/live.local.json";
@@ -76,7 +77,20 @@ export async function deployReclaimPreprod(options = {}) {
   const seedUtxo = selectSeedUtxo(deployerUtxos);
   const oneShotScript = await exportScript("one-shot", seedUtxo.txHash, String(seedUtxo.outputIndex));
   const paramsPolicyId = mintingPolicyToId(oneShotScript);
-  const globalScript = await exportScript("global", paramsPolicyId, destination.cardanoVkHex);
+  const globalScript = await exportScript(
+    ...reclaimGlobalExportArgs(
+      "global-v2",
+      paramsPolicyId,
+      destination.cardanoVkHex,
+      normalizeBlake2b256(destination.cardanoVkBlake2b256),
+    ),
+  );
+  assertReclaimGlobalProofSlotEncoding(
+    globalScript.proofSlotEncoding,
+    globalScript.batchTranscript,
+    globalScript.verifierVkHash,
+    destination.cardanoVkBlake2b256,
+  );
   const globalScriptHash = validatorToScriptHash(globalScript).toLowerCase();
   const baseScript = await exportScript("base", globalScriptHash);
   const baseScriptHash = validatorToScriptHash(baseScript).toLowerCase();
@@ -503,10 +517,29 @@ async function exportScript(mode, ...args) {
       { cwd: CONTRACT_DIR, maxBuffer: 256 * 1024 * 1024 },
     );
     const parsed = JSON.parse(stdout.slice(stdout.indexOf("{")));
-    return { type: parsed.type, script: parsed.script };
+    return {
+      type: parsed.type,
+      script: parsed.script,
+      proofSlotEncoding: parsed.proof_slot_encoding,
+      batchTranscript: parsed.batch_transcript,
+      verifierVkHash: parsed.verifier_vk_hash,
+    };
   } catch (error) {
     throw new DeployPreprodError("script_export_failed", redactCommandError(error));
   }
+}
+
+export function reclaimGlobalExportArgs(mode, paramsPolicyId, cardanoVkHex, cardanoVkHash) {
+  if (mode !== "global" && mode !== "global-multi" && mode !== "global-v2") {
+    throw new Error(`unsupported reclaim global export mode ${mode}`);
+  }
+  if (mode === "global-v2") {
+    if (!/^[0-9a-f]{64}$/u.test(cardanoVkHash ?? "")) {
+      throw new Error("global-v2 requires a 32-byte canonical Cardano verifier-key hash");
+    }
+    return [mode, paramsPolicyId, PARAMS_TOKEN_NAME, cardanoVkHex, cardanoVkHash];
+  }
+  return [mode, paramsPolicyId, PARAMS_TOKEN_NAME, cardanoVkHex];
 }
 
 function selectSeedUtxo(utxos) {
@@ -619,7 +652,26 @@ function lovelaceToAda(lovelace) {
   return (Number(lovelace) / 1_000_000).toFixed(6);
 }
 
-function buildManifest({
+export function assertReclaimGlobalProofSlotEncoding(
+  proofSlotEncoding,
+  batchTranscript,
+  exportedVerifierVkHash,
+  expectedVerifierVkHash,
+) {
+  if (
+    proofSlotEncoding !== FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 ||
+    batchTranscript !== "statement-bound-v2" ||
+    normalizeBlake2b256(exportedVerifierVkHash) !==
+      normalizeBlake2b256(expectedVerifierVkHash)
+  ) {
+    throw new DeployPreprodError(
+      "reclaim_global_proof_slot_encoding",
+      "Reclaim global export is missing the statement-bound V2 transcript coherence metadata.",
+    );
+  }
+}
+
+export function buildManifest({
   sourceCommit,
   baseAddress,
   baseScriptHash,
@@ -653,6 +705,8 @@ function buildManifest({
       params_currency_symbol: paramsPolicyId,
       verifier_vk_hash: destination.vkHash,
       proof_profile: "single-destination",
+      proof_slot_encoding: FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2,
+      batch_transcript_vk_hash: destination.cardanoVkBlake2b256,
     },
     params_utxo: {
       tx_hash: paramsOutRef.tx_hash,
@@ -747,6 +801,12 @@ function parseLine(output, key) {
     throw new DeployPreprodError("go_output_malformed", `${key} was not reported by proof-tool.`);
   }
   return line.slice(key.length + 1).trim();
+}
+
+function normalizeBlake2b256(value) {
+  return value?.startsWith("blake2b256:")
+    ? value.slice("blake2b256:".length)
+    : value;
 }
 
 function redactCommandError(error) {

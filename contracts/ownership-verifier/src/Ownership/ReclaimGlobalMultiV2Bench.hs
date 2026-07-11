@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Ownership.ReclaimGlobalMulti
+module Ownership.ReclaimGlobalMultiV2Bench
   ( MultiReclaimScan
   , ReclaimGlobalMultiParams (..)
   , ReclaimGlobalMultiRedeemer (..)
@@ -38,11 +38,14 @@ import qualified PlutusTx.Builtins as B
 import qualified PlutusTx.Builtins.Internal as BI
 
 import Ownership.Verify
-  ( ParsedVerifyingKey
+  ( CommittedProofCheck (..)
+  , ParsedVerifyingKey
   , Proof (Proof)
   , Scalar (Scalar)
-  , groth16VerifyCommittedParsed
+  , groth16VerifyCommittedParsedNoPok
+  , ownershipProofBatchMergeChallenge
   , parseVerifyingKey
+  , verifyCommittedProofMergedWithVK
   )
 
 data ReclaimGlobalMultiParams = ReclaimGlobalMultiParams
@@ -394,10 +397,21 @@ verifyMultiOwnershipWithParsedVK ::
   BuiltinByteString ->
   Bool
 verifyMultiOwnershipWithParsedVK parsedVerifierKey proof credentialCount credentialBytes destinationBytes =
-  groth16VerifyCommittedParsed
-    parsedVerifierKey
-    (Proof proof)
-    (Scalar (multiCredentialPublicInputDigest credentialCount credentialBytes destinationBytes))
+  case
+      groth16VerifyCommittedParsedNoPok
+        parsedVerifierKey
+        (Proof proof)
+        (Scalar (multiCredentialPublicInputDigest credentialCount credentialBytes destinationBytes))
+    of
+      CommittedProofCheck commitment pok a b c vkX ->
+        verifyCommittedProofMergedWithVK
+          parsedVerifierKey
+          (bls12_381_millerLoop a b)
+          vkX
+          c
+          commitment
+          pok
+          (ownershipProofBatchMergeChallenge proof)
 
 {-# INLINABLE scanDestinationOutputs #-}
 scanDestinationOutputs :: BI.BuiltinList BuiltinData -> (BuiltinByteString, Value)

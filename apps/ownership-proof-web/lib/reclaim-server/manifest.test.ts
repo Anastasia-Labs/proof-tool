@@ -6,6 +6,7 @@ import {
   DESTINATION_ADDRESS_ENCODING,
   DESTINATION_CIRCUIT_ID,
   DESTINATION_KEY_VERSION,
+  FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2,
   RECLAIM_DEPLOYMENT_SCHEMA,
   loadClaimDeployment,
   loadReclaimDeployment,
@@ -30,6 +31,42 @@ describe("reclaim deployment manifest validation", () => {
       throw new Error("expected manifest to validate");
     }
     expect(result.manifest.deployment_id).toBe(`preprod:${hash56("a")}:abcdef1234567890`);
+  });
+
+  it("accepts statement-bound V2 metadata and maps it into the deployment", () => {
+    const manifest = validManifest();
+    manifest.reclaim_global.proof_slot_encoding = FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2;
+    manifest.reclaim_global.batch_transcript_vk_hash = manifest.proof.cardano_vk_blake2b256;
+
+    const result = loadReclaimDeployment({ env: envFromManifest(manifest) });
+
+    expect(result.available).toBe(true);
+    if (!result.available) {
+      throw new Error("expected statement-bound V2 manifest to validate");
+    }
+    expect(result.deployment.reclaimGlobalProofSlotEncoding).toBe(
+      FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2,
+    );
+    expect(result.deployment.reclaimGlobalBatchTranscriptVkHash).toBe(
+      manifest.proof.cardano_vk_blake2b256,
+    );
+  });
+
+  it("fails closed for incomplete or mismatched statement-bound V2 metadata", () => {
+    const missingEncoding = validManifest();
+    missingEncoding.reclaim_global.batch_transcript_vk_hash =
+      missingEncoding.proof.cardano_vk_blake2b256;
+    expect(errorFields(validateReclaimDeploymentManifest(missingEncoding))).toContain(
+      "reclaim_global.proof_slot_encoding",
+    );
+
+    const mismatchedKey = validManifest();
+    mismatchedKey.reclaim_global.proof_slot_encoding =
+      FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2;
+    mismatchedKey.reclaim_global.batch_transcript_vk_hash = prefixedHash("9");
+    expect(errorCodes(validateReclaimDeploymentManifest(mismatchedKey))).toContain(
+      "batch_transcript_vk_hash_mismatch",
+    );
   });
 
   it("accepts optional reference script deployment metadata", () => {
@@ -389,6 +426,12 @@ function envFromManifest(manifest: ReclaimDeploymentManifest): Record<string, st
     RECLAIM_BASE_REQUIRED_GLOBAL_CREDENTIAL: manifest.reclaim_base.required_global_credential,
     RECLAIM_GLOBAL_CREDENTIAL: manifest.reclaim_global.rewarding_credential,
     RECLAIM_GLOBAL_SCRIPT_HASH: manifest.reclaim_global.script_hash,
+    ...(manifest.reclaim_global.proof_slot_encoding
+      ? { RECLAIM_GLOBAL_PROOF_SLOT_ENCODING: manifest.reclaim_global.proof_slot_encoding }
+      : {}),
+    ...(manifest.reclaim_global.batch_transcript_vk_hash
+      ? { RECLAIM_GLOBAL_BATCH_TRANSCRIPT_VK_HASH: manifest.reclaim_global.batch_transcript_vk_hash }
+      : {}),
     RECLAIM_PARAMS_CURRENCY_SYMBOL: manifest.reclaim_global.params_currency_symbol,
     RECLAIM_PARAMS_TOKEN_NAME: manifest.params_utxo.token_name,
     RECLAIM_PARAMS_UTXO_TX_HASH: manifest.params_utxo.tx_hash,

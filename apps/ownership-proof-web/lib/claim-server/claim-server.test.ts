@@ -20,6 +20,7 @@ import { getClaimProgress } from "./progress";
 import {
   UnsupportedClaimBuildError,
   buildClaimTx,
+  prepareClaimBuildPreflight,
   validateClaimBuildRequest,
   validateClaimSubmitRequest,
 } from "./build-submit";
@@ -275,6 +276,50 @@ describe("claim draft server helpers", () => {
 });
 
 describe("claim build and submit fail closed", () => {
+  it("emits full proof plus ordered digest slots for statement-bound V2", async () => {
+    const v2Deployment: ReclaimDeployment = {
+      ...DEPLOYMENT,
+      reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
+      reclaimGlobalBatchTranscriptVkHash: VK_HASH,
+    };
+    const selected = [
+      reclaimUtxo("01", 0, CREDENTIAL_1, 1),
+      reclaimUtxo("02", 0, CREDENTIAL_1, 2),
+    ];
+    const provider = providerWith({
+      reclaimUtxos: selected,
+      selectedUtxos: selected,
+      safeUtxos: [safeUtxo()],
+    });
+    const draft = await selectedDraft(provider, ...selected, v2Deployment);
+    const proofArtifacts = [proofArtifactForDraft(draft, 0), proofArtifactForDraft(draft, 1)];
+    for (const proofArtifact of proofArtifacts) {
+      proofArtifact.artifact.cardano.proof_hex = "ab".repeat(336);
+    }
+
+    const preflight = await prepareClaimBuildPreflight(provider, v2Deployment, {
+      deploymentId: v2Deployment.id,
+      networkId: 0,
+      draftId: draft.draftId,
+      selectedOutrefs: draft.orderedInputs.map((input) => input.outRefId),
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      proofArtifacts,
+    });
+    const redeemer = Data.from(preflight.reclaimGlobalRedeemerCbor) as Constr<unknown>;
+    expect(redeemer.fields).toHaveLength(4);
+    expect(redeemer.fields[2]).toEqual(["ab".repeat(336), "ab".repeat(336)]);
+    expect(redeemer.fields[3]).toEqual(
+      draft.orderedInputs.map((input) =>
+        destinationPublicInputDigest(
+          input.paymentCredential,
+          draft.destinationOutputs.find((output) => output.outRefId === input.outRefId)!
+            .destinationAddress,
+        ),
+      ),
+    );
+  });
+
   it("route-facing build refuses deployments that are missing reference scripts", async () => {
     const selected = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
     const provider = providerWith({

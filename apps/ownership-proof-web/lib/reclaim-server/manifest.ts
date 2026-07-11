@@ -4,6 +4,7 @@ import type {
   BrowserProvingDescriptor,
   BrowserProvingTuning,
   ReclaimDeployment,
+  ReclaimGlobalProofSlotEncoding,
   ReclaimNetwork,
   ReclaimReferenceScriptDeployment,
 } from "../reclaim/types";
@@ -13,6 +14,10 @@ export const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v1/bls12-381/g
 export const DESTINATION_KEY_VERSION = "ownership-destination-v1";
 export const DESTINATION_ADDRESS_ENCODING = "destination-address-v1";
 export const SINGLE_DESTINATION_PROOF_PROFILE = "single-destination";
+export const SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING =
+  "bytes-empty-same-as-previous-v1";
+export const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 =
+  "full-proof-plus-public-input-digest-v2";
 
 type EnvMap = Record<string, string | undefined>;
 
@@ -36,6 +41,8 @@ export type ReclaimDeploymentManifest = {
     params_currency_symbol: string;
     verifier_vk_hash: string;
     proof_profile: typeof SINGLE_DESTINATION_PROOF_PROFILE;
+    proof_slot_encoding?: ReclaimGlobalProofSlotEncoding;
+    batch_transcript_vk_hash?: string;
   };
   params_utxo: {
     tx_hash: string;
@@ -159,6 +166,8 @@ const FLAT_ENV_FIELDS = {
   reclaimGlobalCredential: "RECLAIM_GLOBAL_CREDENTIAL",
   reclaimGlobalRewardingCredential: "RECLAIM_GLOBAL_REWARDING_CREDENTIAL",
   reclaimGlobalScriptHash: "RECLAIM_GLOBAL_SCRIPT_HASH",
+  reclaimGlobalProofSlotEncoding: "RECLAIM_GLOBAL_PROOF_SLOT_ENCODING",
+  reclaimGlobalBatchTranscriptVkHash: "RECLAIM_GLOBAL_BATCH_TRANSCRIPT_VK_HASH",
   paramsCurrencySymbol: "RECLAIM_PARAMS_CURRENCY_SYMBOL",
   paramsTokenName: "RECLAIM_PARAMS_TOKEN_NAME",
   paramsUtxoTxHash: "RECLAIM_PARAMS_UTXO_TX_HASH",
@@ -214,6 +223,16 @@ const ENV_MATCH_FIELDS: Array<{ env: string; field: string; getValue: (manifest:
     getValue: (manifest) => manifest.reclaim_global.rewarding_credential,
   },
   { env: FLAT_ENV_FIELDS.reclaimGlobalScriptHash, field: "reclaim_global.script_hash", getValue: (manifest) => manifest.reclaim_global.script_hash },
+  {
+    env: FLAT_ENV_FIELDS.reclaimGlobalProofSlotEncoding,
+    field: "reclaim_global.proof_slot_encoding",
+    getValue: (manifest) => manifest.reclaim_global.proof_slot_encoding ?? "",
+  },
+  {
+    env: FLAT_ENV_FIELDS.reclaimGlobalBatchTranscriptVkHash,
+    field: "reclaim_global.batch_transcript_vk_hash",
+    getValue: (manifest) => manifest.reclaim_global.batch_transcript_vk_hash ?? "",
+  },
   {
     env: FLAT_ENV_FIELDS.paramsCurrencySymbol,
     field: "reclaim_global.params_currency_symbol",
@@ -388,6 +407,24 @@ export function validateReclaimDeploymentManifest(raw: unknown):
         SINGLE_DESTINATION_PROOF_PROFILE,
         errors,
       ),
+      ...(reclaimGlobal.proof_slot_encoding === undefined
+        ? {}
+        : {
+            proof_slot_encoding: proofSlotEncodingField(
+              reclaimGlobal.proof_slot_encoding,
+              "reclaim_global.proof_slot_encoding",
+              errors,
+            ),
+          }),
+      ...(reclaimGlobal.batch_transcript_vk_hash === undefined
+        ? {}
+        : {
+            batch_transcript_vk_hash: hashField(
+              reclaimGlobal.batch_transcript_vk_hash,
+              "reclaim_global.batch_transcript_vk_hash",
+              errors,
+            ),
+          }),
     },
     params_utxo: {
       tx_hash: hexField(paramsUtxo.tx_hash, "params_utxo.tx_hash", 64, errors),
@@ -445,6 +482,39 @@ export function validateReclaimDeploymentManifest(raw: unknown):
     if (deploymentId !== expected) {
       errors.push({ code: "deployment_id_mismatch", field: "deployment_id", message: "deployment_id must bind network, ReclaimBase script hash, and source_commit." });
     }
+  }
+  const proofSlotEncoding = manifest.reclaim_global.proof_slot_encoding;
+  const batchTranscriptVkHash = manifest.reclaim_global.batch_transcript_vk_hash;
+  if (proofSlotEncoding === undefined && batchTranscriptVkHash !== undefined) {
+    errors.push({
+      code: "missing",
+      field: "reclaim_global.proof_slot_encoding",
+      message: "batch transcript key hash requires a proof-slot encoding.",
+    });
+  } else if (proofSlotEncoding === FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2) {
+    if (!batchTranscriptVkHash) {
+      errors.push({
+        code: "missing",
+        field: "reclaim_global.batch_transcript_vk_hash",
+        message: "statement-bound V2 requires the canonical Cardano verifier-key hash.",
+      });
+    } else if (
+      manifest.proof.cardano_vk_blake2b256 &&
+      normalizedHash(batchTranscriptVkHash) !==
+        normalizedHash(manifest.proof.cardano_vk_blake2b256)
+    ) {
+      errors.push({
+        code: "batch_transcript_vk_hash_mismatch",
+        field: "reclaim_global.batch_transcript_vk_hash",
+        message: "V2 batch transcript key hash must equal proof.cardano_vk_blake2b256.",
+      });
+    }
+  } else if (batchTranscriptVkHash !== undefined) {
+    errors.push({
+      code: "unsupported_value",
+      field: "reclaim_global.batch_transcript_vk_hash",
+      message: "batch transcript key hash is only valid for statement-bound V2.",
+    });
   }
   if (sourceCommit && /dirty|uncommitted/iu.test(sourceCommit)) {
     errors.push({ code: "dirty_source_commit", field: "source_commit", message: "source_commit must be a clean tag or commit." });
@@ -551,6 +621,8 @@ export function deploymentFromManifest(manifest: ReclaimDeploymentManifest): Rec
     reclaimBaseScriptHash: manifest.reclaim_base.script_hash,
     reclaimGlobalCredential: manifest.reclaim_base.required_global_credential,
     reclaimGlobalScriptHash: manifest.reclaim_global.script_hash,
+    reclaimGlobalProofSlotEncoding: manifest.reclaim_global.proof_slot_encoding,
+    reclaimGlobalBatchTranscriptVkHash: manifest.reclaim_global.batch_transcript_vk_hash,
     paramsCurrencySymbol: manifest.reclaim_global.params_currency_symbol,
     paramsTokenName: manifest.params_utxo.token_name,
     verifierVkHash: manifest.reclaim_global.verifier_vk_hash,
@@ -628,6 +700,8 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
     envValue(env, FLAT_ENV_FIELDS.reclaimBaseRequiredGlobalCredential);
   const paramsCurrencySymbol = envValue(env, FLAT_ENV_FIELDS.paramsCurrencySymbol);
   const verifierVkHash = envValue(env, FLAT_ENV_FIELDS.verifierVkHash) || envValue(env, FLAT_ENV_FIELDS.proofVkHash);
+  const proofSlotEncoding = envValue(env, FLAT_ENV_FIELDS.reclaimGlobalProofSlotEncoding);
+  const batchTranscriptVkHash = envValue(env, FLAT_ENV_FIELDS.reclaimGlobalBatchTranscriptVkHash);
   const deploymentId = envValue(env, FLAT_ENV_FIELDS.deploymentId) || [network.toLowerCase(), baseScriptHash, sourceCommit].filter(Boolean).join(":");
 
   return {
@@ -648,6 +722,8 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
       params_currency_symbol: paramsCurrencySymbol,
       verifier_vk_hash: verifierVkHash,
       proof_profile: SINGLE_DESTINATION_PROOF_PROFILE,
+      ...(proofSlotEncoding ? { proof_slot_encoding: proofSlotEncoding } : {}),
+      ...(batchTranscriptVkHash ? { batch_transcript_vk_hash: batchTranscriptVkHash } : {}),
     },
     params_utxo: {
       tx_hash: envValue(env, FLAT_ENV_FIELDS.paramsUtxoTxHash),
@@ -995,6 +1071,31 @@ function literalField<const T extends string>(value: unknown, field: string, exp
   return expected;
 }
 
+function proofSlotEncodingField(
+  value: unknown,
+  field: string,
+  errors: ManifestValidationError[],
+): ReclaimGlobalProofSlotEncoding {
+  const encoding = stringField(value, field, errors);
+  if (
+    encoding !== SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING &&
+    encoding !== FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2
+  ) {
+    errors.push({
+      code: "unsupported_value",
+      field,
+      message:
+        field +
+        " must be " +
+        SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING +
+        " or " +
+        FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 +
+        ".",
+    });
+  }
+  return encoding as ReclaimGlobalProofSlotEncoding;
+}
+
 function hexField(value: unknown, field: string, length: number, errors: ManifestValidationError[]): string {
   const hex = stringField(value, field, errors).toLowerCase();
   if (hex && (!/^[0-9a-f]+$/u.test(hex) || hex.length !== length)) {
@@ -1010,6 +1111,10 @@ function hashField(value: unknown, field: string, errors: ManifestValidationErro
     errors.push({ code: "malformed_hash", field, message: `${field} must be a 32-byte hex digest, optionally prefixed with blake2b256:.` });
   }
   return hash;
+}
+
+function normalizedHash(value: string): string {
+  return value.startsWith("blake2b256:") ? value.slice("blake2b256:".length) : value;
 }
 
 function tokenNameField(value: unknown, field: string, errors: ManifestValidationError[]): string {

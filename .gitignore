@@ -40,3 +40,11 @@ experiments/wasm-prover/msmengine/*
 !experiments/wasm-prover/msmengine/shim.go
 experiments/wasm-prover/patches/*
 !experiments/wasm-prover/patches/prove-stream.patch
+
+# Local-only security reviews, findings, and remediation records.
+/audit/
+/docs/zk-02-statement-bound-batch-transcript-implementation-plan.md
+/docs/single-claim-optimization-review.md
+/docs/single-claim-optimization-execplan.md
+/docs/circuit-v2-constraint-ledger.md
+/contracts/ownership-verifier/testdata/*-review.md

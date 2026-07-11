@@ -4,7 +4,11 @@
 -- | Vendored and trimmed from the Plutus testlib ScriptContextBuilder pattern.
 -- The upstream module was added to plutus-ledger-api-testlib after this
 -- package's CHaP snapshot, so this local copy keeps only the V3 builder surface
--- needed by these tests and benchmarks.
+-- needed by these tests and benchmarks. It constructs evaluator fixtures, not
+-- node-submittable transactions: it does not enforce UTxO existence, balance,
+-- min-ADA, witnesses, or every ledger encoding invariant. Tests that rely on
+-- ledger-normalized `TxOut.value` fields must construct sorted, unique,
+-- strictly-positive values deliberately.
 module ScriptContextBuilder
   ( InputBuilder (..)
   , TxOutBuilder (..)
@@ -19,6 +23,7 @@ module ScriptContextBuilder
   , singleCurrencySymbol
   , withAddress
   , withFee
+  , withDatumHash
   , withInlineDatum
   , withInput
   , withMint
@@ -32,6 +37,7 @@ module ScriptContextBuilder
   , withReferenceScript
   , withReferenceTxIn
   , withRewardingScript
+  , withCertifyingScript
   , withSigner
   , withSigners
   , withSpendingScript
@@ -109,6 +115,10 @@ withValue value =
 withInlineDatum :: V3.BuiltinData -> InputBuilder
 withInlineDatum datum =
   InputBuilder \st -> st {ibDatum = V3.OutputDatum (V3.Datum datum)}
+
+withDatumHash :: V3.DatumHash -> InputBuilder
+withDatumHash datumHash =
+  InputBuilder \st -> st {ibDatum = V3.OutputDatumHash datumHash}
 
 withReferenceScript :: V3.ScriptHash -> InputBuilder
 withReferenceScript scriptHash =
@@ -329,6 +339,16 @@ withRewardingScript redeemer credential amount =
       , scbRedeemers = scbRedeemers st <> [(V3.Rewarding credential, V3.Redeemer redeemer)]
       , scbRedeemer = redeemer
       , scbScriptInfo = V3.RewardingScript credential
+      }
+
+withCertifyingScript :: V3.BuiltinData -> V3.TxCert -> ScriptContextBuilder
+withCertifyingScript redeemer certificate =
+  ScriptContextBuilder \st ->
+    st
+      { scbTxCerts = scbTxCerts st <> [certificate]
+      , scbRedeemers = scbRedeemers st <> [(V3.Certifying 0 certificate, V3.Redeemer redeemer)]
+      , scbRedeemer = redeemer
+      , scbScriptInfo = V3.CertifyingScript 0 certificate
       }
 
 buildScriptContext :: ScriptContextBuilder -> V3.ScriptContext

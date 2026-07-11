@@ -37,6 +37,11 @@ import {
 import { assertWalletAddresses, assertWalletAddress, assertWalletNetwork, assetMapToStringMap } from "../reclaim/validation";
 import { createClaimDraft } from "./draft";
 import { assembleTransactionWithWitnessSet } from "../cardano/transactions";
+import {
+  buildBatchTranscriptV2,
+  decodeBlake2b256,
+  decodeHexBytes,
+} from "../reclaim/batch-transcript";
 
 const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v1/bls12-381/groth16";
 const DESTINATION_PUBLIC_INPUT_DOMAIN = "ROOT-OWNERSHIP-DESTINATION-v1";
@@ -229,6 +234,7 @@ export async function prepareClaimBuildPreflight(
     deploymentId: deployment.id,
     networkId: deployment.networkId,
     selectedOutrefs,
+    maxUtxos: raw.maxUtxos,
     safeWalletChangeAddress: raw.safeWalletChangeAddress,
     safeWalletAddresses: raw.safeWalletAddresses,
   });
@@ -257,6 +263,9 @@ export async function prepareClaimBuildPreflight(
       0,
       draft.expectedDestinationOutputStartIndex,
       proofHexes,
+      proofs.map((proof) => proof.publicInputDigestHex),
+      deployment.reclaimGlobalBatchTranscriptVkHash ?? "",
+      deployment.reclaimGlobalProofSlotEncoding,
     ),
   };
 }
@@ -420,8 +429,57 @@ function destinationPublicInputDigest(credentialHex: string, destinationAddressH
   return Buffer.from(blake2b(new Uint8Array(preimage), { dkLen: 32 })).toString("hex");
 }
 
-function makeReclaimGlobalRedeemer(paramsIdx: number | bigint, destinationOutputStartIndex: number | bigint, proofs: string[]): string {
-  return Data.to(new Constr(0, [BigInt(paramsIdx), BigInt(destinationOutputStartIndex), proofs]));
+export function encodeReclaimProofSlots(fullProofs: readonly string[], sameAsPreviousEnabled: boolean): string[] {
+  return fullProofs.map((proof, index) => {
+    if (proof.length === 0) {
+      throw new Error("full reclaim proof cannot be empty");
+    }
+    return sameAsPreviousEnabled && index > 0 && proof === fullProofs[index - 1] ? "" : proof;
+  });
+}
+
+function makeReclaimGlobalRedeemer(
+  paramsIdx: number | bigint,
+  destinationOutputStartIndex: number | bigint,
+  fullProofs: string[],
+  publicInputDigests: string[],
+  verifierVkHash: string,
+  proofSlotEncoding: ReclaimDeployment["reclaimGlobalProofSlotEncoding"],
+): string {
+  if (proofSlotEncoding === "full-proof-plus-public-input-digest-v2") {
+    if (fullProofs.length !== publicInputDigests.length) {
+      throw new Error("reclaim v2 proof/digest list lengths differ");
+    }
+    fullProofs.forEach((proof, index) => {
+      if (!/^[0-9a-f]{672}$/iu.test(proof)) {
+        throw new Error(`reclaim v2 proof ${index} must be exactly 336 bytes of hexadecimal`);
+      }
+      if (!/^[0-9a-f]{64}$/iu.test(publicInputDigests[index])) {
+        throw new Error(`reclaim v2 public input digest ${index} must be exactly 32 bytes of hexadecimal`);
+      }
+    });
+    // Run the canonical byte-level framing locally as an additional preflight
+    // guard. The transaction carries only the parallel lists; the validator
+    // independently recreates this transcript using its embedded hash.
+    buildBatchTranscriptV2(
+      decodeBlake2b256(verifierVkHash, "deployment verifier key hash"),
+      fullProofs.map((proof, index) => decodeHexBytes(proof, `reclaim v2 proof ${index}`)),
+      publicInputDigests.map((digest, index) => decodeHexBytes(digest, `reclaim v2 public input digest ${index}`)),
+    );
+    return Data.to(
+      new Constr(0, [
+        BigInt(paramsIdx),
+        BigInt(destinationOutputStartIndex),
+        fullProofs,
+        publicInputDigests,
+      ]),
+    );
+  }
+  const proofSlots = encodeReclaimProofSlots(
+    fullProofs,
+    proofSlotEncoding === "bytes-empty-same-as-previous-v1",
+  );
+  return Data.to(new Constr(0, [BigInt(paramsIdx), BigInt(destinationOutputStartIndex), proofSlots]));
 }
 
 async function loadParamsReferenceInput(
@@ -698,9 +756,16 @@ function reclaimGlobalRedeemerBuilder(input: {
       if (!proof) {
         throw new Error("claim proof missing for final transaction input order");
       }
-      return proof.proofHex;
+      return proof;
     });
-    return makeReclaimGlobalRedeemer(BigInt(paramsIdx), BigInt(input.destinationOutputStartIndex), proofs);
+    return makeReclaimGlobalRedeemer(
+      BigInt(paramsIdx),
+      BigInt(input.destinationOutputStartIndex),
+      proofs.map((proof) => proof.proofHex),
+      proofs.map((proof) => proof.publicInputDigestHex),
+      input.deployment.reclaimGlobalBatchTranscriptVkHash ?? "",
+      input.deployment.reclaimGlobalProofSlotEncoding,
+    );
   };
 }
 

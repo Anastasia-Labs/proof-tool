@@ -1,0 +1,53 @@
+{
+  "schema": "proof-tool-zk-02-batch-transcript-v2-v1",
+  "domain": "ROOT-OWNERSHIP-POK-BATCH-v2",
+  "source_root": "contracts/ownership-verifier/testdata",
+  "cases": [
+    {
+      "name": "ordinary-single",
+      "vk_file": "ownership-destination-vk.hex",
+      "proof_source": { "file": "ownership-destination-proof.hex" },
+      "public_input_digests": ["663c122bc08e26b489e1742a6fb95fb30ee6346548c753f4db0a2cd81a73a442"],
+      "vk_hash": "1ad50c111d8d78897e4e5b08d361e6e0ca57a7b8e782ae030e0c645ed5ff7758",
+      "transcript_blake2b256": "de2ec581b4867c873d19ee352057b16779eeb7ed436389df3ddae83e4bc0ab83",
+      "r": "48060215316213728234324688594236774953373129272802377419741970201232745212804",
+      "s": "29977684646305213087720291628589158366516279582163771712988317671212115003480"
+    },
+    {
+      "name": "all-distinct-two",
+      "vk_file": "ownership-destination-vk.hex",
+      "proof_source": { "file": "ownership-destination-distinct-proofs.txt", "rows": [0, 1] },
+      "public_input_digests": [
+        "663c122bc08e26b489e1742a6fb95fb30ee6346548c753f4db0a2cd81a73a442",
+        "b5a1ece6de0ac17886a2ad21a491338483614bb68337a20f4bfdde67155d9668"
+      ],
+      "vk_hash": "1ad50c111d8d78897e4e5b08d361e6e0ca57a7b8e782ae030e0c645ed5ff7758",
+      "transcript_blake2b256": "0c849a5a3f2b4327b0e0eea6520aa84c1662f37981f82d85c6d6f27969e87448",
+      "r": "5662043297535020645469022094265343656989199811666117524552659575412787541065",
+      "s": "3408456196945533147107153784347933353366880282834100023276788048486737464439"
+    },
+    {
+      "name": "repeated-full-proof",
+      "vk_file": "ownership-destination-vk.hex",
+      "proof_source": { "file": "ownership-destination-proof.hex", "repeat": 2 },
+      "public_input_digests": [
+        "663c122bc08e26b489e1742a6fb95fb30ee6346548c753f4db0a2cd81a73a442",
+        "663c122bc08e26b489e1742a6fb95fb30ee6346548c753f4db0a2cd81a73a442"
+      ],
+      "vk_hash": "1ad50c111d8d78897e4e5b08d361e6e0ca57a7b8e782ae030e0c645ed5ff7758",
+      "transcript_blake2b256": "96ec2575743ca545aea201301e87d598f4bc92f480ea13e41e8cee7cab589a80",
+      "r": "15828286550821231769909291562785054634164136086768740444028986104469549259393",
+      "s": "9391575678614049270571466634721242011149899531674896019326654660340751583079"
+    },
+    {
+      "name": "multi-credential",
+      "vk_file": "multi-count2-vk.hex",
+      "proof_source": { "file": "multi-count2-proof.hex" },
+      "public_input_digests": ["e60b2a01ad44c309cf7fac7b828c787262abadfc085926a59437a1cb21cae81b"],
+      "vk_hash": "4ee04285279bbbf535e8f4b20af202f55b550b77be77a049bf584c7fa39dc7ee",
+      "transcript_blake2b256": "59b22d408d6c4965eb78632c959557811f00d99969b28ccddfba0012753cff71",
+      "r": "40570654620357032943455514758320935667228665531329494875443015168245154774898",
+      "s": "8636757789949591304714306246332989594687787538241662237540073471059061109757"
+    }
+  ]
+}

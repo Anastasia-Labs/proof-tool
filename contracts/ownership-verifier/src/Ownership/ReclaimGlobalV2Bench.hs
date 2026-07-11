@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Ownership.ReclaimGlobal
+module Ownership.ReclaimGlobalV2Bench
   ( ReclaimBaseDatum (..)
   , ReclaimGlobalParams (..)
   , ReclaimGlobalRedeemer (..)
@@ -15,17 +15,11 @@ module Ownership.ReclaimGlobal
   , reclaimGlobalParamsData
   , reclaimProofBytesConcat
   , reclaimGlobalRedeemerData
-  , reclaimGlobalRedeemerDataV2
-  , reclaimBatchTranscriptV2
   , reclaimSameAsPreviousProof
   , reclaimGlobalValidator
   , reclaimGlobalValidatorCode
   , reclaimGlobalValidatorUntyped
-  , reclaimGlobalValidatorV2
-  , reclaimGlobalValidatorV2Code
-  , reclaimGlobalValidatorV2Untyped
   , validateReclaimInputs
-  , validateReclaimInputsV2
   , valueCoversData
   ) where
 
@@ -35,7 +29,6 @@ import PlutusLedgerApi.V3
   , TokenName (TokenName)
   )
 import PlutusTx (CompiledCode)
-import PlutusTx.Builtins (ByteOrder (BigEndian))
 import PlutusTx.Prelude
 import qualified PlutusTx
 import qualified PlutusTx.Builtins as B
@@ -49,14 +42,11 @@ import Ownership.Verify
   , blsScalarFieldOrder
   , coefficientFirstVkX
   , committedProofChallengeScalar
-  , ownershipDestinationPublicInputDigest
   , ownershipDestinationPublicInputScalar
   , ownershipProofBatchChallenge
-  , ownershipProofBatchChallengeV2
-  , ownershipProofBatchDomainV2
+  , ownershipProofBatchMergeChallenge
   , parseVerifyingKeyBatch
-  , verifyCommittedProofGrothBatch
-  , verifyCommittedProofPokBatchWithBatchVK
+  , verifyCommittedProofMergedBatchWithBatchVK
   , verifyOwnershipDestinationWithParsedBatchVKKnown28NoPok
   , verifyOwnershipDestinationWithParsedBatchVKLegacyKnown28NoPok
   )
@@ -109,32 +99,6 @@ reclaimGlobalRedeemerData paramsIdx destinationOutStartIdx proofs =
     proofListData (proof : moreProofs) =
       BI.mkCons (BI.mkB proof) (proofListData moreProofs)
 
--- | V2 stores one full proof and one public-input-digest witness for each
--- logical reclaim slot. The claimed digest is authenticated later against the
--- actual input and destination output.
-{-# INLINABLE reclaimGlobalRedeemerDataV2 #-}
-reclaimGlobalRedeemerDataV2 :: Integer -> Integer -> [BuiltinByteString] -> [BuiltinByteString] -> BuiltinData
-reclaimGlobalRedeemerDataV2 paramsIdx destinationOutStartIdx proofs publicInputDigests =
-  BI.mkConstr
-    0
-    ( BI.mkCons
-        (BI.mkI paramsIdx)
-        ( BI.mkCons
-            (BI.mkI destinationOutStartIdx)
-            ( BI.mkCons
-                (BI.mkList (byteStringListData proofs))
-                ( BI.mkCons
-                    (BI.mkList (byteStringListData publicInputDigests))
-                    (BI.mkNilData BI.unitval)
-                )
-            )
-        )
-    )
-  where
-    byteStringListData [] = BI.mkNilData BI.unitval
-    byteStringListData (entry : remainingEntries) =
-      BI.mkCons (BI.mkB entry) (byteStringListData remainingEntries)
-
 {-# INLINABLE builtinIf #-}
 builtinIf :: BI.BuiltinBool -> a -> a -> a
 builtinIf condition trueBranch falseBranch =
@@ -178,34 +142,6 @@ field1 fields =
 field2 :: BI.BuiltinList BuiltinData -> BuiltinData
 field2 fields =
   BI.head (BI.tail (BI.tail fields))
-
-{-# INLINABLE field3 #-}
-field3 :: BI.BuiltinList BuiltinData -> BuiltinData
-field3 fields =
-  BI.head (BI.tail (BI.tail (BI.tail fields)))
-
-{-# INLINABLE hasExactlyFourFields #-}
-hasExactlyFourFields :: BI.BuiltinList BuiltinData -> BI.BuiltinBool
-hasExactlyFourFields fields =
-  B.caseList
-    (\() -> BI.false)
-    ( \_ afterFirst ->
-        B.caseList
-          (\() -> BI.false)
-          ( \_ afterSecond ->
-              B.caseList
-                (\() -> BI.false)
-                ( \_ afterThird ->
-                    B.caseList
-                      (\() -> BI.false)
-                      (\_ afterFourth -> B.caseList (\() -> BI.true) (\_ _ -> BI.false) afterFourth)
-                      afterThird
-                )
-                afterSecond
-          )
-          afterFirst
-    )
-    fields
 
 {-# INLINABLE constrTag #-}
 constrTag :: BuiltinData -> Integer
@@ -433,52 +369,6 @@ reclaimProofBytesConcat proofs =
         )
         remainingProofs
 
--- | The exact v2 framing is domain || embedded key hash || u16 count || the
--- ordered concatenation of full proof/digest pairs. This is deliberately the
--- only V2 builder: it validates both parallel lists while consuming them
--- together and never materializes a flat digest blob for later slicing.
-{-# INLINABLE reclaimBatchTranscriptV2 #-}
-reclaimBatchTranscriptV2 :: BuiltinByteString -> BI.BuiltinList BuiltinData -> BI.BuiltinList BuiltinData -> BuiltinByteString
-reclaimBatchTranscriptV2 verifierKeyHash proofs publicInputDigests =
-  if lengthOfByteString verifierKeyHash == 32
-    then
-      let !(!count, !items) = go 0 proofs publicInputDigests
-       in ownershipProofBatchDomainV2
-            <> verifierKeyHash
-            <> integerToByteString BigEndian 2 count
-            <> items
-    else traceError "verifier key hash must be 32 bytes"
-  where
-    go !count !remainingProofs !remainingDigests =
-      B.caseList
-        ( \() ->
-            B.caseList
-              (\() -> (count, emptyByteString))
-              (\_ _ -> traceError "reclaim proof/digest list lengths differ")
-              remainingDigests
-        )
-        ( \proofData moreProofs ->
-            B.caseList
-              (\() -> traceError "reclaim proof/digest list lengths differ")
-              ( \digestData moreDigests ->
-                  let !proof = BI.unsafeDataAsB proofData
-                      !digest = BI.unsafeDataAsB digestData
-                   in builtinIf
-                        ( BI.equalsInteger (lengthOfByteString proof) 336
-                            `builtinAnd` BI.equalsInteger (lengthOfByteString digest) 32
-                        )
-                        ( if count < 65535
-                            then
-                              let !(!finalCount, !remainingItems) = go (count + 1) moreProofs moreDigests
-                               in (finalCount, proof <> digest <> remainingItems)
-                            else traceError "reclaim batch count exceeds u16"
-                        )
-                        (traceError "invalid reclaim proof or digest width")
-              )
-              remainingDigests
-        )
-        remainingProofs
-
 {-# INLINABLE decodeBasePaymentKeyHashFromFields #-}
 decodeBasePaymentKeyHashFromFields :: BI.BuiltinList BuiltinData -> BuiltinByteString
 decodeBasePaymentKeyHashFromFields txOutFields =
@@ -647,6 +537,7 @@ validateReclaimInputs baseScriptHash parsedVerifierKey proofs inputs destination
   goFirst inputs proofs destinationOutputs
   where
     !batchChallenge = ownershipProofBatchChallenge (reclaimProofBytesConcat proofs)
+    !batchMergeChallenge = ownershipProofBatchMergeChallenge (reclaimProofBytesConcat proofs)
 
     goFirst !remainingInputs !remainingProofs !remainingDestinationOutputs =
       B.caseList
@@ -725,20 +616,19 @@ validateReclaimInputs baseScriptHash parsedVerifierKey proofs inputs destination
               ( \() ->
                   builtinIf
                     ( boolToBuiltin
-                        ( verifyCommittedProofGrothBatch
+                        ( verifyCommittedProofMergedBatchWithBatchVK
                             parsedVerifierKey
                             batchCoefficientSum
                             foldedGrothLhs
                             foldedVkX
                             foldedC
+                            foldedCommitment
+                            foldedPok
+                            batchMergeChallenge
                         )
                     )
-                    ( builtinIf
-                        (boolToBuiltin (verifyCommittedProofPokBatchWithBatchVK parsedVerifierKey foldedCommitment foldedPok))
-                        BI.true
-                        (traceError "reclaim proof commitment validation failed")
-                    )
-                    (traceError "reclaim proof validation failed")
+                    BI.true
+                    (traceError "reclaim merged proof validation failed")
               )
               (\_ _ -> traceError "unused reclaim proofs")
               remainingProofs
@@ -839,20 +729,19 @@ validateReclaimInputs baseScriptHash parsedVerifierKey proofs inputs destination
                           foldedCommitment
                    in builtinIf
                         ( boolToBuiltin
-                            ( verifyCommittedProofGrothBatch
+                            ( verifyCommittedProofMergedBatchWithBatchVK
                                 parsedVerifierKey
                                 batchCoefficientSum
                                 foldedGrothLhs
                                 foldedVkX
                                 foldedC
+                                foldedCommitment
+                                foldedPok
+                                batchMergeChallenge
                             )
                         )
-                        ( builtinIf
-                            (boolToBuiltin (verifyCommittedProofPokBatchWithBatchVK parsedVerifierKey foldedCommitment foldedPok))
-                            BI.true
-                            (traceError "reclaim proof commitment validation failed")
-                        )
-                        (traceError "reclaim proof validation failed")
+                        BI.true
+                        (traceError "reclaim merged proof validation failed")
               )
               (\_ _ -> traceError "unused reclaim proofs")
               remainingProofs
@@ -923,136 +812,6 @@ validateReclaimInputs baseScriptHash parsedVerifierKey proofs inputs destination
         )
         remainingInputs
 
--- | V2 has no proof marker and no proof/credential cache. Every authenticated
--- reclaim slot consumes exactly one full proof and one digest, and therefore
--- advances the folding coefficient exactly once.
-{-# INLINABLE validateReclaimInputsV2 #-}
-validateReclaimInputsV2 ::
-  BuiltinByteString ->
-  ParsedBatchVerifyingKey ->
-  BuiltinByteString ->
-  BI.BuiltinList BuiltinData ->
-  BI.BuiltinList BuiltinData ->
-  BI.BuiltinList BuiltinData ->
-  BI.BuiltinList BuiltinData ->
-  BI.BuiltinBool
-validateReclaimInputsV2 baseScriptHash parsedVerifierKey verifierKeyHash proofs publicInputDigests inputs destinationOutputs =
-  first inputs proofs publicInputDigests destinationOutputs
-  where
-    !batchTranscript = reclaimBatchTranscriptV2 verifierKeyHash proofs publicInputDigests
-    !batchChallenge = ownershipProofBatchChallengeV2 batchTranscript
-
-    first !remainingInputs !remainingProofs !remainingDigests !remainingOutputs =
-      B.caseList
-        (\() -> traceError "no reclaim base inputs")
-        ( \txIn rest ->
-            let !txOutFields = constrFields (txInResolved txIn)
-             in builtinIf
-                  (isReclaimBaseInput baseScriptHash txOutFields)
-                  ( B.caseList
-                      (\() -> traceError "missing reclaim proof")
-                      ( \proofData moreProofs ->
-                          B.caseList
-                            (\() -> traceError "missing reclaim public input digest")
-                            ( \digestData moreDigests ->
-                                B.caseList
-                                  (\() -> traceError "missing reclaim destination output")
-                                  ( \destinationOutput moreOutputs ->
-                                      let !proof = BI.unsafeDataAsB proofData
-                                          !claimedDigest = BI.unsafeDataAsB digestData
-                                          !paymentKeyHash = decodeBasePaymentKeyHashFromFields txOutFields
-                                          !destinationAddress = destinationAddressV1FromTxOutData destinationOutput
-                                          !actualDigest = ownershipDestinationPublicInputDigest paymentKeyHash destinationAddress
-                                          !inputValueData = field1 txOutFields
-                                          !outputValueData = field1 (constrFields destinationOutput)
-                                       in builtinIf
-                                            (valueCoversData inputValueData outputValueData)
-                                            ( builtinIf
-                                                (BI.equalsByteString claimedDigest actualDigest)
-                                                ( let !proofCheck = validateFreshBatchReclaimProof parsedVerifierKey paymentKeyHash destinationAddress proof
-                                                   in case proofCheck of
-                                                        BatchCommittedProofCheck commitment pok a b c pub eCmt ->
-                                                          restOfBatch rest moreProofs moreDigests moreOutputs commitment pok (bls12_381_millerLoop a b) c pub eCmt 1 batchChallenge
-                                                )
-                                                (traceError "reclaim public input digest does not match statement")
-                                            )
-                                            (traceError "destination output underpays reclaim input")
-                                  )
-                                  remainingOutputs
-                            )
-                            remainingDigests
-                      )
-                      remainingProofs
-                  )
-                  (first rest remainingProofs remainingDigests remainingOutputs)
-        )
-        remainingInputs
-
-    restOfBatch !remainingInputs !remainingProofs !remainingDigests !remainingOutputs !foldedCommitment !foldedPok !foldedGrothLhs !foldedC !foldedPub !foldedECmt !coefficientSum !batchPower =
-      B.caseList
-        ( \() ->
-            B.caseList
-              ( \() ->
-                  let !foldedVkX = coefficientFirstVkX parsedVerifierKey coefficientSum foldedPub foldedECmt foldedCommitment
-                   in builtinIf
-                        (boolToBuiltin (verifyCommittedProofGrothBatch parsedVerifierKey coefficientSum foldedGrothLhs foldedVkX foldedC))
-                        ( builtinIf
-                            (boolToBuiltin (verifyCommittedProofPokBatchWithBatchVK parsedVerifierKey foldedCommitment foldedPok))
-                            BI.true
-                            (traceError "reclaim proof commitment validation failed")
-                        )
-                        (traceError "reclaim proof validation failed")
-              )
-              (\_ _ -> traceError "unused reclaim public input digests")
-              remainingDigests
-        )
-        ( \txIn rest ->
-            let !txOutFields = constrFields (txInResolved txIn)
-             in builtinIf
-                  (isReclaimBaseInput baseScriptHash txOutFields)
-                  ( B.caseList
-                      (\() -> traceError "missing reclaim proof")
-                      ( \proofData moreProofs ->
-                          B.caseList
-                            (\() -> traceError "missing reclaim public input digest")
-                            ( \digestData moreDigests ->
-                                B.caseList
-                                  (\() -> traceError "missing reclaim destination output")
-                                  ( \destinationOutput moreOutputs ->
-                                      let !proof = BI.unsafeDataAsB proofData
-                                          !claimedDigest = BI.unsafeDataAsB digestData
-                                          !paymentKeyHash = decodeBasePaymentKeyHashFromFields txOutFields
-                                          !destinationAddress = destinationAddressV1FromTxOutData destinationOutput
-                                          !actualDigest = ownershipDestinationPublicInputDigest paymentKeyHash destinationAddress
-                                          !inputValueData = field1 txOutFields
-                                          !outputValueData = field1 (constrFields destinationOutput)
-                                       in builtinIf
-                                            (valueCoversData inputValueData outputValueData)
-                                            ( builtinIf
-                                                (BI.equalsByteString claimedDigest actualDigest)
-                                                ( let !proofCheck = validateFreshBatchReclaimProof parsedVerifierKey paymentKeyHash destinationAddress proof
-                                                   in case proofCheck of
-                                                        BatchCommittedProofCheck commitment pok a b c pub eCmt ->
-                                                          let !(!newCommitment, !newPok, !newGrothLhs, !newC) =
-                                                                foldBatchProof batchPower foldedCommitment foldedPok foldedGrothLhs foldedC commitment pok a b c
-                                                              !(!newPower, !newSum, !newPub, !newECmt) =
-                                                                foldBatchScalarState batchChallenge batchPower coefficientSum foldedPub foldedECmt pub eCmt
-                                                           in restOfBatch rest moreProofs moreDigests moreOutputs newCommitment newPok newGrothLhs newC newPub newECmt newSum newPower
-                                                )
-                                                (traceError "reclaim public input digest does not match statement")
-                                            )
-                                            (traceError "destination output underpays reclaim input")
-                                  )
-                                  remainingOutputs
-                            )
-                            remainingDigests
-                      )
-                      remainingProofs
-                  )
-                  (restOfBatch rest remainingProofs remainingDigests remainingOutputs foldedCommitment foldedPok foldedGrothLhs foldedC foldedPub foldedECmt coefficientSum batchPower)
-        )
-        remainingInputs
-
 {-# INLINABLE reclaimGlobalValidatorBuiltin #-}
 reclaimGlobalValidatorBuiltin :: CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinData -> BI.BuiltinBool
 reclaimGlobalValidatorBuiltin (CurrencySymbol paramsCurrencySymbol) (TokenName paramsTokenName) verifierKey ctx =
@@ -1109,74 +868,3 @@ reclaimGlobalValidatorUntyped paramsCurrencySymbol paramsTokenName verifierKey c
 reclaimGlobalValidatorCode :: CompiledCode (CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinData -> BuiltinUnit)
 reclaimGlobalValidatorCode =
   $$(PlutusTx.compile [||reclaimGlobalValidatorUntyped||])
-
--- | The V2 script receives the canonical Cardano verification key and its
--- pre-checked BLAKE2b-256 hash as finalized script parameters. It never hashes
--- the 672-byte key at validation time; export/build tooling rejects a key/hash
--- mismatch before this code can be applied.
-{-# INLINABLE reclaimGlobalValidatorV2Builtin #-}
-reclaimGlobalValidatorV2Builtin :: CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinByteString -> BuiltinData -> BI.BuiltinBool
-reclaimGlobalValidatorV2Builtin (CurrencySymbol paramsCurrencySymbol) (TokenName paramsTokenName) verifierKey verifierKeyHash ctx =
-  isRewarding `builtinAnd` validateGlobal
-  where
-    !ctxFields = constrFields ctx
-    !txInfo = field0 ctxFields
-    !redeemer = field1 ctxFields
-    !scriptInfo = field2 ctxFields
-    !txInfoFields = constrFields txInfo
-    !txInfoInputs = field0 txInfoFields
-    !txInfoReferenceInputs = field1 txInfoFields
-    !txInfoOutputs = field2 txInfoFields
-    !redeemerConstr = BI.unsafeDataAsConstr redeemer
-    !redeemerFields = BI.snd redeemerConstr
-
-    isRewarding = BI.equalsInteger (constrTag scriptInfo) 2
-    validRedeemer =
-      BI.equalsInteger (BI.fst redeemerConstr) 0
-        `builtinAnd` hasExactlyFourFields redeemerFields
-
-    validateGlobal =
-      builtinIf
-        validRedeemer
-        ( let !paramsRefIdx = BI.unsafeDataAsI (field0 redeemerFields)
-              !destinationOutStartIdx = BI.unsafeDataAsI (field1 redeemerFields)
-              !reclaimProofsData = BI.unsafeDataAsList (field2 redeemerFields)
-              !publicInputDigestsData = BI.unsafeDataAsList (field3 redeemerFields)
-              !paramsInput = findReferenceInputAtData paramsRefIdx (BI.unsafeDataAsList txInfoReferenceInputs)
-              !paramsOut = txInResolved paramsInput
-              !baseScriptHash = decodeValidatedParams paramsCurrencySymbol paramsTokenName paramsOut
-              !parsedVerifierKey = parseVerifyingKeyBatch verifierKey
-              !destinationOutputs = dropAtData "invalid destination output start index" destinationOutStartIdx (BI.unsafeDataAsList txInfoOutputs)
-           in validateReclaimInputsV2
-                baseScriptHash
-                parsedVerifierKey
-                verifierKeyHash
-                reclaimProofsData
-                publicInputDigestsData
-                (BI.unsafeDataAsList txInfoInputs)
-                destinationOutputs
-        )
-        (traceError "invalid reclaim global v2 redeemer")
-
-{-# INLINABLE reclaimGlobalValidatorV2 #-}
-reclaimGlobalValidatorV2 :: CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinByteString -> BuiltinData -> Bool
-reclaimGlobalValidatorV2 paramsCurrencySymbol paramsTokenName verifierKey verifierKeyHash ctx =
-  builtinToBool $
-    reclaimGlobalValidatorV2Builtin
-      paramsCurrencySymbol
-      paramsTokenName
-      verifierKey
-      verifierKeyHash
-      ctx
-
-{-# INLINABLE reclaimGlobalValidatorV2Untyped #-}
-reclaimGlobalValidatorV2Untyped :: CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinByteString -> BuiltinData -> BuiltinUnit
-reclaimGlobalValidatorV2Untyped paramsCurrencySymbol paramsTokenName verifierKey verifierKeyHash ctx =
-  builtinIf
-    (reclaimGlobalValidatorV2Builtin paramsCurrencySymbol paramsTokenName verifierKey verifierKeyHash ctx)
-    BI.unitval
-    (traceError "reclaim global v2 validation failed")
-
-reclaimGlobalValidatorV2Code :: CompiledCode (CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinByteString -> BuiltinData -> BuiltinUnit)
-reclaimGlobalValidatorV2Code =
-  $$(PlutusTx.compile [||reclaimGlobalValidatorV2Untyped||])

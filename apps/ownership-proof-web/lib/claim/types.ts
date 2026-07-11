@@ -150,6 +150,7 @@ export type ClaimBuildRequest = {
   networkId?: number;
   draftId?: string;
   selectedOutrefs?: Array<string | ClaimOutRef>;
+  maxUtxos?: number;
   safeWalletChangeAddress?: string;
   safeWalletAddresses?: string[];
   proofArtifacts?: unknown[];

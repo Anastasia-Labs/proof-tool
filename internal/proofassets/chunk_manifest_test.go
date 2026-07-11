@@ -142,6 +142,31 @@ func TestGenerateChunkManifestAndTamperGuards(t *testing.T) {
 	})
 }
 
+func TestValidateReclaimDeploymentStatementBoundV2(t *testing.T) {
+	keyManifest := &artifact.KeyManifest{
+		VKHash:     prefixedHash("11"),
+		CircuitID:  "root-ownership-destination-v1/bls12-381/groth16",
+		KeyVersion: "ownership-destination-v1",
+	}
+	cardanoVKHash := prefixedHash("55")
+	deployment := testDeploymentManifest(keyManifest, cardanoVKHash)
+	deployment.ReclaimGlobal.ProofSlotEncoding = "full-proof-plus-public-input-digest-v2"
+	deployment.ReclaimGlobal.BatchTranscriptVKHash = cardanoVKHash
+	if err := ValidateReclaimDeployment(deployment, keyManifest, cardanoVKHash); err != nil {
+		t.Fatalf("expected statement-bound V2 deployment to validate: %v", err)
+	}
+
+	deployment.ReclaimGlobal.BatchTranscriptVKHash = ""
+	if err := ValidateReclaimDeployment(deployment, keyManifest, cardanoVKHash); err == nil || !strings.Contains(err.Error(), "batch_transcript_vk_hash") {
+		t.Fatalf("expected missing V2 batch transcript hash failure, got %v", err)
+	}
+
+	deployment.ReclaimGlobal.BatchTranscriptVKHash = prefixedHash("66")
+	if err := ValidateReclaimDeployment(deployment, keyManifest, cardanoVKHash); err == nil || !strings.Contains(err.Error(), "batch_transcript_vk_hash") {
+		t.Fatalf("expected mismatched V2 batch transcript hash failure, got %v", err)
+	}
+}
+
 func testDeploymentManifest(keyManifest *artifact.KeyManifest, cardanoVKHash string) *ReclaimDeploymentManifest {
 	var deployment ReclaimDeploymentManifest
 	deployment.Schema = ReclaimDeploymentSchema

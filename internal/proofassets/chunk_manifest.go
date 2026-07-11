@@ -111,8 +111,10 @@ type ReclaimDeploymentManifest struct {
 	DeploymentID  string `json:"deployment_id"`
 	SourceCommit  string `json:"source_commit"`
 	ReclaimGlobal struct {
-		VerifierVKHash string `json:"verifier_vk_hash"`
-		ProofProfile   string `json:"proof_profile"`
+		VerifierVKHash        string `json:"verifier_vk_hash"`
+		ProofProfile          string `json:"proof_profile"`
+		ProofSlotEncoding     string `json:"proof_slot_encoding,omitempty"`
+		BatchTranscriptVKHash string `json:"batch_transcript_vk_hash,omitempty"`
 	} `json:"reclaim_global"`
 	Proof struct {
 		CircuitID                  string `json:"circuit_id"`
@@ -509,6 +511,27 @@ func ValidateReclaimDeployment(deployment *ReclaimDeploymentManifest, manifest *
 	}
 	if cardanoVKBlake2b256 != "" && deployment.Proof.CardanoVKBlake2b256 != cardanoVKBlake2b256 {
 		return fmt.Errorf("deployment proof.cardano_vk_blake2b256 %q, want %q", deployment.Proof.CardanoVKBlake2b256, cardanoVKBlake2b256)
+	}
+	const statementBoundV2 = "full-proof-plus-public-input-digest-v2"
+	const sameAsPreviousV1 = "bytes-empty-same-as-previous-v1"
+	switch deployment.ReclaimGlobal.ProofSlotEncoding {
+	case "":
+		if deployment.ReclaimGlobal.BatchTranscriptVKHash != "" {
+			return errors.New("deployment reclaim_global.batch_transcript_vk_hash requires proof_slot_encoding")
+		}
+	case statementBoundV2:
+		if deployment.ReclaimGlobal.BatchTranscriptVKHash == "" {
+			return errors.New("deployment statement-bound V2 requires reclaim_global.batch_transcript_vk_hash")
+		}
+		if deployment.ReclaimGlobal.BatchTranscriptVKHash != deployment.Proof.CardanoVKBlake2b256 {
+			return fmt.Errorf("deployment reclaim_global.batch_transcript_vk_hash %q, want %q", deployment.ReclaimGlobal.BatchTranscriptVKHash, deployment.Proof.CardanoVKBlake2b256)
+		}
+	case sameAsPreviousV1:
+		if deployment.ReclaimGlobal.BatchTranscriptVKHash != "" {
+			return errors.New("deployment V1 proof-slot encoding must not set batch_transcript_vk_hash")
+		}
+	default:
+		return fmt.Errorf("deployment reclaim_global.proof_slot_encoding %q is unsupported", deployment.ReclaimGlobal.ProofSlotEncoding)
 	}
 	return nil
 }

@@ -6,6 +6,8 @@ const SCHEMA = "proof-tool-reclaim-deployment-v1";
 const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v1/bls12-381/groth16";
 const DESTINATION_KEY_VERSION = "ownership-destination-v1";
 const DESTINATION_ADDRESS_ENCODING = "destination-address-v1";
+const SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING = "bytes-empty-same-as-previous-v1";
+const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 = "full-proof-plus-public-input-digest-v2";
 
 const manifestPath = process.argv[2] || process.env.RECLAIM_DEPLOYMENT_MANIFEST_PATH;
 
@@ -36,6 +38,8 @@ console.log(
       network: manifest.network,
       source_commit: manifest.source_commit,
       verifier_vk_hash: manifest.reclaim_global.verifier_vk_hash,
+      proof_slot_encoding: manifest.reclaim_global.proof_slot_encoding ?? null,
+      batch_transcript_vk_hash: manifest.reclaim_global.batch_transcript_vk_hash ?? null,
       enabled: manifest.enabled !== false,
     },
     null,
@@ -69,6 +73,32 @@ function validate(raw) {
   hex(global.params_currency_symbol, 56, "reclaim_global.params_currency_symbol", errors);
   hash(global.verifier_vk_hash, "reclaim_global.verifier_vk_hash", errors);
   exact(global.proof_profile, "single-destination", "reclaim_global.proof_profile", errors);
+  if (global.proof_slot_encoding === undefined && global.batch_transcript_vk_hash !== undefined) {
+    errors.push({
+      field: "reclaim_global.proof_slot_encoding",
+      message: "is required when batch_transcript_vk_hash is present",
+    });
+  } else if (global.proof_slot_encoding === FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2) {
+    hash(global.batch_transcript_vk_hash, "reclaim_global.batch_transcript_vk_hash", errors);
+    exact(
+      global.batch_transcript_vk_hash,
+      proof.cardano_vk_blake2b256,
+      "reclaim_global.batch_transcript_vk_hash",
+      errors,
+    );
+  } else if (global.proof_slot_encoding === SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING) {
+    if (global.batch_transcript_vk_hash !== undefined) {
+      errors.push({
+        field: "reclaim_global.batch_transcript_vk_hash",
+        message: "must be absent for the V1 same-as-previous encoding",
+      });
+    }
+  } else if (global.proof_slot_encoding !== undefined) {
+    errors.push({
+      field: "reclaim_global.proof_slot_encoding",
+      message: "must be a supported reclaim proof-slot encoding",
+    });
+  }
 
   hex(params.tx_hash, 64, "params_utxo.tx_hash", errors);
   integer(params.output_index, "params_utxo.output_index", errors);
