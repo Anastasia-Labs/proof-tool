@@ -57,7 +57,7 @@ describe("reclaim script exporter invocation", () => {
     },
   );
 
-  it("propagates statement-bound V2 key coherence while retaining the Stage 2g cap-5 policy", () => {
+  it("propagates statement-bound V2 key coherence and the explicit distinct-7 capacity policy", () => {
     const manifest = buildManifest({
       sourceCommit: "12".repeat(20),
       baseAddress: "addr_test1_base",
@@ -89,11 +89,17 @@ describe("reclaim script exporter invocation", () => {
       `blake2b256:${"22".repeat(32)}`,
     );
     expect(manifest.batching).toEqual({
-      default_utxo_count: 4,
-      optimization_utxo_count: 5,
-      hard_max_utxo_count: 5,
-      max_tx_cpu_percent: 80,
+      default_utxo_count: 6,
+      optimization_utxo_count: 6,
+      hard_max_utxo_count: 7,
+      max_tx_cpu_percent: 90,
       max_tx_mem_percent: 80,
+      distinct_7_opt_in: {
+        request_parameter: "maxUtxos",
+        request_value: 7,
+        require_explicit_request: true,
+        require_measured_execution_units: true,
+      },
     });
   });
 });

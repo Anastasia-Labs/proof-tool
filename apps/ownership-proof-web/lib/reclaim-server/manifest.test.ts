@@ -34,9 +34,7 @@ describe("reclaim deployment manifest validation", () => {
   });
 
   it("accepts statement-bound V2 metadata and maps it into the deployment", () => {
-    const manifest = validManifest();
-    manifest.reclaim_global.proof_slot_encoding = FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2;
-    manifest.reclaim_global.batch_transcript_vk_hash = manifest.proof.cardano_vk_blake2b256;
+    const manifest = withDistinctSevenCapacityPolicy(validManifest());
 
     const result = loadReclaimDeployment({ env: envFromManifest(manifest) });
 
@@ -66,6 +64,93 @@ describe("reclaim deployment manifest validation", () => {
     mismatchedKey.reclaim_global.batch_transcript_vk_hash = prefixedHash("9");
     expect(errorCodes(validateReclaimDeploymentManifest(mismatchedKey))).toContain(
       "batch_transcript_vk_hash_mismatch",
+    );
+  });
+
+  it("accepts the exact distinct-7 V2 capacity policy", () => {
+    const manifest = withDistinctSevenCapacityPolicy(validManifest());
+
+    const result = loadReclaimDeployment({ env: envFromManifest(manifest) });
+
+    expect(result.available).toBe(true);
+    if (!result.available) {
+      throw new Error("expected distinct-7 capacity policy to validate");
+    }
+    expect(result.manifest.batching).toEqual({
+      default_utxo_count: 6,
+      optimization_utxo_count: 6,
+      hard_max_utxo_count: 7,
+      max_tx_cpu_percent: 90,
+      max_tx_mem_percent: 80,
+      distinct_7_opt_in: {
+        request_parameter: "maxUtxos",
+        request_value: 7,
+        require_explicit_request: true,
+        require_measured_execution_units: true,
+      },
+    });
+  });
+
+  it("fails closed when a distinct-7 manifest omits or changes its capacity policy", () => {
+    const missingOptIn = withDistinctSevenCapacityPolicy(validManifest());
+    delete missingOptIn.batching.distinct_7_opt_in;
+    expect(errorCodes(validateReclaimDeploymentManifest(missingOptIn))).toContain(
+      "distinct_7_opt_in_required",
+    );
+
+    const automaticSeven = withDistinctSevenCapacityPolicy(validManifest());
+    automaticSeven.batching.default_utxo_count = 5;
+    expect(errorCodes(validateReclaimDeploymentManifest(automaticSeven))).toContain(
+      "distinct_7_capacity_policy_mismatch",
+    );
+
+    const missingEvaluationGate = withDistinctSevenCapacityPolicy(validManifest());
+    delete (missingEvaluationGate.batching.distinct_7_opt_in as Record<string, unknown>)
+      .require_measured_execution_units;
+    expect(errorFields(validateReclaimDeploymentManifest(missingEvaluationGate))).toContain(
+      "batching.distinct_7_opt_in.require_measured_execution_units",
+    );
+
+    const staleV2Capacity = validManifest();
+    staleV2Capacity.reclaim_global.proof_slot_encoding =
+      FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2;
+    staleV2Capacity.reclaim_global.batch_transcript_vk_hash =
+      staleV2Capacity.proof.cardano_vk_blake2b256;
+    expect(errorCodes(validateReclaimDeploymentManifest(staleV2Capacity))).toEqual(
+      expect.arrayContaining([
+        "distinct_7_opt_in_required",
+        "distinct_7_capacity_policy_mismatch",
+      ]),
+    );
+  });
+
+  it("rejects a statement-bound V2 hard batch maximum above the distinct-7 policy", () => {
+    const manifest = withDistinctSevenCapacityPolicy(validManifest());
+    manifest.batching.hard_max_utxo_count = 8;
+
+    expect(errorCodes(validateReclaimDeploymentManifest(manifest))).toContain(
+      "batch_hard_max_exceeds_policy",
+    );
+  });
+
+  it("keeps legacy profiles with higher batch capacities backward compatible", () => {
+    const manifest = validManifest();
+    manifest.batching.hard_max_utxo_count = 35;
+
+    expect(validateReclaimDeploymentManifest(manifest).available).toBe(true);
+  });
+
+  it("rejects distinct-7 opt-in metadata on a non-V2 profile", () => {
+    const manifest = validManifest();
+    manifest.batching.distinct_7_opt_in = {
+      request_parameter: "maxUtxos",
+      request_value: 7,
+      require_explicit_request: true,
+      require_measured_execution_units: true,
+    };
+
+    expect(errorCodes(validateReclaimDeploymentManifest(manifest))).toContain(
+      "distinct_7_opt_in_requires_v2",
     );
   });
 
@@ -414,6 +499,33 @@ function withReferenceScripts(manifest: ReclaimDeploymentManifest): ReclaimDeplo
   };
 }
 
+function withDistinctSevenCapacityPolicy(
+  manifest: ReclaimDeploymentManifest,
+): ReclaimDeploymentManifest {
+  return {
+    ...manifest,
+    reclaim_global: {
+      ...manifest.reclaim_global,
+      proof_slot_encoding: FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2,
+      batch_transcript_vk_hash: manifest.proof.cardano_vk_blake2b256,
+    },
+    batching: {
+      ...manifest.batching,
+      default_utxo_count: 6,
+      optimization_utxo_count: 6,
+      hard_max_utxo_count: 7,
+      max_tx_cpu_percent: 90,
+      max_tx_mem_percent: 80,
+      distinct_7_opt_in: {
+        request_parameter: "maxUtxos",
+        request_value: 7,
+        require_explicit_request: true,
+        require_measured_execution_units: true,
+      },
+    },
+  };
+}
+
 function envFromManifest(manifest: ReclaimDeploymentManifest): Record<string, string> {
   const env = {
     RECLAIM_DEPLOYMENT_ID: manifest.deployment_id,
@@ -450,6 +562,21 @@ function envFromManifest(manifest: ReclaimDeploymentManifest): Record<string, st
     RECLAIM_HARD_MAX_UTXO_COUNT: String(manifest.batching.hard_max_utxo_count),
     RECLAIM_MAX_TX_CPU_PERCENT: String(manifest.batching.max_tx_cpu_percent),
     RECLAIM_MAX_TX_MEM_PERCENT: String(manifest.batching.max_tx_mem_percent),
+    ...(manifest.batching.distinct_7_opt_in
+      ? {
+          RECLAIM_DISTINCT_7_REQUEST_PARAMETER:
+            manifest.batching.distinct_7_opt_in.request_parameter,
+          RECLAIM_DISTINCT_7_REQUEST_VALUE: String(
+            manifest.batching.distinct_7_opt_in.request_value,
+          ),
+          RECLAIM_DISTINCT_7_REQUIRE_EXPLICIT_REQUEST: String(
+            manifest.batching.distinct_7_opt_in.require_explicit_request,
+          ),
+          RECLAIM_DISTINCT_7_REQUIRE_MEASURED_EXECUTION_UNITS: String(
+            manifest.batching.distinct_7_opt_in.require_measured_execution_units,
+          ),
+        }
+      : {}),
     RECLAIM_PROVIDER: manifest.provider.primary,
     RECLAIM_PROVIDER_FALLBACK: manifest.provider.fallback,
   };

@@ -4,6 +4,7 @@ import type {
   BrowserProvingDescriptor,
   BrowserProvingTuning,
   ReclaimDeployment,
+  ReclaimDistinctSevenOptIn,
   ReclaimGlobalProofSlotEncoding,
   ReclaimNetwork,
   ReclaimReferenceScriptDeployment,
@@ -18,6 +19,12 @@ export const SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING =
   "bytes-empty-same-as-previous-v1";
 export const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 =
   "full-proof-plus-public-input-digest-v2";
+const DISTINCT_7_REQUEST_PARAMETER = "maxUtxos";
+const DISTINCT_7_REQUEST_VALUE = 7;
+const DISTINCT_7_DEFAULT_UTXO_COUNT = 6;
+const DISTINCT_7_OPTIMIZATION_UTXO_COUNT = 6;
+const DISTINCT_7_MAX_TX_CPU_PERCENT = 90;
+const DISTINCT_7_MAX_TX_MEM_PERCENT = 80;
 
 type EnvMap = Record<string, string | undefined>;
 
@@ -66,6 +73,7 @@ export type ReclaimDeploymentManifest = {
     hard_max_utxo_count: number;
     max_tx_cpu_percent: number;
     max_tx_mem_percent: number;
+    distinct_7_opt_in?: ReclaimDistinctSevenOptIn;
   };
   provider: {
     primary: ProviderName;
@@ -186,6 +194,10 @@ const FLAT_ENV_FIELDS = {
   hardMaxUtxoCount: "RECLAIM_HARD_MAX_UTXO_COUNT",
   maxTxCpuPercent: "RECLAIM_MAX_TX_CPU_PERCENT",
   maxTxMemPercent: "RECLAIM_MAX_TX_MEM_PERCENT",
+  distinctSevenRequestParameter: "RECLAIM_DISTINCT_7_REQUEST_PARAMETER",
+  distinctSevenRequestValue: "RECLAIM_DISTINCT_7_REQUEST_VALUE",
+  distinctSevenRequireExplicitRequest: "RECLAIM_DISTINCT_7_REQUIRE_EXPLICIT_REQUEST",
+  distinctSevenRequireMeasuredExecutionUnits: "RECLAIM_DISTINCT_7_REQUIRE_MEASURED_EXECUTION_UNITS",
   provider: "RECLAIM_PROVIDER",
   providerFallback: "RECLAIM_PROVIDER_FALLBACK",
   reclaimBaseReferenceScriptTxHash: "RECLAIM_BASE_REFERENCE_SCRIPT_TX_HASH",
@@ -271,6 +283,26 @@ const ENV_MATCH_FIELDS: Array<{ env: string; field: string; getValue: (manifest:
   { env: FLAT_ENV_FIELDS.hardMaxUtxoCount, field: "batching.hard_max_utxo_count", getValue: (manifest) => String(manifest.batching.hard_max_utxo_count) },
   { env: FLAT_ENV_FIELDS.maxTxCpuPercent, field: "batching.max_tx_cpu_percent", getValue: (manifest) => String(manifest.batching.max_tx_cpu_percent) },
   { env: FLAT_ENV_FIELDS.maxTxMemPercent, field: "batching.max_tx_mem_percent", getValue: (manifest) => String(manifest.batching.max_tx_mem_percent) },
+  {
+    env: FLAT_ENV_FIELDS.distinctSevenRequestParameter,
+    field: "batching.distinct_7_opt_in.request_parameter",
+    getValue: (manifest) => manifest.batching.distinct_7_opt_in?.request_parameter ?? "",
+  },
+  {
+    env: FLAT_ENV_FIELDS.distinctSevenRequestValue,
+    field: "batching.distinct_7_opt_in.request_value",
+    getValue: (manifest) => String(manifest.batching.distinct_7_opt_in?.request_value ?? ""),
+  },
+  {
+    env: FLAT_ENV_FIELDS.distinctSevenRequireExplicitRequest,
+    field: "batching.distinct_7_opt_in.require_explicit_request",
+    getValue: (manifest) => String(manifest.batching.distinct_7_opt_in?.require_explicit_request ?? ""),
+  },
+  {
+    env: FLAT_ENV_FIELDS.distinctSevenRequireMeasuredExecutionUnits,
+    field: "batching.distinct_7_opt_in.require_measured_execution_units",
+    getValue: (manifest) => String(manifest.batching.distinct_7_opt_in?.require_measured_execution_units ?? ""),
+  },
   { env: FLAT_ENV_FIELDS.providerFallback, field: "provider.fallback", getValue: (manifest) => manifest.provider.fallback },
   {
     env: FLAT_ENV_FIELDS.reclaimBaseReferenceScriptTxHash,
@@ -376,6 +408,11 @@ export function validateReclaimDeploymentManifest(raw: unknown):
   const batching = objectField(root.batching, "batching", errors);
   const provider = objectField(root.provider, "provider", errors);
   const referenceScripts = optionalReferenceScriptsField(root.reference_scripts, errors);
+  const distinctSevenOptIn = optionalDistinctSevenOptInField(
+    batching.distinct_7_opt_in,
+    "batching.distinct_7_opt_in",
+    errors,
+  );
 
   const schema = stringField(root.schema, "schema", errors);
   const deploymentId = stringField(root.deployment_id, "deployment_id", errors);
@@ -453,6 +490,7 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       hard_max_utxo_count: positiveIntegerField(batching.hard_max_utxo_count, "batching.hard_max_utxo_count", errors),
       max_tx_cpu_percent: percentField(batching.max_tx_cpu_percent, "batching.max_tx_cpu_percent", errors),
       max_tx_mem_percent: percentField(batching.max_tx_mem_percent, "batching.max_tx_mem_percent", errors),
+      ...(distinctSevenOptIn ? { distinct_7_opt_in: distinctSevenOptIn } : {}),
     },
     provider: {
       primary: providerField(provider.primary, "provider.primary", errors),
@@ -593,6 +631,58 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       message: "batching counts must satisfy default <= optimization <= hard max.",
     });
   }
+  if (proofSlotEncoding === FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2) {
+    if (manifest.batching.hard_max_utxo_count > DISTINCT_7_REQUEST_VALUE) {
+      errors.push({
+        code: "batch_hard_max_exceeds_policy",
+        field: "batching.hard_max_utxo_count",
+        message: "statement-bound V2 hard_max_utxo_count must not exceed the distinct-7 capacity policy.",
+      });
+    }
+    if (!manifest.batching.distinct_7_opt_in) {
+      errors.push({
+        code: "distinct_7_opt_in_required",
+        field: "batching.distinct_7_opt_in",
+        message: "statement-bound V2 requires explicit distinct-7 opt-in metadata.",
+      });
+    }
+    requireDistinctSevenCapacityValue(
+      manifest.batching.default_utxo_count,
+      DISTINCT_7_DEFAULT_UTXO_COUNT,
+      "batching.default_utxo_count",
+      errors,
+    );
+    requireDistinctSevenCapacityValue(
+      manifest.batching.optimization_utxo_count,
+      DISTINCT_7_OPTIMIZATION_UTXO_COUNT,
+      "batching.optimization_utxo_count",
+      errors,
+    );
+    requireDistinctSevenCapacityValue(
+      manifest.batching.hard_max_utxo_count,
+      DISTINCT_7_REQUEST_VALUE,
+      "batching.hard_max_utxo_count",
+      errors,
+    );
+    requireDistinctSevenCapacityValue(
+      manifest.batching.max_tx_cpu_percent,
+      DISTINCT_7_MAX_TX_CPU_PERCENT,
+      "batching.max_tx_cpu_percent",
+      errors,
+    );
+    requireDistinctSevenCapacityValue(
+      manifest.batching.max_tx_mem_percent,
+      DISTINCT_7_MAX_TX_MEM_PERCENT,
+      "batching.max_tx_mem_percent",
+      errors,
+    );
+  } else if (manifest.batching.distinct_7_opt_in) {
+    errors.push({
+      code: "distinct_7_opt_in_requires_v2",
+      field: "batching.distinct_7_opt_in",
+      message: "distinct-7 opt-in metadata is only valid for statement-bound V2.",
+    });
+  }
   if (manifest.enabled === false) {
     errors.push({ code: "deployment_disabled", field: "enabled", message: "deployment manifest is explicitly disabled." });
   }
@@ -702,6 +792,7 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
   const verifierVkHash = envValue(env, FLAT_ENV_FIELDS.verifierVkHash) || envValue(env, FLAT_ENV_FIELDS.proofVkHash);
   const proofSlotEncoding = envValue(env, FLAT_ENV_FIELDS.reclaimGlobalProofSlotEncoding);
   const batchTranscriptVkHash = envValue(env, FLAT_ENV_FIELDS.reclaimGlobalBatchTranscriptVkHash);
+  const distinctSevenOptIn = distinctSevenOptInFromEnv(env);
   const deploymentId = envValue(env, FLAT_ENV_FIELDS.deploymentId) || [network.toLowerCase(), baseScriptHash, sourceCommit].filter(Boolean).join(":");
 
   return {
@@ -746,6 +837,7 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
       hard_max_utxo_count: parseEnvInteger(env, FLAT_ENV_FIELDS.hardMaxUtxoCount) ?? 5,
       max_tx_cpu_percent: parseEnvInteger(env, FLAT_ENV_FIELDS.maxTxCpuPercent) ?? 80,
       max_tx_mem_percent: parseEnvInteger(env, FLAT_ENV_FIELDS.maxTxMemPercent) ?? 80,
+      ...(distinctSevenOptIn ? { distinct_7_opt_in: distinctSevenOptIn } : {}),
     },
     provider: {
       primary: normalizedProvider(envValue(env, FLAT_ENV_FIELDS.provider)) || "koios",
@@ -753,6 +845,24 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
     },
     reference_scripts: manifestReferenceScriptsFromEnv(env),
     enabled: parseEnabled(envValue(env, FLAT_ENV_FIELDS.enabled)),
+  };
+}
+
+function distinctSevenOptInFromEnv(env: EnvMap): Record<string, unknown> | undefined {
+  const values = [
+    envValue(env, FLAT_ENV_FIELDS.distinctSevenRequestParameter),
+    envValue(env, FLAT_ENV_FIELDS.distinctSevenRequestValue),
+    envValue(env, FLAT_ENV_FIELDS.distinctSevenRequireExplicitRequest),
+    envValue(env, FLAT_ENV_FIELDS.distinctSevenRequireMeasuredExecutionUnits),
+  ];
+  if (!values.some(Boolean)) {
+    return undefined;
+  }
+  return {
+    request_parameter: values[0],
+    request_value: parseEnvInteger(env, FLAT_ENV_FIELDS.distinctSevenRequestValue),
+    require_explicit_request: parseEnabled(values[2]),
+    require_measured_execution_units: parseEnabled(values[3]),
   };
 }
 
@@ -1014,6 +1124,73 @@ function referenceScriptField(
   };
 }
 
+function optionalDistinctSevenOptInField(
+  value: unknown,
+  field: string,
+  errors: ManifestValidationError[],
+): ReclaimDistinctSevenOptIn | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const root = objectField(value, field, errors);
+  const allowedFields = new Set([
+    "request_parameter",
+    "request_value",
+    "require_explicit_request",
+    "require_measured_execution_units",
+  ]);
+  for (const key of Object.keys(root)) {
+    if (!allowedFields.has(key)) {
+      errors.push({
+        code: "unsupported_field",
+        field: `${field}.${key}`,
+        message: `${field}.${key} is not part of the distinct-7 opt-in policy.`,
+      });
+    }
+  }
+  return {
+    request_parameter: literalField(
+      root.request_parameter,
+      `${field}.request_parameter`,
+      DISTINCT_7_REQUEST_PARAMETER,
+      errors,
+    ),
+    request_value: literalIntegerField(
+      root.request_value,
+      `${field}.request_value`,
+      DISTINCT_7_REQUEST_VALUE,
+      errors,
+    ),
+    require_explicit_request: literalBooleanField(
+      root.require_explicit_request,
+      `${field}.require_explicit_request`,
+      true,
+      errors,
+    ),
+    require_measured_execution_units: literalBooleanField(
+      root.require_measured_execution_units,
+      `${field}.require_measured_execution_units`,
+      true,
+      errors,
+    ),
+  };
+}
+
+function requireDistinctSevenCapacityValue(
+  actual: number,
+  expected: number,
+  field: string,
+  errors: ManifestValidationError[],
+): void {
+  if (actual !== expected) {
+    errors.push({
+      code: "distinct_7_capacity_policy_mismatch",
+      field,
+      message: `${field} must be ${expected} for the distinct-7 capacity policy.`,
+    });
+  }
+}
+
 function objectField(value: unknown, field: string, errors: ManifestValidationError[]): Record<string, unknown> {
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -1066,6 +1243,32 @@ function providerField(value: unknown, field: string, errors: ManifestValidation
 function literalField<const T extends string>(value: unknown, field: string, expected: T, errors: ManifestValidationError[]): T {
   const actual = stringField(value, field, errors);
   if (actual && actual !== expected) {
+    errors.push({ code: "unsupported_value", field, message: `${field} must be ${expected}.` });
+  }
+  return expected;
+}
+
+function literalIntegerField<const T extends number>(value: unknown, field: string, expected: T, errors: ManifestValidationError[]): T {
+  if (!Number.isInteger(value)) {
+    errors.push({
+      code: value === undefined ? "missing" : "invalid_type",
+      field,
+      message: `${field} must be the integer ${expected}.`,
+    });
+  } else if (value !== expected) {
+    errors.push({ code: "unsupported_value", field, message: `${field} must be ${expected}.` });
+  }
+  return expected;
+}
+
+function literalBooleanField<const T extends boolean>(value: unknown, field: string, expected: T, errors: ManifestValidationError[]): T {
+  if (typeof value !== "boolean") {
+    errors.push({
+      code: value === undefined ? "missing" : "invalid_type",
+      field,
+      message: `${field} must be ${expected}.`,
+    });
+  } else if (value !== expected) {
     errors.push({ code: "unsupported_value", field, message: `${field} must be ${expected}.` });
   }
   return expected;

@@ -281,6 +281,25 @@ For every withdrawal under
 - The global script hash commits to the verifier key script parameter.
 - The always-fails holder script prevents silent parameter mutation.
 
+## Statement-Bound V2 Deployment Capacity Policy
+
+The statement-bound V2 deployment profile is optimized for the normal reclaim
+case: payment credentials derived from one root private key and distinct across
+the batch. Its deployment manifest fixes the following policy:
+
+- the default batch is six UTxOs;
+- the optimization batch is six UTxOs;
+- a seven-UTxO all-distinct batch requires an explicit `maxUtxos: 7` request;
+- evaluated transaction CPU must not exceed 90% of the network limit, and
+  evaluated memory must not exceed 80%; and
+- builders must always obtain and enforce measured execution units. A count is
+  never a substitute for transaction evaluation.
+
+Repeated full proofs remain valid inputs but are an infrequent regression path,
+not a high-capacity guarantee for V2. The V2 transcript carries one full proof
+and one authenticated statement digest per slot; it intentionally does not use
+the V1 proof-reuse marker/cache encoding.
+
 ## Supporting Contract: One-Shot NFT Policy
 
 The supporting minting policy is parameterized by a `TxOutRef` and succeeds only

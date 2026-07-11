@@ -48,6 +48,7 @@ const DESTINATION_PUBLIC_INPUT_DOMAIN = "ROOT-OWNERSHIP-DESTINATION-v1";
 const DESTINATION_PUBLIC_INPUT_ENCODING = "single-credential-destination-v1";
 const CARDANO_PROOF_FORMAT = "groth16-bls12-381-bsb22";
 const PROOF_SCHEMA = "root-ownership-proof-artifact-v1";
+const STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING = "full-proof-plus-public-input-digest-v2";
 const validatorToScriptHash = (LucidExports as unknown as {
   validatorToScriptHash: (script: NonNullable<UTxO["scriptRef"]>) => string;
 }).validatorToScriptHash;
@@ -170,13 +171,14 @@ export async function buildClaimTx(
     buildInputs.paramsUtxo,
     ...buildInputs.referenceScriptUtxos,
   ]));
+  if (!Array.isArray(evaluationRedeemers) || (isStatementBoundV2(deployment) && evaluationRedeemers.length === 0)) {
+    throw new ClaimValidationError(
+      "claim_evaluation_unavailable",
+      "Provider did not return measured execution units for the claim transaction.",
+    );
+  }
   const evaluation = summarizeEvaluation(evaluationRedeemers, protocol);
-  if (evaluation.memoryPercent !== null && deployment.batching && evaluation.memoryPercent > deployment.batching.max_tx_mem_percent) {
-    throw new ClaimValidationError("claim_evaluation_margin_exceeded", "Claim transaction memory execution units exceed the configured deployment margin.");
-  }
-  if (evaluation.cpuPercent !== null && deployment.batching && evaluation.cpuPercent > deployment.batching.max_tx_cpu_percent) {
-    throw new ClaimValidationError("claim_evaluation_margin_exceeded", "Claim transaction CPU execution units exceed the configured deployment margin.");
-  }
+  assertMeasuredEvaluationWithinDeploymentMargin(deployment, evaluation);
 
   const review = {
     deploymentId: deployment.id,
@@ -848,6 +850,57 @@ function summarizeEvaluation(
     memoryPercent,
     cpuPercent,
   };
+}
+
+export function assertMeasuredEvaluationWithinDeploymentMargin(
+  deployment: ReclaimDeployment,
+  evaluation: ClaimBuildResponse["evaluation"],
+): void {
+  const batching = deployment.batching;
+  if (!batching) {
+    if (isStatementBoundV2(deployment)) {
+      throw new ClaimValidationError(
+        "claim_evaluation_policy_invalid",
+        "Statement-bound V2 claims require measured-execution margins in the deployment policy.",
+      );
+    }
+    return;
+  }
+  if (
+    !Number.isInteger(batching.max_tx_mem_percent) ||
+    batching.max_tx_mem_percent <= 0 ||
+    batching.max_tx_mem_percent > 100 ||
+    !Number.isInteger(batching.max_tx_cpu_percent) ||
+    batching.max_tx_cpu_percent <= 0 ||
+    batching.max_tx_cpu_percent > 100
+  ) {
+    if (isStatementBoundV2(deployment)) {
+      throw new ClaimValidationError(
+        "claim_evaluation_policy_invalid",
+        "Statement-bound V2 claims require valid measured-execution margins.",
+      );
+    }
+    return;
+  }
+  if (evaluation.memoryPercent === null || evaluation.cpuPercent === null) {
+    if (isStatementBoundV2(deployment)) {
+      throw new ClaimValidationError(
+        "claim_evaluation_unavailable",
+        "Provider did not return usable transaction execution limits for the claim evaluation.",
+      );
+    }
+    return;
+  }
+  if (evaluation.memoryPercent > batching.max_tx_mem_percent) {
+    throw new ClaimValidationError("claim_evaluation_margin_exceeded", "Claim transaction memory execution units exceed the configured deployment margin.");
+  }
+  if (evaluation.cpuPercent > batching.max_tx_cpu_percent) {
+    throw new ClaimValidationError("claim_evaluation_margin_exceeded", "Claim transaction CPU execution units exceed the configured deployment margin.");
+  }
+}
+
+function isStatementBoundV2(deployment: ReclaimDeployment): boolean {
+  return deployment.reclaimGlobalProofSlotEncoding === STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING;
 }
 
 function percentCeil(value: bigint, max: bigint): number {

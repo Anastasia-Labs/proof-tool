@@ -1,8 +1,18 @@
 import type { AssetMap, ReclaimDeployment, ReclaimNetwork } from "../reclaim/types";
 
-export const CLAIM_DEFAULT_BATCH_CAP = 4;
-export const CLAIM_OPTIMIZATION_BATCH_CAP = 5;
-export const CLAIM_HARD_BATCH_CAP = 35;
+// Statement-bound V2 capacity policy. Seven is deliberately not an automatic
+// batch size: it requires the deployment's explicit distinct-7 opt-in.
+export const CLAIM_DEFAULT_BATCH_CAP = 6;
+export const CLAIM_OPTIMIZATION_BATCH_CAP = 6;
+export const CLAIM_HARD_BATCH_CAP = 7;
+export const CLAIM_DISTINCT_7_MAX_TX_CPU_PERCENT = 90;
+export const CLAIM_DISTINCT_7_MAX_TX_MEM_PERCENT = 80;
+
+// Keep legacy deployments on their pre-V2, manifest-driven capacity path.
+// These are client-side ceilings, not the V2 capacity policy above.
+export const CLAIM_LEGACY_DEFAULT_BATCH_CAP = 4;
+export const CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP = 5;
+export const CLAIM_LEGACY_HARD_BATCH_CAP = 35;
 export const DESTINATION_ADDRESS_V1_ENCODING = "destination-address-v1";
 export const DESTINATION_ADDRESS_V1_BYTES = 58;
 
@@ -127,7 +137,7 @@ export type ClaimDraftResponse = {
   proofProfile: "single-destination";
   batchCap: {
     requested: number;
-    default: typeof CLAIM_DEFAULT_BATCH_CAP;
+    default: number;
     hardMax: number;
   };
   orderedInputs: ClaimDraftInput[];

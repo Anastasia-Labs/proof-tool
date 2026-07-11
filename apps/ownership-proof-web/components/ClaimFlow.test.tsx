@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { bech32 } from "bech32";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ClaimFlow } from "./ClaimFlow";
+import { ClaimFlow, selectClaimBatchRows } from "./ClaimFlow";
 
 const credential = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
 const usedCredential = "22222222222222222222222222222222222222222222222222222222";
@@ -39,6 +39,66 @@ function cip30HexAddressToBech32(value: string): string {
 }
 
 describe("ClaimFlow", () => {
+  it("keeps statement-bound V2 automatic selection at six even when the manifest advertises seven", () => {
+    const rows: Parameters<typeof selectClaimBatchRows>[0] = Array.from({ length: 7 }, (_, index) => ({
+      id: index,
+      tx: String(index),
+      output: 0,
+      credential,
+      ada: "1 ADA",
+      assets: "No tokens",
+      summary: [],
+      outRefId: `${(index + 1).toString(16).padStart(64, "0")}#0`,
+      confirmationSlot: index,
+    }));
+    const deployment = {
+      available: true,
+      deployment: {
+        ...claimDeployment().deployment,
+        reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
+        batching: {
+          default_utxo_count: 7,
+          optimization_utxo_count: 7,
+          hard_max_utxo_count: 7,
+          max_tx_cpu_percent: 90,
+          max_tx_mem_percent: 80,
+        },
+      },
+    } as Parameters<typeof selectClaimBatchRows>[2];
+
+    expect(selectClaimBatchRows(rows, [], deployment)).toHaveLength(6);
+  });
+
+  it("retains manifest-driven automatic capacity for legacy claim profiles", () => {
+    const rows: Parameters<typeof selectClaimBatchRows>[0] = Array.from({ length: 8 }, (_, index) => ({
+      id: index,
+      tx: String(index),
+      output: 0,
+      credential,
+      ada: "1 ADA",
+      assets: "No tokens",
+      summary: [],
+      outRefId: `${(index + 1).toString(16).padStart(64, "0")}#0`,
+      confirmationSlot: index,
+    }));
+    const deployment = {
+      available: true,
+      deployment: {
+        ...claimDeployment().deployment,
+        reclaimGlobalProofSlotEncoding: "bytes-empty-same-as-previous-v1",
+        batching: {
+          default_utxo_count: 8,
+          optimization_utxo_count: 8,
+          hard_max_utxo_count: 8,
+          max_tx_cpu_percent: 80,
+          max_tx_mem_percent: 80,
+        },
+      },
+    } as Parameters<typeof selectClaimBatchRows>[2];
+
+    expect(selectClaimBatchRows(rows, [], deployment)).toHaveLength(8);
+  });
+
   it("uses the gated fixture state from the query string", async () => {
     vi.stubEnv("NEXT_PUBLIC_CLAIM_UI_FIXTURE", "1");
     window.history.replaceState(null, "", "/claim?fixtureState=create-proofs-ready");

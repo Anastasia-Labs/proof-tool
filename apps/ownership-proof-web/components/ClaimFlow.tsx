@@ -48,7 +48,13 @@ import type {
   IndexedReclaimUtxo,
   ReclaimUtxosResponse,
 } from "../lib/claim/types";
-import { CLAIM_HARD_BATCH_CAP, CLAIM_OPTIMIZATION_BATCH_CAP } from "../lib/claim/types";
+import {
+  CLAIM_DEFAULT_BATCH_CAP,
+  CLAIM_HARD_BATCH_CAP,
+  CLAIM_LEGACY_DEFAULT_BATCH_CAP,
+  CLAIM_LEGACY_HARD_BATCH_CAP,
+  CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP,
+} from "../lib/claim/types";
 import type { AssetMap, BrowserProvingDescriptor, DeploymentResponse, ReclaimApiError, ReclaimNetwork } from "../lib/reclaim/types";
 import { LOVELACE_UNIT } from "../lib/reclaim/types";
 import { ProvingCancelledError, checkBrowserProving, proveDestinationInBrowser } from "../lib/proving/browser-wasm";
@@ -82,6 +88,8 @@ type ClaimScreen =
   | "signature-rejected"
   | "submitted-refreshing"
   | "claim-review-complete";
+
+const STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING = "full-proof-plus-public-input-digest-v2";
 
 type StepStatus = "pending" | "active" | "complete";
 
@@ -4241,20 +4249,26 @@ async function postJSON<T>(url: string, body: unknown, headers?: Record<string, 
   });
 }
 
-function selectClaimBatchRows(rows: ClaimRow[], pendingOutrefs: string[], deployment: ClaimDeploymentResponse): ClaimRow[] {
+export function selectClaimBatchRows(rows: ClaimRow[], pendingOutrefs: string[], deployment: ClaimDeploymentResponse): ClaimRow[] {
   if (!deployment.available) {
     return [];
   }
   const pending = new Set(pendingOutrefs);
-  const defaultCap = deployment.deployment.batching?.default_utxo_count ?? 4;
+  const statementBoundV2 = deployment.deployment.reclaimGlobalProofSlotEncoding === STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING;
+  // V2's seven-UTxO capacity is opt-in only; the UI must never select it just
+  // because a deployment advertises that hard maximum.
+  const defaultCap = statementBoundV2
+    ? CLAIM_DEFAULT_BATCH_CAP
+    : (deployment.deployment.batching?.default_utxo_count ?? CLAIM_LEGACY_DEFAULT_BATCH_CAP);
+  const configuredHardCap = deployment.deployment.batching?.hard_max_utxo_count ?? (statementBoundV2 ? CLAIM_HARD_BATCH_CAP : CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP);
   const hardCap = Math.min(
-    deployment.deployment.batching?.hard_max_utxo_count ?? CLAIM_OPTIMIZATION_BATCH_CAP,
-    CLAIM_HARD_BATCH_CAP,
+    configuredHardCap,
+    statementBoundV2 ? CLAIM_HARD_BATCH_CAP : CLAIM_LEGACY_HARD_BATCH_CAP,
   );
   return rows
     .filter((row) => row.outRefId && !pending.has(row.outRefId))
     .sort(compareClaimRows)
-    .slice(0, Math.min(defaultCap, hardCap, CLAIM_HARD_BATCH_CAP));
+    .slice(0, Math.min(defaultCap, hardCap));
 }
 
 function compareClaimRows(left: ClaimRow, right: ClaimRow): number {

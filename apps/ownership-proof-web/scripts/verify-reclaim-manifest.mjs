@@ -8,6 +8,12 @@ const DESTINATION_KEY_VERSION = "ownership-destination-v1";
 const DESTINATION_ADDRESS_ENCODING = "destination-address-v1";
 const SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING = "bytes-empty-same-as-previous-v1";
 const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 = "full-proof-plus-public-input-digest-v2";
+const DISTINCT_7_REQUEST_PARAMETER = "maxUtxos";
+const DISTINCT_7_REQUEST_VALUE = 7;
+const DISTINCT_7_DEFAULT_UTXO_COUNT = 6;
+const DISTINCT_7_OPTIMIZATION_UTXO_COUNT = 6;
+const DISTINCT_7_MAX_TX_CPU_PERCENT = 90;
+const DISTINCT_7_MAX_TX_MEM_PERCENT = 80;
 
 const manifestPath = process.argv[2] || process.env.RECLAIM_DEPLOYMENT_MANIFEST_PATH;
 
@@ -40,6 +46,7 @@ console.log(
       verifier_vk_hash: manifest.reclaim_global.verifier_vk_hash,
       proof_slot_encoding: manifest.reclaim_global.proof_slot_encoding ?? null,
       batch_transcript_vk_hash: manifest.reclaim_global.batch_transcript_vk_hash ?? null,
+      distinct_7_opt_in: manifest.batching.distinct_7_opt_in ?? null,
       enabled: manifest.enabled !== false,
     },
     null,
@@ -136,6 +143,50 @@ function validate(raw) {
   if (batching.default_utxo_count > batching.optimization_utxo_count || batching.optimization_utxo_count > batching.hard_max_utxo_count) {
     errors.push({ field: "batching", message: "batch caps must satisfy default <= optimization <= hard max" });
   }
+  if (global.proof_slot_encoding === FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2) {
+    if (batching.hard_max_utxo_count > DISTINCT_7_REQUEST_VALUE) {
+      errors.push({
+        field: "batching.hard_max_utxo_count",
+        message: "statement-bound V2 hard_max_utxo_count must not exceed the distinct-7 capacity policy",
+      });
+    }
+    distinctSevenOptIn(batching.distinct_7_opt_in, "batching.distinct_7_opt_in", errors);
+    exact(
+      batching.default_utxo_count,
+      DISTINCT_7_DEFAULT_UTXO_COUNT,
+      "batching.default_utxo_count",
+      errors,
+    );
+    exact(
+      batching.optimization_utxo_count,
+      DISTINCT_7_OPTIMIZATION_UTXO_COUNT,
+      "batching.optimization_utxo_count",
+      errors,
+    );
+    exact(
+      batching.hard_max_utxo_count,
+      DISTINCT_7_REQUEST_VALUE,
+      "batching.hard_max_utxo_count",
+      errors,
+    );
+    exact(
+      batching.max_tx_cpu_percent,
+      DISTINCT_7_MAX_TX_CPU_PERCENT,
+      "batching.max_tx_cpu_percent",
+      errors,
+    );
+    exact(
+      batching.max_tx_mem_percent,
+      DISTINCT_7_MAX_TX_MEM_PERCENT,
+      "batching.max_tx_mem_percent",
+      errors,
+    );
+  } else if (batching.distinct_7_opt_in !== undefined) {
+    errors.push({
+      field: "batching.distinct_7_opt_in",
+      message: "distinct-7 opt-in metadata is only valid for statement-bound V2",
+    });
+  }
   if (raw.enabled === false) {
     errors.push({ field: "enabled", message: "manifest is explicitly disabled" });
   }
@@ -188,6 +239,40 @@ function hash(value, field, errors) {
   if (typeof value !== "string" || !/^blake2b256:[0-9a-f]{64}$/u.test(value)) {
     errors.push({ field, message: "must be blake2b256:<32-byte-hex>" });
   }
+}
+
+function distinctSevenOptIn(value, field, errors) {
+  const policy = object(value, field, errors);
+  const allowedFields = new Set([
+    "request_parameter",
+    "request_value",
+    "require_explicit_request",
+    "require_measured_execution_units",
+  ]);
+  for (const key of Object.keys(policy)) {
+    if (!allowedFields.has(key)) {
+      errors.push({ field: `${field}.${key}`, message: "is not part of the distinct-7 opt-in policy" });
+    }
+  }
+  exact(
+    policy.request_parameter,
+    DISTINCT_7_REQUEST_PARAMETER,
+    `${field}.request_parameter`,
+    errors,
+  );
+  exact(policy.request_value, DISTINCT_7_REQUEST_VALUE, `${field}.request_value`, errors);
+  exact(
+    policy.require_explicit_request,
+    true,
+    `${field}.require_explicit_request`,
+    errors,
+  );
+  exact(
+    policy.require_measured_execution_units,
+    true,
+    `${field}.require_measured_execution_units`,
+    errors,
+  );
 }
 
 function fail(message) {

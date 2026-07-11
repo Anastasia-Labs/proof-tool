@@ -15,6 +15,8 @@ import type { ReclaimDeployment } from "../reclaim/types";
 import {
   CLAIM_DEFAULT_BATCH_CAP,
   CLAIM_HARD_BATCH_CAP,
+  CLAIM_LEGACY_DEFAULT_BATCH_CAP,
+  CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP,
   CLAIM_OPTIMIZATION_BATCH_CAP,
   type ClaimDraftResponse,
 } from "../claim/types";
@@ -24,6 +26,7 @@ import { createClaimDraft } from "./draft";
 import { getClaimProgress } from "./progress";
 import {
   UnsupportedClaimBuildError,
+  assertMeasuredEvaluationWithinDeploymentMargin,
   buildClaimTx,
   prepareClaimBuildPreflight,
   validateClaimBuildRequest,
@@ -72,11 +75,30 @@ const DEPLOYMENT: ReclaimDeployment = {
     datum_reclaim_base_script_hash: RECLAIM_SCRIPT,
   },
   batching: {
-    default_utxo_count: CLAIM_DEFAULT_BATCH_CAP,
-    optimization_utxo_count: CLAIM_OPTIMIZATION_BATCH_CAP,
-    hard_max_utxo_count: CLAIM_OPTIMIZATION_BATCH_CAP,
+    default_utxo_count: CLAIM_LEGACY_DEFAULT_BATCH_CAP,
+    optimization_utxo_count: CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP,
+    hard_max_utxo_count: CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP,
     max_tx_cpu_percent: 80,
     max_tx_mem_percent: 80,
+  },
+};
+
+const STATEMENT_BOUND_V2_DEPLOYMENT: ReclaimDeployment = {
+  ...DEPLOYMENT,
+  reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
+  reclaimGlobalBatchTranscriptVkHash: VK_HASH,
+  batching: {
+    default_utxo_count: CLAIM_DEFAULT_BATCH_CAP,
+    optimization_utxo_count: CLAIM_OPTIMIZATION_BATCH_CAP,
+    hard_max_utxo_count: CLAIM_HARD_BATCH_CAP,
+    max_tx_cpu_percent: 90,
+    max_tx_mem_percent: 80,
+    distinct_7_opt_in: {
+      request_parameter: "maxUtxos",
+      request_value: 7,
+      require_explicit_request: true,
+      require_measured_execution_units: true,
+    },
   },
 };
 
@@ -205,50 +227,7 @@ describe("claim draft server helpers", () => {
     ).rejects.toMatchObject({ code: "selected_outref_pending" });
   });
 
-  it("applies default cap 4 and the V2 manifest cap 5", async () => {
-    const reclaimUtxos = [
-      reclaimUtxo("01", 0, CREDENTIAL_1, 1),
-      reclaimUtxo("02", 0, CREDENTIAL_2, 2),
-      reclaimUtxo("03", 0, CREDENTIAL_3, 3),
-      reclaimUtxo("04", 0, CREDENTIAL_4, 4),
-      reclaimUtxo("05", 0, CREDENTIAL_5, 5),
-      reclaimUtxo("06", 0, CREDENTIAL_6, 6),
-    ];
-    const provider = providerWith({
-      reclaimUtxos,
-      selectedUtxos: reclaimUtxos,
-      safeUtxos: [safeUtxo()],
-    });
-
-    const draft = await createClaimDraft(provider, DEPLOYMENT, {
-      deploymentId: DEPLOYMENT.id,
-      networkId: 0,
-      safeWalletChangeAddress: SAFE_ADDRESS,
-      safeWalletAddresses: [SAFE_ADDRESS],
-      nextBatch: true,
-    });
-
-    expect(draft.batchCap).toEqual({
-      requested: CLAIM_DEFAULT_BATCH_CAP,
-      default: CLAIM_DEFAULT_BATCH_CAP,
-      hardMax: CLAIM_OPTIMIZATION_BATCH_CAP,
-    });
-    expect(draft.orderedInputs).toHaveLength(4);
-    expect(draft.reductions).toContain("reduced_to_batch_cap_4");
-
-    await expect(
-      createClaimDraft(provider, DEPLOYMENT, {
-        deploymentId: DEPLOYMENT.id,
-        networkId: 0,
-        safeWalletChangeAddress: SAFE_ADDRESS,
-        safeWalletAddresses: [SAFE_ADDRESS],
-        nextBatch: true,
-        maxUtxos: 6,
-      }),
-    ).rejects.toMatchObject({ code: "batch_cap_exceeded" });
-  });
-
-  it("permits a future manifest-approved capacity only through the absolute client ceiling", async () => {
+  it("keeps normal statement-bound V2 batches at six and admits seven only through the exact opt-in", async () => {
     const reclaimUtxos = Array.from({ length: CLAIM_HARD_BATCH_CAP }, (_, index) =>
       reclaimUtxo(
         (index + 1).toString(16).padStart(2, "0"),
@@ -262,34 +241,54 @@ describe("claim draft server helpers", () => {
       selectedUtxos: reclaimUtxos,
       safeUtxos: [safeUtxo()],
     });
-    const futureDeployment: ReclaimDeployment = {
-      ...DEPLOYMENT,
-      contractVersion: "future-profile",
-      batching: {
-        ...DEPLOYMENT.batching!,
-        hard_max_utxo_count: CLAIM_HARD_BATCH_CAP + 1,
-      },
-    };
 
-    const draft = await createClaimDraft(provider, futureDeployment, {
-      deploymentId: futureDeployment.id,
+    const draft = await createClaimDraft(provider, STATEMENT_BOUND_V2_DEPLOYMENT, {
+      deploymentId: STATEMENT_BOUND_V2_DEPLOYMENT.id,
+      networkId: 0,
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      nextBatch: true,
+    });
+
+    expect(draft.batchCap).toEqual({
+      requested: CLAIM_DEFAULT_BATCH_CAP,
+      default: CLAIM_DEFAULT_BATCH_CAP,
+      hardMax: CLAIM_HARD_BATCH_CAP,
+    });
+    expect(draft.orderedInputs).toHaveLength(CLAIM_DEFAULT_BATCH_CAP);
+    expect(draft.reductions).toContain(`reduced_to_batch_cap_${CLAIM_DEFAULT_BATCH_CAP}`);
+
+    const explicitSeven = await createClaimDraft(provider, STATEMENT_BOUND_V2_DEPLOYMENT, {
+      deploymentId: STATEMENT_BOUND_V2_DEPLOYMENT.id,
       networkId: 0,
       safeWalletChangeAddress: SAFE_ADDRESS,
       safeWalletAddresses: [SAFE_ADDRESS],
       nextBatch: true,
       maxUtxos: CLAIM_HARD_BATCH_CAP,
     });
-
-    expect(draft.batchCap).toEqual({
-      requested: CLAIM_HARD_BATCH_CAP,
-      default: CLAIM_DEFAULT_BATCH_CAP,
-      hardMax: CLAIM_HARD_BATCH_CAP,
-    });
-    expect(draft.orderedInputs).toHaveLength(CLAIM_HARD_BATCH_CAP);
+    expect(explicitSeven.batchCap.requested).toBe(CLAIM_HARD_BATCH_CAP);
+    expect(explicitSeven.orderedInputs).toHaveLength(CLAIM_HARD_BATCH_CAP);
 
     await expect(
-      createClaimDraft(provider, futureDeployment, {
-        deploymentId: futureDeployment.id,
+      createClaimDraft(provider, {
+        ...STATEMENT_BOUND_V2_DEPLOYMENT,
+        batching: {
+          ...STATEMENT_BOUND_V2_DEPLOYMENT.batching!,
+          max_tx_cpu_percent: 89,
+        },
+      }, {
+        deploymentId: STATEMENT_BOUND_V2_DEPLOYMENT.id,
+        networkId: 0,
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        nextBatch: true,
+        maxUtxos: CLAIM_HARD_BATCH_CAP,
+      }),
+    ).rejects.toMatchObject({ code: "batch_cap_manifest_invalid" });
+
+    await expect(
+      createClaimDraft(provider, STATEMENT_BOUND_V2_DEPLOYMENT, {
+        deploymentId: STATEMENT_BOUND_V2_DEPLOYMENT.id,
         networkId: 0,
         safeWalletChangeAddress: SAFE_ADDRESS,
         safeWalletAddresses: [SAFE_ADDRESS],
@@ -297,6 +296,76 @@ describe("claim draft server helpers", () => {
         maxUtxos: CLAIM_HARD_BATCH_CAP + 1,
       }),
     ).rejects.toMatchObject({ code: "batch_cap_exceeded" });
+  });
+
+  it("requires seven statement-bound V2 inputs to have distinct payment credentials", async () => {
+    const reclaimUtxos = Array.from({ length: CLAIM_HARD_BATCH_CAP }, (_, index) =>
+      reclaimUtxo(
+        (index + 1).toString(16).padStart(2, "0"),
+        0,
+        index === 0 || index === CLAIM_HARD_BATCH_CAP - 1
+          ? CREDENTIAL_1
+          : (index + 1).toString(16).padStart(56, "0"),
+        index + 1,
+      ),
+    );
+    const provider = providerWith({
+      reclaimUtxos,
+      selectedUtxos: reclaimUtxos,
+      safeUtxos: [safeUtxo()],
+    });
+
+    await expect(
+      createClaimDraft(provider, STATEMENT_BOUND_V2_DEPLOYMENT, {
+        deploymentId: STATEMENT_BOUND_V2_DEPLOYMENT.id,
+        networkId: 0,
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        nextBatch: true,
+        maxUtxos: CLAIM_HARD_BATCH_CAP,
+      }),
+    ).rejects.toMatchObject({ code: "batch_distinct_credentials_required" });
+  });
+
+  it("preserves manifest-driven capacity above seven for legacy deployments", async () => {
+    const legacyCap = CLAIM_HARD_BATCH_CAP + 1;
+    const reclaimUtxos = Array.from({ length: legacyCap }, (_, index) =>
+      reclaimUtxo(
+        (index + 1).toString(16).padStart(2, "0"),
+        0,
+        (index + 1).toString(16).padStart(56, "0"),
+        index + 1,
+      ),
+    );
+    const provider = providerWith({
+      reclaimUtxos,
+      selectedUtxos: reclaimUtxos,
+      safeUtxos: [safeUtxo()],
+    });
+    const legacyDeployment: ReclaimDeployment = {
+      ...DEPLOYMENT,
+      batching: {
+        ...DEPLOYMENT.batching!,
+        default_utxo_count: legacyCap,
+        optimization_utxo_count: legacyCap,
+        hard_max_utxo_count: legacyCap,
+      },
+    };
+
+    const draft = await createClaimDraft(provider, legacyDeployment, {
+      deploymentId: legacyDeployment.id,
+      networkId: 0,
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      nextBatch: true,
+    });
+
+    expect(draft.batchCap).toEqual({
+      requested: legacyCap,
+      default: legacyCap,
+      hardMax: legacyCap,
+    });
+    expect(draft.orderedInputs).toHaveLength(legacyCap);
   });
 
   it("rejects selected malformed reclaim datums", async () => {
@@ -341,9 +410,7 @@ describe("claim draft server helpers", () => {
 describe("claim build and submit fail closed", () => {
   it("emits full proof plus ordered digest slots for statement-bound V2", async () => {
     const v2Deployment: ReclaimDeployment = {
-      ...DEPLOYMENT,
-      reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
-      reclaimGlobalBatchTranscriptVkHash: VK_HASH,
+      ...STATEMENT_BOUND_V2_DEPLOYMENT,
     };
     const selected = [
       reclaimUtxo("01", 0, CREDENTIAL_1, 1),
@@ -381,6 +448,81 @@ describe("claim build and submit fail closed", () => {
         ),
       ),
     );
+  });
+
+  it("forwards an explicit seven-UTxO cap through build preflight revalidation", async () => {
+    const deployment = deploymentWithReferenceScripts(STATEMENT_BOUND_V2_DEPLOYMENT);
+    const selected = Array.from({ length: CLAIM_HARD_BATCH_CAP }, (_, index) =>
+      reclaimUtxo(
+        (index + 1).toString(16).padStart(2, "0"),
+        0,
+        (index + 1).toString(16).padStart(56, "0"),
+        index + 1,
+      ),
+    );
+    const provider = providerWith({
+      reclaimUtxos: selected,
+      selectedUtxos: selected,
+      safeUtxos: [safeUtxo()],
+      referenceScriptUtxos: referenceScriptUtxos(deployment),
+    });
+    const draft = await createClaimDraft(provider, deployment, {
+      deploymentId: deployment.id,
+      networkId: 0,
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      selectedOutrefs: selected.map(outRefToString),
+      maxUtxos: CLAIM_HARD_BATCH_CAP,
+    });
+    const proofArtifacts = draft.orderedInputs.map((_, index) => {
+      const artifact = proofArtifactForDraft(draft, index);
+      artifact.artifact.cardano.proof_hex = "ab".repeat(336);
+      return artifact;
+    });
+
+    const preflight = await prepareClaimBuildPreflight(provider, deployment, {
+      deploymentId: deployment.id,
+      networkId: 0,
+      draftId: draft.draftId,
+      selectedOutrefs: draft.orderedInputs.map((input) => input.outRefId),
+      maxUtxos: CLAIM_HARD_BATCH_CAP,
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      proofArtifacts,
+    });
+
+    expect(preflight.selectedOutrefs).toEqual(draft.orderedInputs.map((input) => input.outRefId));
+    expect(preflight.proofSummaries).toHaveLength(CLAIM_HARD_BATCH_CAP);
+  });
+
+  it("enforces V2's measured 90/80 margins while preserving legacy evaluation behavior", () => {
+    const evaluation = {
+      redeemers: [],
+      totalMemory: "0",
+      totalSteps: "0",
+      memoryPercent: 80,
+      cpuPercent: 90,
+    };
+
+    expect(() => assertMeasuredEvaluationWithinDeploymentMargin(STATEMENT_BOUND_V2_DEPLOYMENT, evaluation)).not.toThrow();
+    expect(() =>
+      assertMeasuredEvaluationWithinDeploymentMargin(STATEMENT_BOUND_V2_DEPLOYMENT, {
+        ...evaluation,
+        cpuPercent: 91,
+      }),
+    ).toThrow(ClaimValidationError);
+    expect(() =>
+      assertMeasuredEvaluationWithinDeploymentMargin(STATEMENT_BOUND_V2_DEPLOYMENT, {
+        ...evaluation,
+        memoryPercent: 81,
+      }),
+    ).toThrow(ClaimValidationError);
+
+    const { batching: _v2Batching, ...v2WithoutBatching } = STATEMENT_BOUND_V2_DEPLOYMENT;
+    expect(() => assertMeasuredEvaluationWithinDeploymentMargin(v2WithoutBatching, evaluation)).toThrow(ClaimValidationError);
+
+    const { batching: _batching, ...legacyWithoutBatching } = DEPLOYMENT;
+    expect(() => assertMeasuredEvaluationWithinDeploymentMargin(legacyWithoutBatching, evaluation)).not.toThrow();
   });
 
   it("route-facing build refuses deployments that are missing reference scripts", async () => {
@@ -934,9 +1076,9 @@ async function selectedDraft(provider: Provider, ...args: Array<UTxO | ReclaimDe
   });
 }
 
-function deploymentWithReferenceScripts(): ReclaimDeployment {
+function deploymentWithReferenceScripts(deployment: ReclaimDeployment = DEPLOYMENT): ReclaimDeployment {
   return {
-    ...DEPLOYMENT,
+    ...deployment,
     referenceScripts: {
       reclaimBase: {
         tx_hash: "12".repeat(32),

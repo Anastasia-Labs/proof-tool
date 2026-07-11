@@ -4,6 +4,13 @@ export type ReclaimGlobalProofSlotEncoding =
   | "bytes-empty-same-as-previous-v1"
   | "full-proof-plus-public-input-digest-v2";
 
+export type ReclaimDistinctSevenOptIn = {
+  request_parameter: "maxUtxos";
+  request_value: 7;
+  require_explicit_request: true;
+  require_measured_execution_units: true;
+};
+
 export type BrowserProvingTuning = {
   worker_count?: number;
   shard_count?: number;
@@ -73,6 +80,7 @@ export type ReclaimDeployment = {
     hard_max_utxo_count: number;
     max_tx_cpu_percent: number;
     max_tx_mem_percent: number;
+    distinct_7_opt_in?: ReclaimDistinctSevenOptIn;
   };
   provider?: {
     primary: "blockfrost" | "koios";

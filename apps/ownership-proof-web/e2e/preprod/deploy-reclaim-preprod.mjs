@@ -724,11 +724,17 @@ export function buildManifest({
       cardano_vk_blake2b256: destination.cardanoVkBlake2b256,
     },
     batching: {
-      default_utxo_count: 4,
-      optimization_utxo_count: 5,
-      hard_max_utxo_count: 5,
-      max_tx_cpu_percent: 80,
+      default_utxo_count: 6,
+      optimization_utxo_count: 6,
+      hard_max_utxo_count: 7,
+      max_tx_cpu_percent: 90,
       max_tx_mem_percent: 80,
+      distinct_7_opt_in: {
+        request_parameter: "maxUtxos",
+        request_value: 7,
+        require_explicit_request: true,
+        require_measured_execution_units: true,
+      },
     },
     provider: {
       primary: providerName === "koios" ? "koios" : "blockfrost",
