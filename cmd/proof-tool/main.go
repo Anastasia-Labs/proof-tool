@@ -66,6 +66,8 @@ func run(args []string) error {
 		return cmdExportCardanoVK(args[2:])
 	case "generate-destination-benchmark-fixtures":
 		return cmdGenerateDestinationBenchmarkFixtures(args[2:])
+	case "generate-stage2g-v2-material":
+		return cmdGenerateStage2gV2Material(args[2:])
 	case "generate-multi-benchmark-fixtures":
 		return cmdGenerateMultiBenchmarkFixtures(args[2:])
 	case "setup-ceremony":
@@ -1273,5 +1275,5 @@ func writeTextFile(path, text string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: proof-tool <master-xprv-from-seed-phrase|prove|prove-destination|prove-multi|verify|verify-destination|verify-multi|export-cardano|export-cardano-vk|generate-destination-benchmark-fixtures|generate-multi-benchmark-fixtures|setup-ceremony|verify-key-bundle|generate-chunk-manifest|serve-verifier|serve-helper> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: proof-tool <master-xprv-from-seed-phrase|prove|prove-destination|prove-multi|verify|verify-destination|verify-multi|export-cardano|export-cardano-vk|generate-destination-benchmark-fixtures|generate-stage2g-v2-material|generate-multi-benchmark-fixtures|setup-ceremony|verify-key-bundle|generate-chunk-manifest|serve-verifier|serve-helper> [flags]")
 }
