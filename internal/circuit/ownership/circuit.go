@@ -70,7 +70,7 @@ func Credential(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *uint
 	for i := 0; i < 32; i++ {
 		A[i] = bapi.ValueOf(enc[i])
 	}
-	c := hash.Blake2b(uapi, A[:], 28)
+	c := hash.Blake2b(api, uapi, A[:], 28)
 	copy(C[:], c)
 	return
 }
@@ -80,7 +80,7 @@ func BindCredential(api frontend.API, uapi *uints.BinaryField[uints.U64], creden
 	preimage := make([]uints.U8, 0, len(domain)+len(credential))
 	preimage = append(preimage, domain...)
 	preimage = append(preimage, credential[:]...)
-	digest := hash.Blake2b(uapi, preimage, 32)
+	digest := hash.Blake2b(api, uapi, preimage, 32)
 	api.AssertIsEqual(bytesToFieldLE(api, digest), pub)
 }
 

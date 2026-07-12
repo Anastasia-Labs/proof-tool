@@ -11,7 +11,12 @@
 package hash
 
 import (
+	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/uints"
+	"github.com/consensys/gnark/std/rangecheck"
+
+	csha "proof-tool/internal/circuit/sha512/sha"
+	"proof-tool/internal/circuit/u64util"
 )
 
 // iv holds the Blake2b initialization vector (same as the SHA-512 IVs).
@@ -43,7 +48,8 @@ var sigma = [12][16]int{
 // Blake2b computes Blake2b-(8*outLen) of a COMPILE-TIME-fixed-length input. Reuses the
 // Blake2b core (IV, sigma, G) from the audited scout gadget, generalized to multi-block
 // input and a parameterized output length (28 or 32). Little-endian throughout.
-func Blake2b(uapi *uints.BinaryField[uints.U64], input []uints.U8, outLen int) []uints.U8 {
+func Blake2b(api frontend.API, uapi *uints.BinaryField[uints.U64], input []uints.U8, outLen int) []uints.U8 {
+	rc := rangecheck.New(api)
 	// Parameter block (sequential mode, no key): fanout=1, depth=1, key length=0,
 	// digest length=outLen. h[0] ^= 0x01010000 ^ outLen.
 	//   outLen=28 -> 0x0101001c, outLen=32 -> 0x01010020.
@@ -94,7 +100,7 @@ func Blake2b(uapi *uints.BinaryField[uints.U64], input []uints.U8, outLen int) [
 		}
 		last := mIdx == nBlocks-1
 
-		h = compress(uapi, h, m, uint64(t), last)
+		h = compress(api, uapi, rc, h, m, uint64(t), last)
 	}
 
 	// Output: little-endian bytes of h, first outLen.
@@ -108,7 +114,7 @@ func Blake2b(uapi *uints.BinaryField[uints.U64], input []uints.U8, outLen int) [
 // compress runs the standard Blake2b F compression on a single 128-byte message block
 // (16 words m), with cumulative byte counter t (low 64 bits; the high word is always
 // zero for the input sizes used here) and final-block flag last. Returns the updated h.
-func compress(uapi *uints.BinaryField[uints.U64], h [8]uints.U64, m []uints.U64, t uint64, last bool) [8]uints.U64 {
+func compress(api frontend.API, uapi *uints.BinaryField[uints.U64], rc frontend.Rangechecker, h [8]uints.U64, m []uints.U64, t uint64, last bool) [8]uints.U64 {
 	var v [16]uints.U64
 	v[0], v[1], v[2], v[3] = h[0], h[1], h[2], h[3]
 	v[4], v[5], v[6], v[7] = h[4], h[5], h[6], h[7]
@@ -129,14 +135,14 @@ func compress(uapi *uints.BinaryField[uints.U64], h [8]uints.U64, m []uints.U64,
 
 	for r := 0; r < 12; r++ {
 		s := sigma[r]
-		v = gRound(uapi, v, m, s[0], s[1], 0, 4, 8, 12)
-		v = gRound(uapi, v, m, s[2], s[3], 1, 5, 9, 13)
-		v = gRound(uapi, v, m, s[4], s[5], 2, 6, 10, 14)
-		v = gRound(uapi, v, m, s[6], s[7], 3, 7, 11, 15)
-		v = gRound(uapi, v, m, s[8], s[9], 0, 5, 10, 15)
-		v = gRound(uapi, v, m, s[10], s[11], 1, 6, 11, 12)
-		v = gRound(uapi, v, m, s[12], s[13], 2, 7, 8, 13)
-		v = gRound(uapi, v, m, s[14], s[15], 3, 4, 9, 14)
+		v = gRound(api, uapi, rc, v, m, s[0], s[1], 0, 4, 8, 12)
+		v = gRound(api, uapi, rc, v, m, s[2], s[3], 1, 5, 9, 13)
+		v = gRound(api, uapi, rc, v, m, s[4], s[5], 2, 6, 10, 14)
+		v = gRound(api, uapi, rc, v, m, s[6], s[7], 3, 7, 11, 15)
+		v = gRound(api, uapi, rc, v, m, s[8], s[9], 0, 5, 10, 15)
+		v = gRound(api, uapi, rc, v, m, s[10], s[11], 1, 6, 11, 12)
+		v = gRound(api, uapi, rc, v, m, s[12], s[13], 2, 7, 8, 13)
+		v = gRound(api, uapi, rc, v, m, s[14], s[15], 3, 4, 9, 14)
 	}
 
 	for i := 0; i < 8; i++ {
@@ -148,21 +154,25 @@ func compress(uapi *uints.BinaryField[uints.U64], h [8]uints.U64, m []uints.U64,
 // gRound applies one G function step on the work vector.
 // Rotations: R1=32, R2=24, R3=16, R4=63 (right-rotations expressed as left-rotations).
 // Copied from the audited scout gadget.
-func gRound(uapi *uints.BinaryField[uints.U64], v [16]uints.U64, m []uints.U64, mx, my, a, b, c, d int) [16]uints.U64 {
+func gRound(api frontend.API, uapi *uints.BinaryField[uints.U64], rc frontend.Rangechecker, v [16]uints.U64, m []uints.U64, mx, my, a, b, c, d int) [16]uints.U64 {
 	// a = a + b + m[mx]
-	v[a] = uapi.Add(v[a], v[b], m[mx])
+	// Three U64 terms have carry hi <= 2, requiring 2 high bits.
+	v[a] = csha.Add64(api, uapi, rc, 2, v[a], v[b], m[mx])
 	// d = rotr(d XOR a, 32) = Lrot(d XOR a, 64-32=32)
-	v[d] = uapi.Lrot(uapi.Xor(v[d], v[a]), 32)
+	v[d] = u64util.RotBytes(uapi.Xor(v[d], v[a]), 32)
 	// c = c + d
-	v[c] = uapi.Add(v[c], v[d])
+	// Two U64 terms have carry hi <= 1, requiring 1 high bit.
+	v[c] = csha.Add64(api, uapi, rc, 1, v[c], v[d])
 	// b = rotr(b XOR c, 24) = Lrot(b XOR c, 64-24=40)
-	v[b] = uapi.Lrot(uapi.Xor(v[b], v[c]), 40)
+	v[b] = u64util.RotBytes(uapi.Xor(v[b], v[c]), 40)
 	// a = a + b + m[my]
-	v[a] = uapi.Add(v[a], v[b], m[my])
+	// Three U64 terms again have carry hi <= 2 (2 high bits).
+	v[a] = csha.Add64(api, uapi, rc, 2, v[a], v[b], m[my])
 	// d = rotr(d XOR a, 16) = Lrot(d XOR a, 64-16=48)
-	v[d] = uapi.Lrot(uapi.Xor(v[d], v[a]), 48)
+	v[d] = u64util.RotBytes(uapi.Xor(v[d], v[a]), 48)
 	// c = c + d
-	v[c] = uapi.Add(v[c], v[d])
+	// Two U64 terms again have carry hi <= 1 (1 high bit).
+	v[c] = csha.Add64(api, uapi, rc, 1, v[c], v[d])
 	// b = rotr(b XOR c, 63) = Lrot(b XOR c, 64-63=1)
 	v[b] = uapi.Lrot(uapi.Xor(v[b], v[c]), 1)
 	return v

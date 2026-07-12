@@ -10,21 +10,26 @@ import (
 
 // CircExt is the in-circuit extended secret-key carrier for one BIP32-Ed25519 V2
 // derivation state: the little-endian left/right scalar halves KL, KR and the
-// 32-byte chain code CC, plus KLbits — the SINGLE canonical 256-bit
-// little-endian decomposition of KL (REQ-CKD-S-03). KLbits is produced once by
-// BytesToCanonBits (which pins bit255 = 0) and is the exact vector handed to
-// ScalarMulBaseBits in the soft step; nothing is decomposed a second time.
+// 32-byte chain code CC, plus an explicitly produced KLbits vector when the
+// next consumer needs the scalar as bits.
 //
-// INVARIANT (caller-enforced for the master entry): KLbits MUST equal
-// BytesToCanonBits(KL) — the canonical decomposition of the KL bytes. SoftStep
-// computes A_par from KLbits while finishStep's AddKL operates on the KL bytes,
-// so a CircExt whose KLbits diverged from KL would silently compute A_par on a
-// different scalar than the adder uses. Child CircExts produced by finishStep
-// satisfy this by construction (it derives KLbits from the same kL it returns);
-// the guard is only load-bearing for the master CircExt the chain starts from.
+// REQ-CKD-S-03/04: every KLbits vector that reaches ScalarMulBaseBits or the
+// final Credential computation is the one canonical BytesToCanonBits
+// decomposition of its KL bytes, including the bit255=0 pin. Hardened consumers
+// need only KL/KR bytes, so the fixed 1852'/1815' intermediate states deliberately
+// leave KLbits unproduced. SoftStep must only receive a state whose KLbits was
+// explicitly attached from that same state's KL bytes.
 type CircExt struct {
 	KL, KR, CC [32]uints.U8
 	KLbits     [256]frontend.Variable
+}
+
+// CircLeaf is the final derivation result. KR and CC are absent by construction:
+// no ownership circuit consumes them after the index level, so exposing them
+// would invite accidental reintroduction of the dead AddKR/CC-HMAC work.
+type CircLeaf struct {
+	KL     [32]uints.U8
+	KLbits [256]frontend.Variable
 }
 
 // constByte builds a constant (compile-time) byte. The CKD mode/tag bytes and
@@ -63,6 +68,16 @@ func HardenedStep(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *ui
 	return finishStep(api, uapi, bapi, p, msg, ccm)
 }
 
+// hardenedStepBytes derives a full hardened child state but deliberately does
+// not decompose its KL into bits. It is private because this omission is valid
+// only for the fixed 1852'/1815' intermediates in DeriveChain, whose next
+// consumers are hardened and therefore read KL/KR bytes, not KLbits.
+func hardenedStepBytes(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *uints.Bytes, p CircExt, idxLE []uints.U8) CircExt {
+	msg := concatU8([]uints.U8{constByte(0x00)}, p.KL[:], p.KR[:], idxLE)
+	ccm := concatU8([]uints.U8{constByte(0x01)}, p.KL[:], p.KR[:], idxLE)
+	return finishStepBytes(api, uapi, bapi, p, msg, ccm)
+}
+
 // SoftStep derives a soft child (tagZ=0x02, tagCC=0x03) keyed on the parent
 // chain code, with HMAC data = A_par, the RFC-8032 compressed encoding of
 // kL_par · B. A_par is computed from p.KLbits — the SAME canonical vector the
@@ -76,17 +91,32 @@ func HardenedStep(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *ui
 // Requires p.KLbits == BytesToCanonBits(p.KL) (the CircExt invariant): A_par is
 // computed from p.KLbits and must match the kL bytes the adder consumes.
 func SoftStep(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *uints.Bytes, crv *ed.Curve, p CircExt, idxLE []uints.U8) CircExt {
+	A := softParentKey(bapi, crv, p)
+	msg := concatU8([]uints.U8{constByte(0x02)}, A[:], idxLE)
+	ccm := concatU8([]uints.U8{constByte(0x03)}, A[:], idxLE)
+	return finishStep(api, uapi, bapi, p, msg, ccm)
+}
+
+// softStepLeaf is the final soft index derivation. It builds only the Z message
+// because finishStepLeaf consumes no child chain code or right scalar half.
+func softStepLeaf(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *uints.Bytes, crv *ed.Curve, p CircExt, idxLE []uints.U8) CircLeaf {
+	A := softParentKey(bapi, crv, p)
+	msg := concatU8([]uints.U8{constByte(0x02)}, A[:], idxLE)
+	return finishStepLeaf(api, uapi, bapi, p, msg)
+}
+
+// softParentKey performs the one canonical KLbits-to-byte handoff shared by
+// full and leaf soft steps, keeping their Z preimages structurally identical.
+func softParentKey(bapi *uints.Bytes, crv *ed.Curve, p CircExt) [32]uints.U8 {
 	// A_par = compress(kL_par · B), with kL_par taken AS-IS from the shared
 	// canonical bit vector. ScalarMulBaseBits self-enforces booleanity and
 	// bit255 = 0, so the soft step never computes outside the oracle domain.
-	enc := crv.Compress(crv.ScalarMulBaseBits(p.KLbits[:])) // [32]frontend.Variable
+	enc := crv.Compress(crv.ScalarMulBaseBits(p.KLbits[:]))
 	var A [32]uints.U8
 	for i := 0; i < 32; i++ {
 		A[i] = bapi.ValueOf(enc[i]) // range-checked handoff into the byte API
 	}
-	msg := concatU8([]uints.U8{constByte(0x02)}, A[:], idxLE)
-	ccm := concatU8([]uints.U8{constByte(0x03)}, A[:], idxLE)
-	return finishStep(api, uapi, bapi, p, msg, ccm)
+	return A
 }
 
 // finishStep computes the two HMAC-SHA512 values (Z and the child chain code),
@@ -98,8 +128,17 @@ func SoftStep(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *uints.
 //	KR = (KR_par + le_int(Z[32:64])) mod 2^256
 //	CC_child = CC[32:64]
 func finishStep(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *uints.Bytes, p CircExt, msg, ccm []uints.U8) CircExt {
-	Z := sha.HMACSHA512(uapi, bapi, p.CC[:], msg)
-	CC := sha.HMACSHA512(uapi, bapi, p.CC[:], ccm)
+	child := finishStepBytes(api, uapi, bapi, p, msg, ccm)
+	child.KLbits = BytesToCanonBits(api, child.KL)
+	return child
+}
+
+// finishStepBytes computes the complete child byte state without producing a
+// KL bit vector. Callers attach the canonical vector only when the next level
+// consumes it, preserving one decomposition for every consumed vector without
+// paying for unused hardened-level pins.
+func finishStepBytes(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *uints.Bytes, p CircExt, msg, ccm []uints.U8) CircExt {
+	Z, CC := sha.HMACSHA512Pair(api, uapi, bapi, p.CC[:], msg, ccm)
 
 	var zL [28]uints.U8
 	copy(zL[:], Z[0:28])
@@ -109,11 +148,27 @@ func finishStep(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *uint
 	kL := AddKL(api, p.KL, zL)
 	kR := AddKR(api, p.KR, zR)
 
-	// THE canonical decomposition of the child KL (REQ-CKD-S-03); asserts
-	// bit255 = 0 (REQ-CKD-S-04). The next step's soft branch reuses this vector.
-	bits := BytesToCanonBits(api, kL)
-
 	var cc [32]uints.U8
 	copy(cc[:], CC[32:64])
-	return CircExt{KL: kL, KR: kR, CC: cc, KLbits: bits}
+	return CircExt{KL: kL, KR: kR, CC: cc}
+}
+
+// finishStepLeaf computes exactly the final index-level values consumed by the
+// ownership circuits:
+//
+//	Z       = HMAC-SHA512(CC_par, msg)
+//	KL_leaf = KL_par + 8 * le_int(Z[0:28])
+//
+// The CC-HMAC and AddKR are intentionally absent. The returned CircLeaf has no
+// KR/CC fields, so downstream code cannot accidentally consume omitted values.
+func finishStepLeaf(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *uints.Bytes, p CircExt, msg []uints.U8) CircLeaf {
+	// C0 x C2: only Z is live at the leaf. Keep the generic one-message HMAC
+	// rather than manufacturing a duplicate Pair input; this preserves C2's
+	// removal of the CC-HMAC/AddKR path and its four-compression leaf cost.
+	Z := sha.HMACSHA512(api, uapi, bapi, p.CC[:], msg)
+	var zL [28]uints.U8
+	copy(zL[:], Z[0:28])
+	kL := AddKL(api, p.KL, zL)
+	bits := BytesToCanonBits(api, kL)
+	return CircLeaf{KL: kL, KLbits: bits}
 }

@@ -66,7 +66,7 @@ func bindCredentialDestination(
 	preimage = append(preimage, domain...)
 	preimage = append(preimage, credential[:]...)
 	preimage = append(preimage, destination[:]...)
-	digest := hash.Blake2b(uapi, preimage, 32)
+	digest := hash.Blake2b(api, uapi, preimage, 32)
 	api.AssertIsEqual(bytesToFieldLE(api, digest), pub)
 }
 

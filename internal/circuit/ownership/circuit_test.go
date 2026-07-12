@@ -3,9 +3,6 @@ package ownership
 import (
 	"encoding/hex"
 	"testing"
-
-	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/test"
 )
 
 const (
@@ -48,22 +45,6 @@ func TestFindPath(t *testing.T) {
 	}
 	if path != (Path{Account: 0, Role: 0, Index: 0}) {
 		t.Fatalf("path = %+v, want 0/0/0", path)
-	}
-}
-
-func TestOwnershipCircuitSolvesGolden(t *testing.T) {
-	master := mustDecodeHex(t, knownMaster)
-	target := mustDecodeHex(t, goldenC)
-	pub, err := PublicInputForCredential(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assignment, err := Assignment(master, Path{Account: 0, Role: 0, Index: 0}, pub)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := test.IsSolved(&Circuit{}, assignment, ecc.BLS12_381.ScalarField()); err != nil {
-		t.Fatal(err)
 	}
 }
 

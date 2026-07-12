@@ -80,8 +80,9 @@ func splitByte(api frontend.API, rc frontend.Rangechecker, v frontend.Variable, 
 // limb-wise add. Every output byte is range-checked to 8 bits and every carry to
 // 4 bits (the column maximum is 255 + 8*255 + carry ≤ 2310, so carry ≤ 9 < 2^4).
 // The final carry is asserted zero: the result is < 2^256, no overflow past 32
-// bytes. Pinning bit 255 = 0 is left to the canonical decomposition that consumes
-// these bytes (BytesToCanonBits, REQ-CKD-S-04).
+// bytes. When a later soft/credential consumer needs bits, pinning bit 255 = 0
+// is performed by that state's canonical BytesToCanonBits decomposition
+// (REQ-CKD-S-04); byte-only hardened intermediates need no such decomposition.
 func AddKL(api frontend.API, kLpar [32]uints.U8, zL [28]uints.U8) [32]uints.U8 {
 	rc := rangecheck.New(api)
 	carry := frontend.Variable(0)

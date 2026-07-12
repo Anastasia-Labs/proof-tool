@@ -16,7 +16,16 @@
 package sha
 
 import (
+	"errors"
+	"math/big"
+	"sort"
+
+	"github.com/consensys/gnark/constraint/solver"
+	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/uints"
+	"github.com/consensys/gnark/std/rangecheck"
+
+	"proof-tool/internal/circuit/u64util"
 )
 
 // _K512 are the 80 SHA-512 round constants (first 64 bits of the fractional
@@ -55,11 +64,16 @@ var _seed512 = []uint64{
 // blockSize512 is the SHA-512 block size in bytes (1024 bits).
 const blockSize512 = 128
 
+func init() {
+	solver.RegisterHint(sigmaChunksHint)
+}
+
 // Permute512 applies the SHA-512 compression function to one 128-byte block,
 // updating the running hash. Mirrors std/permutation/sha2.Permute but with
 // 64-bit words, 80 rounds, the SHA-512 sigma rotations, and _K512.
-func Permute512(uapi *uints.BinaryField[uints.U64], currentHash [8]uints.U64, p [128]uints.U8) [8]uints.U64 {
+func Permute512(api frontend.API, uapi *uints.BinaryField[uints.U64], currentHash [8]uints.U64, p [128]uints.U8) [8]uints.U64 {
 	var w [80]uints.U64
+	rc := rangecheck.New(api)
 
 	// Big-endian message schedule: 16 words from the block.
 	for i := 0; i < 16; i++ {
@@ -70,19 +84,12 @@ func Permute512(uapi *uints.BinaryField[uints.U64], currentHash [8]uints.U64, p 
 	for i := 16; i < 80; i++ {
 		v1 := w[i-2]
 		// small sigma1(x) = ROTR(x,19) ^ ROTR(x,61) ^ SHR(x,6)
-		s1 := uapi.Xor(
-			uapi.Lrot(v1, -19),
-			uapi.Lrot(v1, -61),
-			uapi.Rshift(v1, 6),
-		)
+		s1 := sigmaRot(api, uapi, rc, v1, []int{19, 61}, 6)
 		v2 := w[i-15]
 		// small sigma0(x) = ROTR(x,1) ^ ROTR(x,8) ^ SHR(x,7)
-		s0 := uapi.Xor(
-			uapi.Lrot(v2, -1),
-			uapi.Lrot(v2, -8),
-			uapi.Rshift(v2, 7),
-		)
-		w[i] = uapi.Add(s1, w[i-7], s0, w[i-16])
+		s0 := sigmaRot(api, uapi, rc, v2, []int{1, 8}, 7)
+		// Four U64 terms have carry hi <= 3, hence exactly 2 high bits.
+		w[i] = Add64(api, uapi, rc, 2, s1, w[i-7], s0, w[i-16])
 	}
 
 	ih0, ih1, ih2, ih3 := currentHash[0], currentHash[1], currentHash[2], currentHash[3]
@@ -91,52 +98,267 @@ func Permute512(uapi *uints.BinaryField[uints.U64], currentHash [8]uints.U64, p 
 
 	for i := 0; i < 80; i++ {
 		// big sigma1(e) = ROTR(e,14) ^ ROTR(e,18) ^ ROTR(e,41)
-		// Ch(e,f,g) = (e AND f) ^ (NOT e AND g)
-		t1 := uapi.Add(
+		// Ch(e,f,g) = g ^ (e AND (f ^ g))
+		// t1 is deliberately kept as a native sum. Five U64 terms give
+		// t1 < 5*2^64; no bytes are needed until e and a are materialized.
+		t1 := NativeSum64(api, uapi,
 			h,
-			uapi.Xor(
-				uapi.Lrot(e, -14),
-				uapi.Lrot(e, -18),
-				uapi.Lrot(e, -41)),
-			uapi.Xor(
-				uapi.And(e, f),
-				uapi.And(uapi.Not(e), g)),
+			sigmaRot(api, uapi, rc, e, []int{14, 18, 41}, 0),
+			choose(uapi, e, f, g),
 			_K512[i],
 			w[i],
 		)
 		// big sigma0(a) = ROTR(a,28) ^ ROTR(a,34) ^ ROTR(a,39)
-		// Maj(a,b,c) = (a AND b) ^ (a AND c) ^ (b AND c)
-		t2 := uapi.Add(
-			uapi.Xor(
-				uapi.Lrot(a, -28),
-				uapi.Lrot(a, -34),
-				uapi.Lrot(a, -39)),
-			uapi.Xor(
-				uapi.And(a, b),
-				uapi.And(a, c),
-				uapi.And(b, c)),
+		// Maj(a,b,c) = (a AND b) ^ ((a ^ b) AND c)
+		// t2 is also deferred: two U64 terms give t2 < 2*2^64.
+		t2 := NativeSum64(api, uapi,
+			sigmaRot(api, uapi, rc, a, []int{28, 34, 39}, 0),
+			majority(uapi, a, b, c),
 		)
 
 		h = g
 		g = f
 		f = e
-		e = uapi.Add(d, t1)
+		// d+t1 < 6*2^64, so the high limb is at most 5 (3 bits).
+		e = Materialize64(api, uapi, rc, api.Add(uapi.ToValue(d), t1), 3)
 		d = c
 		c = b
 		b = a
-		a = uapi.Add(t1, t2)
+		// t1+t2 < 7*2^64, so the high limb is at most 6 (3 bits).
+		a = Materialize64(api, uapi, rc, api.Add(t1, t2), 3)
 	}
 
+	// Each feed-forward is a two-U64 sum, so carry hi <= 1 (1 bit).
 	return [8]uints.U64{
-		uapi.Add(ih0, a),
-		uapi.Add(ih1, b),
-		uapi.Add(ih2, c),
-		uapi.Add(ih3, d),
-		uapi.Add(ih4, e),
-		uapi.Add(ih5, f),
-		uapi.Add(ih6, g),
-		uapi.Add(ih7, h),
+		Add64(api, uapi, rc, 1, ih0, a),
+		Add64(api, uapi, rc, 1, ih1, b),
+		Add64(api, uapi, rc, 1, ih2, c),
+		Add64(api, uapi, rc, 1, ih3, d),
+		Add64(api, uapi, rc, 1, ih4, e),
+		Add64(api, uapi, rc, 1, ih5, f),
+		Add64(api, uapi, rc, 1, ih6, g),
+		Add64(api, uapi, rc, 1, ih7, h),
 	}
+}
+
+type sigmaByteChunks struct {
+	values  []frontend.Variable
+	widths  []int
+	offsets []int
+}
+
+// sigmaRot computes XOR(ROTR(word, rotations...)) and, when rightShift is
+// nonzero, XORs SHR(word, rightShift). Every rotation/shift amount is a Go
+// constant. The required byte cut positions are derived from those constants;
+// callers do not supply or trust a separate cut table.
+//
+// Each input byte is independently decomposed once into the union of those
+// cut positions. Every chunk is range-checked to its exact width and the
+// complete 8-bit recomposition is asserted. Rotated/shifted bytes are then
+// complete linear recompositions of disjoint chunks whose widths sum to eight.
+// A call derives fresh chunks for its word: chunks are never shared across
+// distinct SHA-512 words.
+func sigmaRot(
+	api frontend.API,
+	uapi *uints.BinaryField[uints.U64],
+	rc frontend.Rangechecker,
+	word uints.U64,
+	rotations []int,
+	rightShift int,
+) uints.U64 {
+	if len(rotations) == 0 {
+		panic("sha: sigmaRot requires at least one rotation")
+	}
+	cuts := sigmaCutPositions(rotations, rightShift)
+	widths := widthsFromCuts(cuts)
+	var chunks [8]sigmaByteChunks
+	for i := range word {
+		chunks[i] = decomposeSigmaByte(api, uapi, rc, word[i], widths)
+	}
+
+	terms := make([]uints.U64, 0, len(rotations)+1)
+	for _, rotation := range rotations {
+		terms = append(terms, rotateRightFromSigmaChunks(api, word, chunks, rotation))
+	}
+	if rightShift > 0 {
+		terms = append(terms, shiftRightFromSigmaChunks(api, chunks, rightShift))
+	}
+	return uapi.Xor(terms...)
+}
+
+// sigmaCutPositions recomputes the within-byte cut for every non-byte-aligned
+// ROTR/SHR operation. ROTR n and SHR n both split their source bytes at n mod
+// 8; byte-aligned operations are permutations/truncations and need no cut.
+func sigmaCutPositions(rotations []int, rightShift int) []int {
+	seen := make(map[int]struct{}, len(rotations)+1)
+	for _, rotation := range rotations {
+		if rotation <= 0 || rotation >= 64 {
+			panic("sha: sigma rotation must be in [1,63]")
+		}
+		if cut := rotation % 8; cut != 0 {
+			seen[cut] = struct{}{}
+		}
+	}
+	if rightShift < 0 || rightShift >= 64 {
+		panic("sha: sigma right shift must be in [0,63]")
+	}
+	if cut := rightShift % 8; rightShift > 0 && cut != 0 {
+		seen[cut] = struct{}{}
+	}
+	cuts := make([]int, 0, len(seen))
+	for cut := range seen {
+		cuts = append(cuts, cut)
+	}
+	sort.Ints(cuts)
+	return cuts
+}
+
+func widthsFromCuts(cuts []int) []int {
+	widths := make([]int, 0, len(cuts)+1)
+	previous := 0
+	for _, cut := range cuts {
+		if cut <= previous || cut >= 8 {
+			panic("sha: invalid sigma cut positions")
+		}
+		widths = append(widths, cut-previous)
+		previous = cut
+	}
+	widths = append(widths, 8-previous)
+	return widths
+}
+
+func decomposeSigmaByte(
+	api frontend.API,
+	uapi *uints.BinaryField[uints.U64],
+	rc frontend.Rangechecker,
+	input uints.U8,
+	widths []int,
+) sigmaByteChunks {
+	inputValue := uapi.Value(input)
+	hintInputs := make([]frontend.Variable, 1+len(widths))
+	hintInputs[0] = inputValue
+	for i, width := range widths {
+		hintInputs[i+1] = width
+	}
+	values, err := api.Compiler().NewHint(sigmaChunksHint, len(widths), hintInputs...)
+	if err != nil {
+		panic(err)
+	}
+
+	offsets := make([]int, len(widths))
+	recomposition := frontend.Variable(0)
+	offset := 0
+	for i, width := range widths {
+		if width < 1 || offset+width > 8 {
+			panic("sha: invalid sigma chunk width")
+		}
+		offsets[i] = offset
+		rc.Check(values[i], width)
+		recomposition = api.Add(recomposition, api.Mul(1<<offset, values[i]))
+		offset += width
+	}
+	if offset != 8 {
+		panic("sha: sigma chunk widths do not cover one byte")
+	}
+	api.AssertIsEqual(inputValue, recomposition)
+	return sigmaByteChunks{values: values, widths: widths, offsets: offsets}
+}
+
+func rotateRightFromSigmaChunks(api frontend.API, word uints.U64, chunks [8]sigmaByteChunks, rotation int) uints.U64 {
+	byteShift, bitShift := rotation/8, rotation%8
+	if bitShift == 0 {
+		return u64util.RotBytes(word, -rotation)
+	}
+	var out uints.U64
+	for i := range out {
+		source := (i + byteShift) % len(out)
+		next := (source + 1) % len(out)
+		_, upper := sigmaByteAtCut(api, chunks[source], bitShift)
+		lower, _ := sigmaByteAtCut(api, chunks[next], bitShift)
+		out[i] = uints.U8{Val: api.Add(upper, api.Mul(1<<(8-bitShift), lower))}
+	}
+	return out
+}
+
+func shiftRightFromSigmaChunks(api frontend.API, chunks [8]sigmaByteChunks, shift int) uints.U64 {
+	byteShift, bitShift := shift/8, shift%8
+	var out uints.U64
+	for i := range out {
+		source := i + byteShift
+		if source >= len(out) {
+			out[i] = uints.NewU8(0)
+			continue
+		}
+		if bitShift == 0 {
+			_, upper := sigmaByteAtCut(api, chunks[source], 0)
+			out[i] = uints.U8{Val: upper}
+			continue
+		}
+		_, upper := sigmaByteAtCut(api, chunks[source], bitShift)
+		value := upper
+		if source+1 < len(out) {
+			lower, _ := sigmaByteAtCut(api, chunks[source+1], bitShift)
+			value = api.Add(value, api.Mul(1<<(8-bitShift), lower))
+		}
+		out[i] = uints.U8{Val: value}
+	}
+	return out
+}
+
+func sigmaByteAtCut(api frontend.API, chunks sigmaByteChunks, cut int) (lower, upper frontend.Variable) {
+	if cut < 0 || cut > 8 {
+		panic("sha: sigma byte cut outside [0,8]")
+	}
+	lower, upper = 0, 0
+	for i, value := range chunks.values {
+		start := chunks.offsets[i]
+		end := start + chunks.widths[i]
+		switch {
+		case end <= cut:
+			lower = api.Add(lower, api.Mul(1<<start, value))
+		case start >= cut:
+			upper = api.Add(upper, api.Mul(1<<(start-cut), value))
+		default:
+			panic("sha: requested sigma cut was not decomposed")
+		}
+	}
+	return lower, upper
+}
+
+// sigmaChunksHint decomposes one byte into little-endian chunks whose widths
+// are supplied as compile-time constants. Its outputs are untrusted witnesses;
+// decomposeSigmaByte independently range-checks every output and binds their
+// complete recomposition to the input byte.
+func sigmaChunksHint(_ *big.Int, inputs, outputs []*big.Int) error {
+	if len(inputs) != len(outputs)+1 || len(outputs) == 0 {
+		return errors.New("sigmaChunksHint: expected byte plus one width per output")
+	}
+	value := new(big.Int).Set(inputs[0])
+	totalWidth := 0
+	for i := range outputs {
+		width := int(inputs[i+1].Int64())
+		if width < 1 || totalWidth+width > 8 {
+			return errors.New("sigmaChunksHint: invalid chunk widths")
+		}
+		mask := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), uint(width)), big.NewInt(1))
+		outputs[i].And(value, mask)
+		value.Rsh(value, uint(width))
+		totalWidth += width
+	}
+	if totalWidth != 8 {
+		return errors.New("sigmaChunksHint: chunk widths do not cover one byte")
+	}
+	return nil
+}
+
+// choose and majority use algebraically equivalent forms of the FIPS 180-4
+// SHA-512 round functions that each remove one byte-table lookup per round.
+func choose(uapi *uints.BinaryField[uints.U64], e, f, g uints.U64) uints.U64 {
+	return uapi.Xor(g, uapi.And(e, uapi.Xor(f, g)))
+}
+
+func majority(uapi *uints.BinaryField[uints.U64], a, b, c uints.U64) uints.U64 {
+	return uapi.Xor(uapi.And(a, b), uapi.And(uapi.Xor(a, b), c))
 }
 
 // padSHA512 applies SHA-512 padding (FIPS 180-4 sec 5.1.2) to a message whose
@@ -170,7 +392,7 @@ func padSHA512(input []uints.U8) []uints.U8 {
 
 // Sum512 computes the SHA-512 digest of input (a witness/constant byte slice
 // whose length is fixed at compile time) and returns 64 output bytes.
-func Sum512(uapi *uints.BinaryField[uints.U64], input []uints.U8) [64]uints.U8 {
+func Sum512(api frontend.API, uapi *uints.BinaryField[uints.U64], input []uints.U8) [64]uints.U8 {
 	padded := padSHA512(input)
 
 	var h [8]uints.U64
@@ -181,7 +403,7 @@ func Sum512(uapi *uints.BinaryField[uints.U64], input []uints.U8) [64]uints.U8 {
 	var block [128]uints.U8
 	for i := 0; i < len(padded)/blockSize512; i++ {
 		copy(block[:], padded[i*blockSize512:(i+1)*blockSize512])
-		h = Permute512(uapi, h, block)
+		h = Permute512(api, uapi, h, block)
 	}
 
 	var out [64]uints.U8
@@ -203,11 +425,11 @@ func Sum512(uapi *uints.BinaryField[uints.U64], input []uints.U8) [64]uints.U8 {
 // constant. This costs 4 SHA-512 compressions for the short-key / short-message
 // case (2 inner + 2 outer) plus 1 more compression when the key-prehash path is
 // taken. Key and message lengths must be known at compile time.
-func HMACSHA512(uapi *uints.BinaryField[uints.U64], bapi *uints.Bytes, key, msg []uints.U8) [64]uints.U8 {
+func HMACSHA512(api frontend.API, uapi *uints.BinaryField[uints.U64], bapi *uints.Bytes, key, msg []uints.U8) [64]uints.U8 {
 	// Derive K0: B bytes.
 	k0 := make([]uints.U8, blockSize512)
 	if len(key) > blockSize512 {
-		kh := Sum512(uapi, key) // 64 bytes
+		kh := Sum512(api, uapi, key) // 64 bytes
 		copy(k0, kh[:])
 		for i := 64; i < blockSize512; i++ {
 			k0[i] = uints.NewU8(0x00)
@@ -228,7 +450,7 @@ func HMACSHA512(uapi *uints.BinaryField[uints.U64], bapi *uints.Bytes, key, msg 
 		inner = append(inner, bapi.Xor(k0[i], ipad))
 	}
 	inner = append(inner, msg...)
-	innerHash := Sum512(uapi, inner)
+	innerHash := Sum512(api, uapi, inner)
 
 	// outer = (K0 ^ opad) || innerHash
 	outer := make([]uints.U8, 0, blockSize512+64)
@@ -236,5 +458,117 @@ func HMACSHA512(uapi *uints.BinaryField[uints.U64], bapi *uints.Bytes, key, msg 
 		outer = append(outer, bapi.Xor(k0[i], opad))
 	}
 	outer = append(outer, innerHash[:]...)
-	return Sum512(uapi, outer)
+	return Sum512(api, uapi, outer)
+}
+
+// HMACSHA512Pair computes two HMAC-SHA512 values under one key while sharing
+// the key-dependent ipad and opad compression states. It is equivalent to two
+// independent HMACSHA512 calls, but the first 128-byte compression of each
+// inner and outer hash is performed once.
+//
+// The messages may have different compile-time lengths. In the CKD call sites
+// they are paired at 69 bytes (hardened) or 37 bytes (soft), so the inner hash
+// length fields encode 128+69 and 128+37 bytes respectively. Both outer hashes
+// encode the full 128+64-byte length. The public generic HMACSHA512 path above
+// remains available and unchanged for unpaired callers.
+func HMACSHA512Pair(
+	api frontend.API,
+	uapi *uints.BinaryField[uints.U64],
+	bapi *uints.Bytes,
+	key, msg1, msg2 []uints.U8,
+) ([64]uints.U8, [64]uints.U8) {
+	ipadBlock, opadBlock := hmacSHA512KeyBlocks(api, uapi, bapi, key)
+
+	innerState := Permute512(api, uapi, sha512InitialState(), ipadBlock)
+	inner1 := sum512AfterPrefix(api, uapi, innerState, blockSize512, msg1)
+	inner2 := sum512AfterPrefix(api, uapi, innerState, blockSize512, msg2)
+
+	outerState := Permute512(api, uapi, sha512InitialState(), opadBlock)
+	mac1 := sum512AfterPrefix(api, uapi, outerState, blockSize512, inner1[:])
+	mac2 := sum512AfterPrefix(api, uapi, outerState, blockSize512, inner2[:])
+	return mac1, mac2
+}
+
+func hmacSHA512KeyBlocks(
+	api frontend.API,
+	uapi *uints.BinaryField[uints.U64],
+	bapi *uints.Bytes,
+	key []uints.U8,
+) ([128]uints.U8, [128]uints.U8) {
+	k0 := make([]uints.U8, blockSize512)
+	if len(key) > blockSize512 {
+		kh := Sum512(api, uapi, key)
+		copy(k0, kh[:])
+		for i := 64; i < blockSize512; i++ {
+			k0[i] = uints.NewU8(0)
+		}
+	} else {
+		copy(k0, key)
+		for i := len(key); i < blockSize512; i++ {
+			k0[i] = uints.NewU8(0)
+		}
+	}
+
+	var ipadBlock, opadBlock [128]uints.U8
+	ipad, opad := uints.NewU8(0x36), uints.NewU8(0x5c)
+	for i := range k0 {
+		ipadBlock[i] = bapi.Xor(k0[i], ipad)
+		opadBlock[i] = bapi.Xor(k0[i], opad)
+	}
+	return ipadBlock, opadBlock
+}
+
+func sha512InitialState() [8]uints.U64 {
+	var state [8]uints.U64
+	for i := range state {
+		state[i] = uints.NewU64(_seed512[i])
+	}
+	return state
+}
+
+// sum512AfterPrefix finishes SHA-512 after prefixBytes have already been
+// compressed into state. prefixBytes must end on a block boundary. Padding is
+// generated from the full prefix+suffix length, never from the suffix alone.
+func sum512AfterPrefix(
+	api frontend.API,
+	uapi *uints.BinaryField[uints.U64],
+	state [8]uints.U64,
+	prefixBytes int,
+	suffix []uints.U8,
+) [64]uints.U8 {
+	paddedSuffix := padSHA512AfterPrefix(prefixBytes, suffix)
+	var block [128]uints.U8
+	for i := 0; i < len(paddedSuffix)/blockSize512; i++ {
+		copy(block[:], paddedSuffix[i*blockSize512:(i+1)*blockSize512])
+		state = Permute512(api, uapi, state, block)
+	}
+	var out [64]uints.U8
+	for i := range state {
+		copy(out[i*8:(i+1)*8], uapi.UnpackMSB(state[i]))
+	}
+	return out
+}
+
+func padSHA512AfterPrefix(prefixBytes int, suffix []uints.U8) []uints.U8 {
+	if prefixBytes < 0 || prefixBytes%blockSize512 != 0 {
+		panic("SHA-512 prefix must be a non-negative whole number of blocks")
+	}
+	totalBytes := prefixBytes + len(suffix)
+	zeroPadLen := 111 - totalBytes%blockSize512
+	if zeroPadLen < 0 {
+		zeroPadLen += blockSize512
+	}
+	buf := make([]uints.U8, 0, len(suffix)+1+zeroPadLen+16)
+	buf = append(buf, suffix...)
+	buf = append(buf, uints.NewU8(0x80))
+	for i := 0; i < zeroPadLen; i++ {
+		buf = append(buf, uints.NewU8(0))
+	}
+	bitLen := uint64(8 * totalBytes)
+	var lenbuf [16]uint8
+	for i := 0; i < 8; i++ {
+		lenbuf[8+i] = uint8(bitLen >> (8 * (7 - uint(i))))
+	}
+	buf = append(buf, uints.NewU8Array(lenbuf[:])...)
+	return buf
 }

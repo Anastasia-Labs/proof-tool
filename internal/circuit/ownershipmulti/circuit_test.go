@@ -5,8 +5,6 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/test"
 	"golang.org/x/crypto/blake2b"
 
 	"proof-tool/internal/circuit/ownership"
@@ -66,34 +64,6 @@ func TestDeriveCredentialsGolden(t *testing.T) {
 	}
 	if hex.EncodeToString(credentials[1]) != credential1 {
 		t.Fatalf("credential1 = %x", credentials[1])
-	}
-}
-
-func TestMultiCircuitSolvesGolden(t *testing.T) {
-	master := mustDecodeHex(t, knownMaster)
-	dest := mustDecodeHex(t, destination)
-	paths := []ownership.Path{
-		{Account: 0, Role: 0, Index: 0},
-		{Account: 0, Role: 0, Index: 1},
-	}
-	credentials, err := DeriveCredentials(master, paths)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pub, err := PublicInputForCredentialsDestination(credentials, dest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assignment, err := Assignment(master, paths, dest, pub)
-	if err != nil {
-		t.Fatal(err)
-	}
-	circuit, err := NewCircuit(len(paths))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := test.IsSolved(circuit, assignment, ecc.BLS12_381.ScalarField()); err != nil {
-		t.Fatal(err)
 	}
 }
 

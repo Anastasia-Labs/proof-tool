@@ -45,10 +45,11 @@ func le32Var(api frontend.API, idx frontend.Variable, hardened bool) [4]uints.U8
 // returned bit AND binds the recomposition sum back to b[k].Val, so the bits are
 // a sound, unique representation of the byte (no extra AssertIsBoolean needed).
 //
-// This is THE canonical decomposition (REQ-CKD-S-03): the same vector returned
-// here is the one the no-mod-L carry adder outputs and the one fed to
-// ScalarMulBaseBits, with no second decomposition. The top bit is pinned to 0
-// (REQ-CKD-S-04): every real Cardano V2 leaf/parent scalar satisfies kL < 2^255.
+// REQ-CKD-S-03: every vector produced here and consumed by ScalarMulBaseBits or
+// Credential is the unique decomposition of those same KL bytes, with no second
+// decomposition. Byte-only hardened intermediates need no vector. The top bit
+// of every produced vector is pinned to 0 (REQ-CKD-S-04): every real Cardano V2
+// scalar that reaches a bit consumer satisfies kL < 2^255.
 func BytesToCanonBits(api frontend.API, b [32]uints.U8) [256]frontend.Variable {
 	var canon [256]frontend.Variable
 	for k := 0; k < 32; k++ {
@@ -91,17 +92,18 @@ func CanonBitsToBytes(api frontend.API, bits [256]frontend.Variable) [32]uints.U
 // clear is not validly clamped and must be rejected.
 //
 // AssertClamp is the byte-API convenience wrapper. The step/chain gadget
-// decomposes kL exactly once and clamp-checks via AssertClampBits on that single
-// canonical vector, so it never incurs a second decomposition (REQ-CKD-S-03).
+// decomposes the master kL exactly once and clamp-checks via AssertClampBits on
+// that canonical vector, so it never incurs a second decomposition
+// (REQ-CKD-S-03).
 func AssertClamp(api frontend.API, kL [32]uints.U8) {
 	AssertClampBits(api, BytesToCanonBits(api, kL))
 }
 
 // AssertClampBits asserts the Icarus clamp directly on an already-computed
 // canonical 256-bit little-endian vector, without decomposing anything. This is
-// the form the step/chain gadget uses: it shares the one canonical vector
-// (REQ-CKD-S-03) between the no-mod-L adder output, ScalarMulBaseBits and the
-// clamp check. See AssertClamp for the bit-position derivation. The caller is
+// the form the chain gadget uses for the master: it shares the one canonical
+// vector (REQ-CKD-S-03) between the master bytes and clamp check. See
+// AssertClamp for the bit-position derivation. The caller is
 // responsible for booleanity of bits (BytesToCanonBits and the carry adder both
 // produce boolean bits).
 func AssertClampBits(api frontend.API, bits [256]frontend.Variable) {

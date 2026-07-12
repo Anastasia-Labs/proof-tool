@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Verifies that vendor/ is exactly `go mod vendor` output plus the reviewed
-# browser-runtime patches. The vendored gnark prover contains the streaming
-# seam and W1/W2/W3/W6 scheduling/lifetime changes;
+# Verifies that vendor/ is exactly `go mod vendor` output plus
+# the reviewed patches under experiments/wasm-prover/patches. The vendored
+# dependencies contain ProveStream/MSM plus opt-W2 domain-decoding, opt-W3
+# CCS-release, opt-W1 scheduling/yield, opt-W6 computeH table-lifetime, and
+# opt-C8 constant byte-operation folding seams;
 # regenerating vendor/ without this check in place silently deletes the prover.
 #
 # Fails (exit 1) on any drift in either direction: an unmirrored vendor edit,
@@ -14,7 +16,8 @@ PATCHES=(
   experiments/wasm-prover/patches/domain-read-no-precompute.patch
   experiments/wasm-prover/patches/release-ccs-after-solve.patch
   experiments/wasm-prover/patches/dispatch-before-fft.patch
-  experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch
+	experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch
+	experiments/wasm-prover/patches/uints-constant-fold.patch
 )
 
 for patch in "${PATCHES[@]}"; do
@@ -35,9 +38,9 @@ for patch in "${PATCHES[@]}"; do
 done
 
 if ! diff -r "$SCRATCH/vendor" vendor; then
-  echo "FAIL: vendor/ does not equal 'go mod vendor' + reviewed runtime patches." >&2
+  echo "FAIL: vendor/ does not equal 'go mod vendor' + reviewed patches." >&2
   echo "Either mirror your vendor edits into the patch or fix the patch." >&2
   exit 1
 fi
 
-echo "OK: vendor/ == go mod vendor + reviewed runtime patches"
+echo "OK: vendor/ == go mod vendor + reviewed patches"
