@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import { blake2b } from "@noble/hashes/blake2b";
 import * as LucidExports from "@lucid-evolution/lucid";
 import {
@@ -454,13 +456,17 @@ describe("claim build and submit fail closed", () => {
     );
   });
 
-  it("forwards an explicit seven-UTxO cap through build preflight revalidation", async () => {
-    const deployment = deploymentWithReferenceScripts(STATEMENT_BOUND_V2_DEPLOYMENT);
+  it("builds an explicit seven-UTxO V2 transaction with duplicate credentials", async () => {
+    vi.stubEnv("RECLAIM_REVIEW_TOKEN_SECRET", "v2-duplicate-seven-build-test-secret");
+    const deployment = deploymentWithReferenceScripts({
+      ...STATEMENT_BOUND_V2_DEPLOYMENT,
+      reclaimGlobalRewardingCredential: RECLAIM_GLOBAL_SCRIPT,
+    });
     const selected = Array.from({ length: CLAIM_HARD_BATCH_CAP }, (_, index) =>
       reclaimUtxo(
         (index + 1).toString(16).padStart(2, "0"),
         0,
-        (index + 1).toString(16).padStart(56, "0"),
+        CREDENTIAL_1,
         index + 1,
       ),
     );
@@ -484,7 +490,7 @@ describe("claim build and submit fail closed", () => {
       return artifact;
     });
 
-    const preflight = await prepareClaimBuildPreflight(provider, deployment, {
+    const built = await buildClaimTx(provider, deployment, {
       deploymentId: deployment.id,
       networkId: 0,
       draftId: draft.draftId,
@@ -495,8 +501,10 @@ describe("claim build and submit fail closed", () => {
       proofArtifacts,
     });
 
-    expect(preflight.selectedOutrefs).toEqual(draft.orderedInputs.map((input) => input.outRefId));
-    expect(preflight.proofSummaries).toHaveLength(CLAIM_HARD_BATCH_CAP);
+    expect(new Set(draft.orderedPaymentCredentials)).toEqual(new Set([CREDENTIAL_1]));
+    expect(built.review.selectedOutrefs).toEqual(draft.orderedInputs.map((input) => input.outRefId));
+    expect(built.review.proofDigests).toHaveLength(CLAIM_HARD_BATCH_CAP);
+    expect(built.txCbor).not.toHaveLength(0);
   });
 
   it("enforces V2's measured 90/80 margins while preserving legacy evaluation behavior", () => {
@@ -1032,6 +1040,7 @@ function providerWith(input: {
   referenceScriptUtxos?: UTxO[];
 }): Provider {
   return {
+    getProtocolParameters: async () => preprodProtocolParameters(),
     getUtxos: async (addressOrCredential: string) => {
       if (addressOrCredential === RECLAIM_ADDRESS) {
         return input.reclaimUtxos;
@@ -1049,7 +1058,52 @@ function providerWith(input: {
         ...(input.referenceScriptUtxos ?? []),
       ].filter((utxo) => requested.has(outRefToString(utxo)));
     },
+    evaluateTx: async () => [
+      ...input.selectedUtxos.map((_utxo, index) => ({
+        redeemer_tag: "spend" as const,
+        redeemer_index: index,
+        ex_units: { mem: 101_127, steps: 26_366_999 },
+      })),
+      {
+        redeemer_tag: "withdraw" as const,
+        redeemer_index: 0,
+        ex_units: { mem: 244_181, steps: 3_288_305_984 },
+      },
+    ],
   } as unknown as Provider;
+}
+
+function preprodProtocolParameters() {
+  const snapshot = JSON.parse(
+    readFileSync(
+      path.resolve(process.cwd(), "../../contracts/ownership-verifier/bench/results/preprod-protocol-v11-epoch-300.json"),
+      "utf8",
+    ),
+  ) as {
+    protocol_parameters: Record<string, any>;
+  };
+  const protocol = snapshot.protocol_parameters;
+  return {
+    protocolMajorVersion: protocol.protocolVersion.major,
+    protocolMinorVersion: protocol.protocolVersion.minor,
+    minFeeA: protocol.txFeePerByte,
+    minFeeB: protocol.txFeeFixed,
+    maxTxSize: protocol.maxTxSize,
+    maxValSize: protocol.maxValueSize,
+    keyDeposit: BigInt(protocol.stakeAddressDeposit),
+    poolDeposit: BigInt(protocol.stakePoolDeposit),
+    drepDeposit: BigInt(protocol.dRepDeposit),
+    govActionDeposit: BigInt(protocol.govActionDeposit),
+    priceMem: protocol.executionUnitPrices.priceMemory,
+    priceStep: protocol.executionUnitPrices.priceSteps,
+    maxTxExMem: BigInt(protocol.maxTxExecutionUnits.memory),
+    maxTxExSteps: BigInt(protocol.maxTxExecutionUnits.steps),
+    coinsPerUtxoByte: BigInt(protocol.utxoCostPerByte),
+    collateralPercentage: protocol.collateralPercentage,
+    maxCollateralInputs: protocol.maxCollateralInputs,
+    minFeeRefScriptCostPerByte: protocol.minFeeRefScriptCostPerByte,
+    costModels: protocol.costModels,
+  };
 }
 
 function proofArtifact(overrides: Record<string, unknown> = {}) {

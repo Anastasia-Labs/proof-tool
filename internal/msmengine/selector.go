@@ -1,6 +1,10 @@
 package msmengine
 
-import "log"
+import (
+	"errors"
+	"fmt"
+	"log"
+)
 
 // Probe describes the runtime capabilities available for engine selection.
 // The webprove entrypoint assembles a Probe from navigator.gpu,
@@ -18,6 +22,7 @@ type Options struct {
 	RangeFetchConcurrency int
 	WorkerURL             string
 	PinnedDecode          bool
+	OptW7                 bool
 }
 
 // Select returns the highest-available MSMEngine given capability probe p.
@@ -54,11 +59,38 @@ func SelectWithOptions(p Probe, opts Options) MSMEngine {
 // WithFallback runs run(primary). If run returns a non-nil error it logs the
 // demotion and retries exactly once with cpuMSM{}. Proving is idempotent given
 // the same witness and proving key, so the single-thread retry is safe.
-// If the retry also fails, that error is returned to the caller.
+// If the retry also fails, both attempt errors are returned to the caller.
 func WithFallback(primary MSMEngine, run func(MSMEngine) error) error {
-	if err := run(primary); err != nil {
-		log.Printf("msmengine: demoting from %q to cpu after error: %v", primary.Name(), err)
-		return run(cpuMSM{})
+	return WithFallbackReload(primary, nil, run)
+}
+
+// WithFallbackReload runs beforeRetry after a retryable primary failure and
+// before the CPU retry. It preserves the primary error alongside reload or
+// retry errors. W3 uses this seam to reopen a hash-pinned CCS instead of
+// reusing state that may already have been released after Solve.
+func WithFallbackReload(primary MSMEngine, beforeRetry func() error, run func(MSMEngine) error) error {
+	primaryErr := run(primary)
+	if primaryErr == nil {
+		return nil
+	}
+	var failClosedErr *FailClosedError
+	if errors.As(primaryErr, &failClosedErr) {
+		return primaryErr
+	}
+	log.Printf("msmengine: demoting from %q to cpu after error: %v", primary.Name(), primaryErr)
+	if beforeRetry != nil {
+		if reloadErr := beforeRetry(); reloadErr != nil {
+			return errors.Join(
+				fmt.Errorf("primary %s prove: %w", primary.Name(), primaryErr),
+				fmt.Errorf("prepare cpu retry: %w", reloadErr),
+			)
+		}
+	}
+	if retryErr := run(cpuMSM{}); retryErr != nil {
+		return errors.Join(
+			fmt.Errorf("primary %s prove: %w", primary.Name(), primaryErr),
+			fmt.Errorf("cpu retry prove: %w", retryErr),
+		)
 	}
 	return nil
 }

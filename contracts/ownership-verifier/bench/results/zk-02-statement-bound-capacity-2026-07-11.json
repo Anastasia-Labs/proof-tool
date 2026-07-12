@@ -1,0 +1,611 @@
+{
+  "schema": "proof-tool-zk-02-statement-bound-capacity-v2",
+  "date": "2026-07-11",
+  "status": "release-qualified-provider-compared-pending-deployment-g2",
+  "source": {
+    "validator_code_commit": "a5a918bfed962d220a68dfe8f5bbe9636630300d",
+    "signed_tag": "zk-02-statement-bound-v2-rc.11",
+    "note": "The later comparison tooling and documentation do not change validator scripts."
+  },
+  "profiles": {
+    "baseline": {
+      "implementation": "Current ReclaimGlobal V1 proof-only transcript with canonical full-proof slots",
+      "n_exunits": 7,
+      "first_raw_failure": 8,
+      "binding_limit": "cpu",
+      "benchmark_shape": {
+        "base_script_bytes": 435,
+        "global_script_bytes": 4467,
+        "base_script_hash": "3cbbd982125b9d9481ff249d4b52cc81dddeb6481ead3c4d486d0f96",
+        "global_script_hash": "e415ba6bec110da53c26a8c741547666699ae48f4dedd8a9892c9afb"
+      }
+    },
+    "candidate": {
+      "implementation": "ReclaimGlobalV2 statement-bound transcript with ordered full-proof and public-input-digest slots",
+      "n_exunits": 8,
+      "first_raw_failure": 9,
+      "binding_limit": "cpu",
+      "benchmark_shape": {
+        "base_script_bytes": 435,
+        "global_script_bytes": 3648,
+        "base_script_hash": "3a81e8f7f62f1ad9c16a0d1bed18f72d74a2f3ed9381df12ba51f603",
+        "global_script_hash": "b152f1a1f7e810c62b2a913d5622590770fb7d16a857bdcb6c6cfc67"
+      }
+    }
+  },
+  "local_evaluator": {
+    "protocol_major_version": 11,
+    "engine": "plutus-core CEK using checked-in Preprod V11 machine parameters",
+    "cost_model_snapshot_sha256": "e710abd050607fddc29d16a930bf222e465f053daed75ea4eebdac8134492bcb",
+    "source_cost_model_entries": 350,
+    "evaluator_entries": 297,
+    "transaction_limits": {
+      "memory": 14000000,
+      "cpu": 10000000000
+    },
+    "context": "Ledger-shaped context with one non-ReclaimBase wallet input, N pairwise-distinct same-root credentials/proofs, N destination outputs, N ReclaimBase spends, and one ReclaimGlobal withdrawal.",
+    "rows": [
+      {
+        "n": 1,
+        "baseline": {
+          "n": 1,
+          "base": {
+            "memory": 101127,
+            "cpu": 26366999
+          },
+          "global": {
+            "memory": 210370,
+            "cpu": 3282793505
+          },
+          "total": {
+            "memory": 311497,
+            "cpu": 3309160504
+          },
+          "redeemer_bytes": 357,
+          "accepted": true,
+          "headroom": {
+            "memory": 13688503,
+            "cpu": 6690839496
+          }
+        },
+        "candidate": {
+          "n": 1,
+          "base": {
+            "memory": 101127,
+            "cpu": 26366999
+          },
+          "global": {
+            "memory": 246545,
+            "cpu": 3292854194
+          },
+          "total": {
+            "memory": 347672,
+            "cpu": 3319221193
+          },
+          "redeemer_bytes": 393,
+          "accepted": true,
+          "headroom": {
+            "memory": 13652328,
+            "cpu": 6680778807
+          }
+        },
+        "delta_candidate_minus_baseline": {
+          "memory": 36175,
+          "cpu": 10060689,
+          "memory_percent": 11.6133,
+          "cpu_percent": 0.304,
+          "redeemer_bytes": 36
+        }
+      },
+      {
+        "n": 2,
+        "baseline": {
+          "n": 2,
+          "base": {
+            "memory": 202254,
+            "cpu": 52733998
+          },
+          "global": {
+            "memory": 334021,
+            "cpu": 4484415337
+          },
+          "total": {
+            "memory": 536275,
+            "cpu": 4537149335
+          },
+          "redeemer_bytes": 706,
+          "accepted": true,
+          "headroom": {
+            "memory": 13463725,
+            "cpu": 5462850665
+          }
+        },
+        "candidate": {
+          "n": 2,
+          "base": {
+            "memory": 202254,
+            "cpu": 52733998
+          },
+          "global": {
+            "memory": 357636,
+            "cpu": 4332090628
+          },
+          "total": {
+            "memory": 559890,
+            "cpu": 4384824626
+          },
+          "redeemer_bytes": 776,
+          "accepted": true,
+          "headroom": {
+            "memory": 13440110,
+            "cpu": 5615175374
+          }
+        },
+        "delta_candidate_minus_baseline": {
+          "memory": 23615,
+          "cpu": -152324709,
+          "memory_percent": 4.4035,
+          "cpu_percent": -3.3573,
+          "redeemer_bytes": 70
+        }
+      },
+      {
+        "n": 3,
+        "baseline": {
+          "n": 3,
+          "base": {
+            "memory": 303381,
+            "cpu": 79100997
+          },
+          "global": {
+            "memory": 443958,
+            "cpu": 5370056718
+          },
+          "total": {
+            "memory": 747339,
+            "cpu": 5449157715
+          },
+          "redeemer_bytes": 1055,
+          "accepted": true,
+          "headroom": {
+            "memory": 13252661,
+            "cpu": 4550842285
+          }
+        },
+        "candidate": {
+          "n": 3,
+          "base": {
+            "memory": 303381,
+            "cpu": 79100997
+          },
+          "global": {
+            "memory": 467937,
+            "cpu": 5218270064
+          },
+          "total": {
+            "memory": 771318,
+            "cpu": 5297371061
+          },
+          "redeemer_bytes": 1159,
+          "accepted": true,
+          "headroom": {
+            "memory": 13228682,
+            "cpu": 4702628939
+          }
+        },
+        "delta_candidate_minus_baseline": {
+          "memory": 23979,
+          "cpu": -151786654,
+          "memory_percent": 3.2086,
+          "cpu_percent": -2.7855,
+          "redeemer_bytes": 104
+        }
+      },
+      {
+        "n": 4,
+        "baseline": {
+          "n": 4,
+          "base": {
+            "memory": 404508,
+            "cpu": 105467996
+          },
+          "global": {
+            "memory": 553937,
+            "cpu": 6255705365
+          },
+          "total": {
+            "memory": 958445,
+            "cpu": 6361173361
+          },
+          "redeemer_bytes": 1404,
+          "accepted": true,
+          "headroom": {
+            "memory": 13041555,
+            "cpu": 3638826639
+          }
+        },
+        "candidate": {
+          "n": 4,
+          "base": {
+            "memory": 404508,
+            "cpu": 105467996
+          },
+          "global": {
+            "memory": 578284,
+            "cpu": 6104457458
+          },
+          "total": {
+            "memory": 982792,
+            "cpu": 6209925454
+          },
+          "redeemer_bytes": 1542,
+          "accepted": true,
+          "headroom": {
+            "memory": 13017208,
+            "cpu": 3790074546
+          }
+        },
+        "delta_candidate_minus_baseline": {
+          "memory": 24347,
+          "cpu": -151247907,
+          "memory_percent": 2.5403,
+          "cpu_percent": -2.3777,
+          "redeemer_bytes": 138
+        }
+      },
+      {
+        "n": 5,
+        "baseline": {
+          "n": 5,
+          "base": {
+            "memory": 505635,
+            "cpu": 131834995
+          },
+          "global": {
+            "memory": 663958,
+            "cpu": 7141361278
+          },
+          "total": {
+            "memory": 1169593,
+            "cpu": 7273196273
+          },
+          "redeemer_bytes": 1753,
+          "accepted": true,
+          "headroom": {
+            "memory": 12830407,
+            "cpu": 2726803727
+          }
+        },
+        "candidate": {
+          "n": 5,
+          "base": {
+            "memory": 505635,
+            "cpu": 131834995
+          },
+          "global": {
+            "memory": 688677,
+            "cpu": 6990652810
+          },
+          "total": {
+            "memory": 1194312,
+            "cpu": 7122487805
+          },
+          "redeemer_bytes": 1925,
+          "accepted": true,
+          "headroom": {
+            "memory": 12805688,
+            "cpu": 2877512195
+          }
+        },
+        "delta_candidate_minus_baseline": {
+          "memory": 24719,
+          "cpu": -150708468,
+          "memory_percent": 2.1135,
+          "cpu_percent": -2.0721,
+          "redeemer_bytes": 172
+        }
+      },
+      {
+        "n": 6,
+        "baseline": {
+          "n": 6,
+          "base": {
+            "memory": 606762,
+            "cpu": 158201994
+          },
+          "global": {
+            "memory": 774021,
+            "cpu": 8027024457
+          },
+          "total": {
+            "memory": 1380783,
+            "cpu": 8185226451
+          },
+          "redeemer_bytes": 2102,
+          "accepted": true,
+          "headroom": {
+            "memory": 12619217,
+            "cpu": 1814773549
+          }
+        },
+        "candidate": {
+          "n": 6,
+          "base": {
+            "memory": 606762,
+            "cpu": 158201994
+          },
+          "global": {
+            "memory": 799116,
+            "cpu": 7876856120
+          },
+          "total": {
+            "memory": 1405878,
+            "cpu": 8035058114
+          },
+          "redeemer_bytes": 2308,
+          "accepted": true,
+          "headroom": {
+            "memory": 12594122,
+            "cpu": 1964941886
+          }
+        },
+        "delta_candidate_minus_baseline": {
+          "memory": 25095,
+          "cpu": -150168337,
+          "memory_percent": 1.8174,
+          "cpu_percent": -1.8346,
+          "redeemer_bytes": 206
+        }
+      },
+      {
+        "n": 7,
+        "baseline": {
+          "n": 7,
+          "base": {
+            "memory": 707889,
+            "cpu": 184568993
+          },
+          "global": {
+            "memory": 884126,
+            "cpu": 8912694902
+          },
+          "total": {
+            "memory": 1592015,
+            "cpu": 9097263895
+          },
+          "redeemer_bytes": 2451,
+          "accepted": true,
+          "headroom": {
+            "memory": 12407985,
+            "cpu": 902736105
+          }
+        },
+        "candidate": {
+          "n": 7,
+          "base": {
+            "memory": 707889,
+            "cpu": 184568993
+          },
+          "global": {
+            "memory": 909601,
+            "cpu": 8763067388
+          },
+          "total": {
+            "memory": 1617490,
+            "cpu": 8947636381
+          },
+          "redeemer_bytes": 2691,
+          "accepted": true,
+          "headroom": {
+            "memory": 12382510,
+            "cpu": 1052363619
+          }
+        },
+        "delta_candidate_minus_baseline": {
+          "memory": 25475,
+          "cpu": -149627514,
+          "memory_percent": 1.6002,
+          "cpu_percent": -1.6448,
+          "redeemer_bytes": 240
+        }
+      },
+      {
+        "n": 8,
+        "baseline": {
+          "n": 8,
+          "base": {
+            "memory": 809016,
+            "cpu": 210935992
+          },
+          "global": {
+            "memory": 994273,
+            "cpu": 9798372613
+          },
+          "total": {
+            "memory": 1803289,
+            "cpu": 10009308605
+          },
+          "redeemer_bytes": 2800,
+          "accepted": false,
+          "headroom": {
+            "memory": 12196711,
+            "cpu": -9308605
+          }
+        },
+        "candidate": {
+          "n": 8,
+          "base": {
+            "memory": 809016,
+            "cpu": 210935992
+          },
+          "global": {
+            "memory": 1020132,
+            "cpu": 9649286614
+          },
+          "total": {
+            "memory": 1829148,
+            "cpu": 9860222606
+          },
+          "redeemer_bytes": 3074,
+          "accepted": true,
+          "headroom": {
+            "memory": 12170852,
+            "cpu": 139777394
+          }
+        },
+        "delta_candidate_minus_baseline": {
+          "memory": 25859,
+          "cpu": -149085999,
+          "memory_percent": 1.434,
+          "cpu_percent": -1.4895,
+          "redeemer_bytes": 274
+        }
+      },
+      {
+        "n": 9,
+        "baseline": {
+          "n": 9,
+          "base": {
+            "memory": 910143,
+            "cpu": 237302991
+          },
+          "global": {
+            "memory": 1104462,
+            "cpu": 10684057590
+          },
+          "total": {
+            "memory": 2014605,
+            "cpu": 10921360581
+          },
+          "redeemer_bytes": 3149,
+          "accepted": false,
+          "headroom": {
+            "memory": 11985395,
+            "cpu": -921360581
+          }
+        },
+        "candidate": {
+          "n": 9,
+          "base": {
+            "memory": 910143,
+            "cpu": 237302991
+          },
+          "global": {
+            "memory": 1130709,
+            "cpu": 10535513798
+          },
+          "total": {
+            "memory": 2040852,
+            "cpu": 10772816789
+          },
+          "redeemer_bytes": 3457,
+          "accepted": false,
+          "headroom": {
+            "memory": 11959148,
+            "cpu": -772816789
+          }
+        },
+        "delta_candidate_minus_baseline": {
+          "memory": 26247,
+          "cpu": -148543792,
+          "memory_percent": 1.3028,
+          "cpu_percent": -1.3601,
+          "redeemer_bytes": 308
+        }
+      }
+    ]
+  },
+  "preprod_provider_n7": {
+    "protocol_limits": {
+      "memory": 16500000,
+      "cpu": 10000000000
+    },
+    "benchmark_scope": "Same all-distinct-7 material and canonical input order, direct attached scripts, unsigned provider evaluation only.",
+    "baseline": {
+      "scripts": {
+        "base_hash": "1e9c23811c11428a3f0150acdf9ff21a7c4ec4d3a1de0c8882f6bddd",
+        "base_bytes": 435,
+        "global_hash": "024026d463fd2c9d94ff4206455280b34f6f79ca9487daed1914cf44",
+        "global_bytes": 4467
+      },
+      "transaction": {
+        "cbor_bytes": 8546,
+        "fingerprint": "sha256:701bbe8f5b8db0e72286f9dd1d2d6a466e6f655aaa7c89b5561d9ab9571725ed"
+      },
+      "base_each": {
+        "memory": 101127,
+        "cpu": 26421557
+      },
+      "global": {
+        "memory": 982899,
+        "cpu": 8939314523
+      },
+      "total": {
+        "memory": 1690788,
+        "cpu": 9124265422
+      },
+      "headroom": {
+        "memory": 14809212,
+        "cpu": 875734578
+      }
+    },
+    "candidate": {
+      "scripts": {
+        "base_hash": "a3ca571834bc46b422d1b406b38398113dcf6ab579da3c19ef6325e5",
+        "base_bytes": 435,
+        "global_hash": "1eb8f8a0a121dade8a34658814702159dfeaa3af5033264e37423e08",
+        "global_bytes": 3648
+      },
+      "transaction": {
+        "cbor_bytes": 7966,
+        "fingerprint": "sha256:2a820d98e0a83bcd3511ef1b1d0b17d68e3dbbdde44701ef508ec3ab37ebf492"
+      },
+      "base_each": {
+        "memory": 101127,
+        "cpu": 26421557
+      },
+      "global": {
+        "memory": 1007474,
+        "cpu": 8789543009
+      },
+      "total": {
+        "memory": 1715363,
+        "cpu": 8974493908
+      },
+      "headroom": {
+        "memory": 14784637,
+        "cpu": 1025506092
+      }
+    },
+    "delta_candidate_minus_baseline": {
+      "memory": 24575,
+      "cpu": -149771514,
+      "memory_percent": 1.4534,
+      "cpu_percent": -1.6414,
+      "tx_cbor_bytes": -580
+    },
+    "safety": {
+      "signing": false,
+      "submission": false,
+      "funding": false,
+      "minting": false,
+      "stake_registration": false,
+      "deployment": false,
+      "deployment_record_write": false
+    }
+  },
+  "policy": {
+    "default_utxo_count": 6,
+    "optimization_utxo_count": 6,
+    "hard_max_utxo_count": 7,
+    "max_tx_cpu_percent": 90,
+    "max_tx_mem_percent": 80,
+    "seven_requires_explicit_opt_in": true,
+    "duplicate_credentials_are_builder_admissible": true
+  },
+  "remaining_release_gaps": [
+    "The provider comparison uses synthetic inputs and direct scripts; it is not an accepted on-chain claim.",
+    "Gate G2 still requires the coherent V2 deployment and a real accepted all-distinct-7 Preprod claim with evaluator/on-chain units.",
+    "Reference-script transaction size and accepted transaction hash remain deployment-gated."
+  ]
+}

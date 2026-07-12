@@ -52,3 +52,25 @@ The provider evaluator gate passes. This result does **not** close Gate G2.
 G2 still requires a coherent Preprod deployment followed by a real accepted
 all-distinct-7 claim transaction, with evaluator and on-chain execution units
 recorded and any divergence above 5% investigated before proceeding.
+
+## RC11 provenance follow-up
+
+The signed follow-up commit
+`a5a918bfed962d220a68dfe8f5bbe9636630300d` and signed tag
+`zk-02-statement-bound-v2-rc.11` close the release-provenance review findings
+without changing the validator scripts or benchmark transaction:
+
+- Stage 2g material generation and the guarded deployer require an
+  independently supplied manifest public-key file and expected signer ID.
+- Direct and symlink-contained bundle anchors reject before wallet access;
+  hard-linked bundle anchors reject in the specialized verifier.
+- Manifest signature, expected signer identity, readiness marker, and bundle
+  hashes verify before Stage 2g wallet access or deployment Cardano-VK export.
+- Duplicate credentials remain buildable; distinctness remains confined to
+  this capacity benchmark.
+
+A fresh provider-only rerun from RC11 reproduced exactly
+`8,974,493,908` CPU / `1,715,363` memory (90% / 11%). Its safety record again
+reported false for signing, submission, funding, minting, stake registration,
+deployment, and deployment-record writes. No raw provider response, proof,
+wallet, or key material is included here.

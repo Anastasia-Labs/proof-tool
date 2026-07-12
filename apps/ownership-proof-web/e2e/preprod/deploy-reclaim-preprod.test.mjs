@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertReclaimGlobalProofSlotEncoding,
   buildManifest,
+  deployReclaimPreprod,
   prepareDestinationKeys,
   reclaimGlobalExportArgs,
 } from "./deploy-reclaim-preprod.mjs";
@@ -119,6 +120,47 @@ describe("reclaim script exporter invocation", () => {
 });
 
 describe("destination key-bundle trust anchor", () => {
+  it("verifies destination trust before resolving or reading the deployer wallet", async () => {
+    const repoRoot = tempDir();
+    const events = [];
+    const trustFailure = new Error("signed destination bundle rejected");
+    const assertCleanPushedSourceFn = vi.fn(async () => {
+      events.push("source");
+      return { commit: "12".repeat(20) };
+    });
+    const prepareDestinationKeysFn = vi.fn(async () => {
+      events.push("trust");
+      throw trustFailure;
+    });
+    const loadWalletFileFn = vi.fn(() => {
+      events.push("wallet");
+      throw new Error("wallet must not be read");
+    });
+
+    await expect(
+      deployReclaimPreprod({
+        repoRoot,
+        env: {
+          RECLAIM_E2E_LIVE_PREPROD: "1",
+          RECLAIM_E2E_SUBMIT_TRANSACTIONS: "1",
+          RECLAIM_NETWORK: "Preprod",
+          RECLAIM_NETWORK_ID: "0",
+        },
+        assertCleanPushedSourceFn,
+        prepareDestinationKeysFn,
+        loadWalletFileFn,
+      }),
+    ).rejects.toBe(trustFailure);
+
+    expect(events).toEqual(["source", "trust"]);
+    expect(prepareDestinationKeysFn).toHaveBeenCalledWith({
+      env: expect.objectContaining({ RECLAIM_NETWORK: "Preprod" }),
+      repoRoot,
+      git: { commit: "12".repeat(20) },
+    });
+    expect(loadWalletFileFn).not.toHaveBeenCalled();
+  });
+
   it("requires the external Stage 2g trust-anchor values before any key tool runs", async () => {
     const fixture = destinationFixture();
     const runGoFn = vi.fn();

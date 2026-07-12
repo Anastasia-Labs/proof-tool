@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall/js"
@@ -69,6 +70,7 @@ func goBytes(v js.Value) []byte {
 //	globalThis.__msmengineShardG2(ptsU8, scsU8) -> partialU8 (192 bytes)
 //	globalThis.__msmengineShardG1Timed(ptsU8, scsU8, pinnedDecode) -> {partial,timings}
 //	globalThis.__msmengineShardG2Timed(ptsU8, scsU8, pinnedDecode) -> {partial,timings}
+//	globalThis.__msmengineWorkerMemStats() -> worker-local numeric heap/GC fields
 //	globalThis.__msmengineCombineG1([partialU8, ...]) -> combinedU8 (96 bytes)
 //	globalThis.__msmengineCombineG2([partialU8, ...]) -> combinedU8 (192 bytes)
 //
@@ -105,6 +107,9 @@ func RegisterWorkerKernel() {
 			panic(err.Error())
 		}
 		return timedShardResultJS(out, timings)
+	}))
+	g.Set("__msmengineWorkerMemStats", js.FuncOf(func(this js.Value, args []js.Value) any {
+		return workerMemStatsJS()
 	}))
 	g.Set("__msmengineShardSectionG1", js.FuncOf(func(this js.Value, args []js.Value) any {
 		out, timings, byteCounts, err := shardSectionBytes(false, args[0].String(), args[1].String(), args[2].Int(), args[3].Int(), goBytes(args[4]))
@@ -155,6 +160,25 @@ func RegisterWorkerKernel() {
 		sum := combineG2(parts)
 		return jsUint8(marshalG2Jac(&sum))
 	}))
+}
+
+// workerMemStatsJS snapshots the Go runtime that owns the actual MSM kernel.
+// Every Web Worker instantiates a separate msmworker.wasm, so these values are
+// worker-local rather than main-prover heap estimates. Field names are stable
+// trace keys consumed by the W4 matrix aggregator; all values remain numeric.
+func workerMemStatsJS() js.Value {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	out := js.Global().Get("Object").New()
+	out.Set("worker_go_heap_alloc_bytes", m.HeapAlloc)
+	out.Set("worker_go_heap_sys_bytes", m.HeapSys)
+	out.Set("worker_go_heap_inuse_bytes", m.HeapInuse)
+	out.Set("worker_go_heap_released_bytes", m.HeapReleased)
+	out.Set("worker_go_stack_inuse_bytes", m.StackInuse)
+	out.Set("worker_go_stack_sys_bytes", m.StackSys)
+	out.Set("worker_go_sys_bytes", m.Sys)
+	out.Set("worker_go_gc_count", m.NumGC)
+	return out
 }
 
 func sectionResultJS(partial []byte, timings map[string]float64, byteCounts map[string]int64) js.Value {
@@ -415,7 +439,8 @@ type workerReply struct {
 
 // workerPool owns the Web Workers and round-robins shards across them.
 type workerPool struct {
-	workers []*worker
+	workers   []*worker
+	closeOnce sync.Once
 }
 
 // shardedMSM dispatches each MSM across a workerPool. It satisfies MSMEngine.
@@ -424,7 +449,10 @@ type shardedMSM struct {
 	shards                int
 	rangeFetchConcurrency int
 	pinnedDecode          bool
+	optW7                 bool
 	pool                  *workerPool
+	asyncMu               sync.Mutex
+	async                 *sectionScheduler
 }
 
 // NewSharded constructs a shardedMSM with up to `cap` workers (clamped to
@@ -470,7 +498,7 @@ func NewShardedWithOptions(workerURL string, cap int, opts Options) (*shardedMSM
 		}
 		pool.workers = append(pool.workers, w)
 	}
-	return &shardedMSM{workers: n, shards: shards, rangeFetchConcurrency: concurrency, pinnedDecode: opts.PinnedDecode, pool: pool}, nil
+	return &shardedMSM{workers: n, shards: shards, rangeFetchConcurrency: concurrency, pinnedDecode: opts.PinnedDecode, optW7: opts.OptW7, pool: pool}, nil
 }
 
 // newWorker spawns one Web Worker from workerURL and wires its onmessage/onerror
@@ -486,15 +514,22 @@ func newWorker(g js.Value, workerURL string, id int) (*worker, error) {
 	w.onMsg = js.FuncOf(func(this js.Value, args []js.Value) any {
 		data := args[0].Get("data")
 		if errv := data.Get("error"); !errv.IsUndefined() && !errv.IsNull() {
-			w.replies <- workerReply{id: data.Get("id").Int(), err: errors.New(errv.String())}
+			select {
+			case w.replies <- workerReply{id: data.Get("id").Int(), err: errors.New(errv.String())}:
+			default:
+			}
 			return nil
 		}
-		w.replies <- workerReply{
+		reply := workerReply{
 			id:        data.Get("id").Int(),
 			partial:   goBytes(data.Get("partial")),
 			computeMS: jsFloat(data.Get("compute_ms")),
 			timings:   jsNumberObject(data.Get("timings")),
 			bytes:     jsNumberObject(data.Get("bytes")),
+		}
+		select {
+		case w.replies <- reply:
+		default:
 		}
 		return nil
 	})
@@ -505,7 +540,10 @@ func newWorker(g js.Value, workerURL string, id int) (*worker, error) {
 				msg = m.String()
 			}
 		}
-		w.replies <- workerReply{err: errors.New(msg)}
+		select {
+		case w.replies <- workerReply{err: errors.New(msg)}:
+		default:
+		}
 		return nil
 	})
 	jsWorker.Set("onmessage", w.onMsg)
@@ -543,10 +581,13 @@ func (s *shardedMSM) Instrumentation() map[string]any {
 		"shard_count":             s.shards,
 		"range_fetch_concurrency": s.rangeFetchConcurrency,
 		"pinned_decode":           s.pinnedDecode,
+		"opt_w7":                  s.optW7,
+		"async_queue_capacity":    asyncQueueCapacity(s.shards),
 	}
 }
 
 func (s *shardedMSM) Close() error {
+	s.CancelOutstanding(errors.New("shardedMSM closed"))
 	if s.pool != nil {
 		s.pool.close()
 	}
@@ -554,17 +595,18 @@ func (s *shardedMSM) Close() error {
 }
 
 func (p *workerPool) close() {
-	for _, w := range p.workers {
-		if w == nil {
-			continue
+	p.closeOnce.Do(func() {
+		for _, w := range p.workers {
+			if w == nil {
+				continue
+			}
+			if !w.js.IsUndefined() {
+				w.js.Call("terminate")
+			}
+			w.onMsg.Release()
+			w.onErr.Release()
 		}
-		if !w.js.IsUndefined() {
-			w.js.Call("terminate")
-		}
-		w.onMsg.Release()
-		w.onErr.Release()
-	}
-	p.workers = nil
+	})
 }
 
 // MSMG1 partitions points/scalars into one shard per worker, dispatches all
@@ -629,6 +671,9 @@ func (s *shardedMSM) MSMG1(dst *bls12381.G1Jac, points []bls12381.G1Affine, scal
 				return
 			}
 			jac, err := unmarshalG1Jac(partial)
+			if err != nil {
+				err = workerPartialIntegrityError(err)
+			}
 			ch <- g1res{idx: i, r: r, jac: jac, err: err}
 		}()
 	}
@@ -713,6 +758,9 @@ func (s *shardedMSM) MSMG2(dst *bls12381.G2Jac, points []bls12381.G2Affine, scal
 				return
 			}
 			jac, err := unmarshalG2Jac(partial)
+			if err != nil {
+				err = workerPartialIntegrityError(err)
+			}
 			ch <- g2res{idx: i, r: r, jac: jac, err: err}
 		}()
 	}
@@ -839,6 +887,9 @@ func (s *shardedMSM) MSMG1Ranged(dst *bls12381.G1Jac, n int, fetch FetchG1, scal
 				return
 			}
 			jac, err := unmarshalG1Jac(partial)
+			if err != nil {
+				err = workerPartialIntegrityError(err)
+			}
 			ch <- g1res{idx: i, r: r, jac: jac, err: err}
 		}()
 	}
@@ -952,6 +1003,9 @@ func (s *shardedMSM) MSMG2Ranged(dst *bls12381.G2Jac, n int, fetch FetchG2, scal
 				return
 			}
 			jac, err := unmarshalG2Jac(partial)
+			if err != nil {
+				err = workerPartialIntegrityError(err)
+			}
 			ch <- g2res{idx: i, r: r, jac: jac, err: err}
 		}()
 	}
@@ -1017,7 +1071,7 @@ func (s *shardedMSM) MSMG1Section(dst *bls12381.G1Jac, plan *PKSectionPlan, sect
 			zeroBytes(scsBuf)
 			sabMS := elapsedMS(sabStart)
 			workerStart := time.Now()
-			reply := w.postSectionAndWaitLocked(idx, false, string(planJSON), section, r, scsSab, s.pinnedDecode)
+			reply := w.postSectionAndWaitLocked(idx, false, string(planJSON), section, r, scsSab, s.pinnedDecode, s.optW7)
 			zeroSAB(scsSab)
 			workerMS := elapsedMS(workerStart)
 			w.mu.Unlock()
@@ -1042,21 +1096,41 @@ func (s *shardedMSM) MSMG1Section(dst *bls12381.G1Jac, plan *PKSectionPlan, sect
 				return
 			}
 			jac, err := unmarshalG1Jac(reply.partial)
+			if err != nil {
+				err = workerPartialIntegrityError(err)
+			}
 			ch <- g1res{idx: idx, workerSlot: workerSlot, r: r, jac: jac, err: err}
 		}()
 	}
 	next := 0
-	initial := len(s.pool.workers)
-	if initial > len(ranges) {
-		initial = len(ranges)
-	}
-	for ; next < initial; next++ {
-		launch(next, next)
+	var affinity contiguousShardAffinity
+	var affinityNext []int
+	resultsExpected := len(ranges)
+	if s.optW7 {
+		affinity = newContiguousShardAffinity(len(ranges), len(s.pool.workers))
+		affinityNext = make([]int, len(s.pool.workers))
+		resultsExpected = 0
+		for workerSlot, shards := range affinity.byWorker {
+			if len(shards) == 0 {
+				continue
+			}
+			launch(workerSlot, shards[0])
+			affinityNext[workerSlot] = 1
+			resultsExpected++
+		}
+	} else {
+		initial := len(s.pool.workers)
+		if initial > len(ranges) {
+			initial = len(ranges)
+		}
+		for ; next < initial; next++ {
+			launch(next, next)
+		}
 	}
 	parts := make([]bls12381.G1Jac, len(ranges))
 	done := 0
 	var firstErr error
-	for range ranges {
+	for received := 0; received < resultsExpected; received++ {
 		res := <-ch
 		if res.err != nil && firstErr == nil {
 			firstErr = res.err
@@ -1066,7 +1140,19 @@ func (s *shardedMSM) MSMG1Section(dst *bls12381.G1Jac, plan *PKSectionPlan, sect
 		if prog != nil {
 			prog(done, n)
 		}
-		if next < len(ranges) {
+		if s.optW7 {
+			// A failed Worker or invalid partial terminates W7 scheduling for this
+			// section. Drain only already-launched turns, then fail closed; never
+			// reuse the failed affinity slot for its remaining shard block.
+			if firstErr == nil {
+				workerShards := affinity.byWorker[res.workerSlot]
+				if affinityNext[res.workerSlot] < len(workerShards) {
+					launch(res.workerSlot, workerShards[affinityNext[res.workerSlot]])
+					affinityNext[res.workerSlot]++
+					resultsExpected++
+				}
+			}
+		} else if next < len(ranges) {
 			launch(res.workerSlot, next)
 			next++
 		}
@@ -1128,7 +1214,7 @@ func (s *shardedMSM) MSMG2Section(dst *bls12381.G2Jac, plan *PKSectionPlan, sect
 			zeroBytes(scsBuf)
 			sabMS := elapsedMS(sabStart)
 			workerStart := time.Now()
-			reply := w.postSectionAndWaitLocked(idx, true, string(planJSON), section, r, scsSab, s.pinnedDecode)
+			reply := w.postSectionAndWaitLocked(idx, true, string(planJSON), section, r, scsSab, s.pinnedDecode, s.optW7)
 			zeroSAB(scsSab)
 			workerMS := elapsedMS(workerStart)
 			w.mu.Unlock()
@@ -1153,21 +1239,41 @@ func (s *shardedMSM) MSMG2Section(dst *bls12381.G2Jac, plan *PKSectionPlan, sect
 				return
 			}
 			jac, err := unmarshalG2Jac(reply.partial)
+			if err != nil {
+				err = workerPartialIntegrityError(err)
+			}
 			ch <- g2res{idx: idx, workerSlot: workerSlot, r: r, jac: jac, err: err}
 		}()
 	}
 	next := 0
-	initial := len(s.pool.workers)
-	if initial > len(ranges) {
-		initial = len(ranges)
-	}
-	for ; next < initial; next++ {
-		launch(next, next)
+	var affinity contiguousShardAffinity
+	var affinityNext []int
+	resultsExpected := len(ranges)
+	if s.optW7 {
+		affinity = newContiguousShardAffinity(len(ranges), len(s.pool.workers))
+		affinityNext = make([]int, len(s.pool.workers))
+		resultsExpected = 0
+		for workerSlot, shards := range affinity.byWorker {
+			if len(shards) == 0 {
+				continue
+			}
+			launch(workerSlot, shards[0])
+			affinityNext[workerSlot] = 1
+			resultsExpected++
+		}
+	} else {
+		initial := len(s.pool.workers)
+		if initial > len(ranges) {
+			initial = len(ranges)
+		}
+		for ; next < initial; next++ {
+			launch(next, next)
+		}
 	}
 	parts := make([]bls12381.G2Jac, len(ranges))
 	done := 0
 	var firstErr error
-	for range ranges {
+	for received := 0; received < resultsExpected; received++ {
 		res := <-ch
 		if res.err != nil && firstErr == nil {
 			firstErr = res.err
@@ -1177,7 +1283,18 @@ func (s *shardedMSM) MSMG2Section(dst *bls12381.G2Jac, plan *PKSectionPlan, sect
 		if prog != nil {
 			prog(done, n)
 		}
-		if next < len(ranges) {
+		if s.optW7 {
+			// Match the G1 fail-closed rule: after any Worker error, launch no
+			// additional affinity-owned shards and drain only in-flight turns.
+			if firstErr == nil {
+				workerShards := affinity.byWorker[res.workerSlot]
+				if affinityNext[res.workerSlot] < len(workerShards) {
+					launch(res.workerSlot, workerShards[affinityNext[res.workerSlot]])
+					affinityNext[res.workerSlot]++
+					resultsExpected++
+				}
+			}
+		} else if next < len(ranges) {
 			launch(res.workerSlot, next)
 			next++
 		}
@@ -1232,12 +1349,16 @@ func (w *worker) postAndWaitLocked(id int, g2 bool, ptsSab, scsSab js.Value, pin
 	// carries a zero id): each worker answers exactly one shard per MSM call, so
 	// a non-matching id means the partial does not belong to this shard.
 	if reply.id != id {
-		return nil, reply.computeMS, reply.timings, fmt.Errorf("shardedMSM: worker reply id %d != requested %d (stale or crossed reply)", reply.id, id)
+		return nil, reply.computeMS, reply.timings, workerReplyIntegrityError(id, reply.id)
 	}
 	return reply.partial, reply.computeMS, reply.timings, nil
 }
 
-func (w *worker) postSectionAndWaitLocked(id int, g2 bool, planJSON string, section string, r [2]int, scsSab js.Value, pinnedDecode bool) workerReply {
+func (w *worker) postSectionAndWaitLocked(id int, g2 bool, planJSON string, section string, r [2]int, scsSab js.Value, pinnedDecode, optW7 bool) workerReply {
+	return w.postSectionAndWaitLockedCancelable(id, g2, planJSON, section, r, scsSab, pinnedDecode, optW7, nil)
+}
+
+func (w *worker) postSectionAndWaitLockedCancelable(id int, g2 bool, planJSON string, section string, r [2]int, scsSab js.Value, pinnedDecode, optW7 bool, cancel <-chan struct{}) workerReply {
 	msg := js.Global().Get("Object").New()
 	msg.Set("type", "msm-section-range")
 	msg.Set("id", id)
@@ -1248,13 +1369,25 @@ func (w *worker) postSectionAndWaitLocked(id int, g2 bool, planJSON string, sect
 	msg.Set("hi", r[1])
 	msg.Set("scs", scsSab)
 	msg.Set("pinnedDecode", pinnedDecode)
+	msg.Set("optW7", optW7)
 	w.js.Call("postMessage", msg)
-	reply := <-w.replies
+	reply, waitErr := waitForAsyncResult(w.replies, cancel, asyncWorkerReplyTimeout)
+	if waitErr != nil {
+		if errors.Is(waitErr, errAsyncWaitCancelled) {
+			return workerReply{err: failClosed("async-msm-cancelled", waitErr)}
+		}
+		return workerReply{err: failClosed("worker-terminated", waitErr)}
+	}
 	if reply.err != nil {
+		reply.err = classifySectionWorkerError(reply.err)
 		return reply
 	}
 	if reply.id != id {
-		reply.err = fmt.Errorf("shardedMSM: worker reply id %d != requested %d (stale or crossed reply)", reply.id, id)
+		reply.err = workerReplyIntegrityError(id, reply.id)
+		return reply
+	}
+	if err := validateW7WorkerAcknowledgement(optW7, reply.timings); err != nil {
+		reply.err = err
 		return reply
 	}
 	return reply

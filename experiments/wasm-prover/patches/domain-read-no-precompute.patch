@@ -1,0 +1,38 @@
+--- vendor/github.com/consensys/gnark-crypto/ecc/bls12-381/fr/fft/domain.go
++++ vendor/github.com/consensys/gnark-crypto/ecc/bls12-381/fr/fft/domain.go
+@@ -384,6 +384,16 @@ func (d *Domain) WriteTo(w io.Writer) (int64, error) {
+ 
+ // ReadFrom attempts to decode a domain from Reader
+ func (d *Domain) ReadFrom(r io.Reader) (int64, error) {
++	return d.readFrom(r, false)
++}
++
++// ReadFromWithoutPrecompute decodes the canonical serialized domain fields
++// without rebuilding the non-serialized twiddle and coset tables.
++func (d *Domain) ReadFromWithoutPrecompute(r io.Reader) (int64, error) {
++	return d.readFrom(r, true)
++}
++
++func (d *Domain) readFrom(r io.Reader, skipPrecompute bool) (int64, error) {
+ 
+ 	var read int64
+ 	var err error
+@@ -415,7 +425,16 @@ func (d *Domain) ReadFrom(r io.Reader) (int64, error) {
+ 	}
+ 	read += 1
+ 
+-	if d.withPrecompute {
++	// opt-W2: browser streaming proving only consumes the canonical domain
++	// fields. Keep the serialized flag readable while allowing that caller to
++	// skip the large transient and retained precomputation explicitly.
++	if skipPrecompute {
++		d.withPrecompute = false
++		d.twiddles = nil
++		d.twiddlesInv = nil
++		d.cosetTable = nil
++		d.cosetTableInv = nil
++	} else if d.withPrecompute {
+ 		d.preComputeTwiddles()
+ 	}
+ 
+

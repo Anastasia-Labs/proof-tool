@@ -36,12 +36,32 @@ apps/ownership-proof-web/public/proof-runtime/*.wasm
 experiments/*
 !experiments/wasm-prover
 experiments/wasm-prover/*
+!experiments/wasm-prover/optimization-backlog.md
+!experiments/wasm-prover/output/
 !experiments/wasm-prover/msmengine
 !experiments/wasm-prover/patches
+!experiments/wasm-prover/runtime
+!experiments/wasm-prover/fault
+!experiments/wasm-prover/scripts
+!experiments/wasm-prover/tests
+!experiments/wasm-prover/tools
+!experiments/wasm-prover/web
+!experiments/wasm-prover/README.md
 experiments/wasm-prover/msmengine/*
 !experiments/wasm-prover/msmengine/shim.go
 experiments/wasm-prover/patches/*
 !experiments/wasm-prover/patches/prove-stream.patch
+!experiments/wasm-prover/patches/domain-read-no-precompute.patch
+!experiments/wasm-prover/patches/release-ccs-after-solve.patch
+!experiments/wasm-prover/patches/dispatch-before-fft.patch
+!experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch
+!experiments/wasm-prover/runtime/**
+!experiments/wasm-prover/fault/**
+!experiments/wasm-prover/scripts/**
+!experiments/wasm-prover/tests/**
+!experiments/wasm-prover/tools/**
+experiments/wasm-prover/web/*
+!experiments/wasm-prover/web/worker.js
 
 # Local-only security reviews, findings, and remediation records.
 /audit/

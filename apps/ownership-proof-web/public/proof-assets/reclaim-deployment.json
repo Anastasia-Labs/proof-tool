@@ -50,10 +50,15 @@
       "worker_js_url": "/proof-runtime/msm-worker.js",
       "msm_worker_wasm_url": "/proof-runtime/msmworker.wasm",
       "tuning": {
-        "worker_count": 8,
-        "shard_count": 32,
+        "shard_count": 8,
         "range_fetch_concurrency": 2,
         "pinned_decode": true,
+        "opt_w1": true,
+        "opt_w2": true,
+        "opt_w3": true,
+        "opt_w5": true,
+        "opt_w6": true,
+        "opt_w7": true,
         "gogc": 50,
         "gomemlimit": "3000MiB"
       }

@@ -5,6 +5,8 @@ export type ReclaimGlobalProofSlotEncoding =
   | "full-proof-plus-public-input-digest-v2";
 
 export type ReclaimDistinctSevenOptIn = {
+  // The serialized field name records the distinct-7 capacity benchmark. It
+  // does not require normal seven-slot claims to contain distinct credentials.
   request_parameter: "maxUtxos";
   request_value: 7;
   require_explicit_request: true;
@@ -17,6 +19,12 @@ export type BrowserProvingTuning = {
   shard_multiplier?: number;
   range_fetch_concurrency?: number;
   pinned_decode?: boolean;
+  opt_w1?: boolean;
+  opt_w2?: boolean;
+  opt_w3?: boolean;
+  opt_w5?: boolean;
+  opt_w6?: boolean;
+  opt_w7?: boolean;
   gogc?: number;
   gomemlimit?: string;
 };

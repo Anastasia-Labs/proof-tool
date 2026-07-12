@@ -10,11 +10,81 @@
 package msmengine
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 
 	bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381"
 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 )
+
+// FailClosedError marks authenticated transport or worker failures that must
+// never be retried through the unauthenticated CPU/range path.
+type FailClosedError struct {
+	Class string
+	Err   error
+}
+
+func (e *FailClosedError) Error() string {
+	return fmt.Sprintf("%s: %v", e.Class, e.Err)
+}
+
+func (e *FailClosedError) Unwrap() error { return e.Err }
+
+func failClosed(class string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &FailClosedError{Class: class, Err: err}
+}
+
+func classifySectionWorkerError(err error) error {
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "sha256 mismatch"),
+		strings.Contains(message, "blake2b256 mismatch"),
+		strings.Contains(message, "content-encoding"),
+		strings.Contains(message, "size "):
+		return failClosed("chunk-digest-mismatch", err)
+	case strings.Contains(message, "failed to fetch"),
+		strings.Contains(message, "fetch chunk"),
+		strings.Contains(message, "network"),
+		strings.Contains(message, "body stream"):
+		return failClosed("range-fetch-aborted", err)
+	case strings.Contains(message, "worker"), strings.Contains(message, "terminated"):
+		return failClosed("worker-terminated", err)
+	default:
+		return failClosed("sharded-worker-error", err)
+	}
+}
+
+func workerReplyIntegrityError(requested, received int) error {
+	return failClosed(
+		"worker-reply-integrity",
+		fmt.Errorf("shardedMSM: worker reply id %d != requested %d (stale or crossed reply)", received, requested),
+	)
+}
+
+func workerPartialIntegrityError(err error) error {
+	return failClosed("worker-partial-invalid", err)
+}
+
+// validateW7WorkerAcknowledgement closes the candidate/production Worker
+// boundary. Older Workers ignore unknown message fields, so echoing opt_w7 in
+// the main runtime result is not evidence that the Worker applied the cache.
+func validateW7WorkerAcknowledgement(requested bool, timings map[string]any) error {
+	if !requested {
+		return nil
+	}
+	applied, ok := timings["w7_applied"].(float64)
+	if !ok || applied != 1 {
+		return failClosed(
+			"w7-worker-capability",
+			fmt.Errorf("shardedMSM: opt_w7 requested but Worker did not acknowledge w7_applied=1"),
+		)
+	}
+	return nil
+}
 
 // ProgressFn is an optional progress callback. done and total are both
 // expressed in number of scalars processed; engines that run in a single
@@ -116,6 +186,26 @@ type MSMEngine interface {
 type PKSectionEngine interface {
 	MSMG1Section(dst *bls12381.G1Jac, plan *PKSectionPlan, section string, n int, scalars []fr.Element, prog ProgressFn) error
 	MSMG2Section(dst *bls12381.G2Jac, plan *PKSectionPlan, section string, n int, scalars []fr.Element, prog ProgressFn) error
+}
+
+// SectionHandle is an opaque, single-use asynchronous section-MSM result.
+// Implementations must reject collection through the wrong group method and
+// reject a second collection attempt.
+type SectionHandle interface {
+	SectionHandle()
+}
+
+// AsyncPKSectionEngine lets the streaming prover populate a bounded shard
+// queue before computeH starts. Dispatch only transfers ownership of the job
+// to the engine; Collect waits for and combines its deterministic shard
+// partials. CancelOutstanding is fail-closed and cancels every queued/in-flight
+// handle because a worker failure makes the shared pool unusable.
+type AsyncPKSectionEngine interface {
+	DispatchG1Section(plan *PKSectionPlan, section string, n int, scalars []fr.Element, prog ProgressFn) (SectionHandle, error)
+	DispatchG2Section(plan *PKSectionPlan, section string, n int, scalars []fr.Element, prog ProgressFn) (SectionHandle, error)
+	CollectG1Section(dst *bls12381.G1Jac, handle SectionHandle) error
+	CollectG2Section(dst *bls12381.G2Jac, handle SectionHandle) error
+	CancelOutstanding(cause error)
 }
 
 type InstrumentedEngine interface {

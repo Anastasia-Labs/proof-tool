@@ -24,7 +24,7 @@ func makeShardedEngineWithOptions(workers int, opts Options) MSMEngine {
 	if concurrency <= 0 {
 		concurrency = 1
 	}
-	return stubShardedMSM{workers: workers, shards: shards, rangeFetchConcurrency: concurrency}
+	return stubShardedMSM{workers: workers, shards: shards, rangeFetchConcurrency: concurrency, optW7: opts.OptW7}
 }
 
 // stubShardedMSM is the native-build stand-in for shardedMSM. It satisfies
@@ -35,6 +35,7 @@ type stubShardedMSM struct {
 	workers               int
 	shards                int
 	rangeFetchConcurrency int
+	optW7                 bool
 }
 
 func (s stubShardedMSM) Name() string { return "sharded" }
@@ -45,6 +46,7 @@ func (s stubShardedMSM) Instrumentation() map[string]any {
 		"shard_count":             s.shards,
 		"range_fetch_concurrency": s.rangeFetchConcurrency,
 		"pinned_decode":           false,
+		"opt_w7":                  s.optW7,
 	}
 }
 

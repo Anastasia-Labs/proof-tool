@@ -24,6 +24,10 @@ type PKSectionPlan = msmengine.PKSectionPlan
 // vendored code match engines registered through the moved package.
 type PKSectionEngine = msmengine.PKSectionEngine
 
+type SectionHandle = msmengine.SectionHandle
+
+type AsyncPKSectionEngine = msmengine.AsyncPKSectionEngine
+
 // Current forwards to the moved package's engine selection state.
 func Current() msmengine.MSMEngine { return msmengine.Current() }
 

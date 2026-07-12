@@ -72,12 +72,18 @@ path, query, credentials, or fragment. Helper tokens are written only as
 
 ## Deployment
 
-The deployer refuses a dirty/unpushed source tree and never creates proof keys.
-It exports parameterized Plutus V3 scripts through the contract executable,
-mints the one-shot parameter NFT, registers the ReclaimGlobal reward account
-when needed, creates the immutable parameter and base/global reference-script
-outputs, confirms them through the provider, and writes the ignored enabled
-manifest.
+The deployer refuses a dirty/unpushed source tree: `HEAD` must equal
+`origin/main`. It never creates proof keys. It exports parameterized Plutus V3
+scripts through the contract executable, mints the one-shot parameter NFT,
+registers the ReclaimGlobal reward account when needed, creates the immutable
+parameter and base/global reference-script outputs, confirms them through the
+provider, and writes the ignored enabled manifest.
+
+The destination bundle must be verified against an independently provisioned
+manifest public key and the approved signer ID before export. Do not satisfy
+this boundary by copying or linking the bundle's own public-key file to an
+external-looking path; direct, symlink-contained, and hard-linked bundle
+anchors are rejected.
 
 ```bash
 set -a
@@ -88,6 +94,8 @@ RECLAIM_E2E_LIVE_PREPROD=1 \
 RECLAIM_E2E_SUBMIT_TRANSACTIONS=1 \
 PREPROD_TEST_WALLETS_FILE=deployments/reclaim/preprod/test-wallets.local.json \
 RECLAIM_E2E_DESTINATION_KEYS_DIR=output/preprod-e2e/destination-keys.local \
+RECLAIM_E2E_STAGE2G_V2_MANIFEST_PUBLIC_KEY_FILE=/independent/path/manifest-public-key.hex \
+RECLAIM_E2E_STAGE2G_V2_SIGNATURE_KEY_ID='<approved-signer-id>' \
 pnpm --dir apps/ownership-proof-web deploy:reclaim:preprod
 ```
 
@@ -144,6 +152,22 @@ RECLAIM_E2E_STAGE2G_V2_MATERIAL_FILE=output/preprod-e2e/stage2g-v2/material.loca
 RECLAIM_E2E_STAGE2G_V2_EVIDENCE_FILE=output/preprod-e2e/stage2g-v2/evaluation.local.json \
 pnpm --dir apps/ownership-proof-web e2e:preprod:stage2g:v2:evaluate
 ```
+
+To reproduce the provider-only V1/V2 comparison against the same all-distinct
+material and canonical order, keep submission disabled and run:
+
+```bash
+unset RECLAIM_E2E_SUBMIT_TRANSACTIONS
+RECLAIM_E2E_LIVE_PREPROD=1 \
+RECLAIM_E2E_STAGE2G_V2_COMPARE=1 \
+RECLAIM_E2E_STAGE2G_V2_MATERIAL_FILE=output/preprod-e2e/stage2g-v2/material.local.json \
+pnpm --dir apps/ownership-proof-web e2e:preprod:stage2g:v2:compare
+```
+
+The comparison builds complete unsigned direct-script transactions for both
+profiles and reports redacted script identities/sizes, transaction-byte counts,
+per-redeemer provider units, totals, deltas, and headroom. It cannot sign or
+submit and is still not Gate G2.
 
 The evaluator must report all safety fields false for signing, submission,
 funding, minting, stake registration, and deployment. Passing requires total

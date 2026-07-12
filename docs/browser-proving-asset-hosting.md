@@ -249,6 +249,46 @@ verify, but the result engine is `streampk-cpu-groth16` at ~500 s instead of
 
 ## Verification record
 
+Gate G1 signed runtime promotion, 2026-07-11:
+
+- Final stage:
+  `output/release/proof-assets-ownership-destination-v1-preprod-d2c944d-r3/stage/chunk-assets-16m-runtime-g1-r8`, release
+  `proof-assets-ownership-destination-v1-preprod-d2c944d-r3-runtime-g1-r8`.
+  Its 124-part/16-MiB manifest reuses the immutable preprod PK/CCS objects and
+  pins the reviewed r8 proof WASM, Worker JS/WASM, v1 VK, key manifest, and
+  active adaptive descriptor under the existing r3 signing key.
+- Public same-origin runtime and proof-assets hashes match the detached signed
+  manifest. Active tuning has no explicit worker count, base shard count 8,
+  rf2, pinned decode, W1/W2/W3/W5/W6/W7 enabled, GOGC50, and 3000MiB. New
+  clients use `shards=max(8,resolved workers)` with an 8..16 worker cap; older
+  clients retain their worker8 default.
+- The production-host w16/s16 proof fetched the existing CDN chunks, qualified
+  every Worker 0..15, and verified locally and through the compiled contract at
+  115,770 ms / 1.4627 GiB. Heavy simultaneous Go and Midgard builds make that
+  timing confirmation-only; the local signed-r8 G1 gate remains 70,400 ms /
+  1.4593 GiB. Both tamper matrices and the final five-case r8 fault suite pass.
+- The public proof WASM is deliberately the exact pre-C3 r8 snapshot. Do not
+  rebuild only that file from the later circuit-working tree: T-CIRCUIT changes
+  require the G3 ceremony plus a full PK/CCS/VK/manifest/runtime coherence
+  refresh, not a partial runtime replacement.
+
+W7 verified-chunk reuse qualification, 2026-07-10:
+
+- A fresh signed local candidate manifest used the existing immutable
+  `proof-assets/preprod-d2c944d-r3/` 16-MiB PK chunks as its absolute ranged
+  transport while the reviewed candidate WASM and Worker stayed local. No R2
+  object was uploaded, replaced, or made a new trust root.
+- On the cumulative W1/W2/W3/W6 w8/s32/rf2 profile, W7 reduced fetched and
+  hashed bytes from 5,819,026,151 to 3,002,232,397 (48.41%). Its per-Worker
+  verified LRU served 2,816,793,754 bytes from 168 hits; aggregate hash time
+  fell about 48.6%.
+- The guarded runs were contaminated by unrelated host work, but the candidate
+  still improved prove time from 168,491 to 145,288 ms (13.77%) with peak main
+  heap within 0.14%. Both arms passed local and compiled-contract verification,
+  exact 336-byte Cardano export, coherence identity, and tamper rejection.
+- Evidence prefix: `experiments/wasm-prover/output/w7-r6-hosted-2026-07-10-`
+  (baseline/candidate JSON, summary, and telemetry files).
+
 Hosted R2 path, 2026-07-09:
 
 - The 16 MiB chunk and 187 MB CCS returned correct `206` ranges, wildcard CORS,

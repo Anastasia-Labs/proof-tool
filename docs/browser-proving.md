@@ -73,18 +73,30 @@ metadata and must still pass the claim backend's recomputation and VK gates.
 production route:
 
 ```text
-worker_count:            8
-shard_count:             32
+worker_count:            adaptive 8..16 when W5 is enabled and no explicit count is pinned
+shard_count:             base 8; raised to at least the applied worker count
 range_fetch_concurrency: 2
 pinned_decode:           true
+opt_w1/w2/w3/w5/w6/w7:  true
 GOGC:                    50
 GOMEMLIMIT:              3000MiB
 ```
 
-The accepted local O4/O2 run used `streampk-sharded-groth16`, completed proof
-construction in 111.461 seconds (115.900 seconds wall time), peaked at 2.316
-GiB main WASM heap, verified locally, and passed tamper rejection for the target
-credential, destination, public input, proof bytes, and `vk_hash`.
+The accepted Gate G1 signed-r8 run used `streampk-sharded-groth16` with all
+W1-W7 flags, 16 applied Workers, 16 shards, and range-fetch concurrency two.
+It completed proof construction in 70.400 seconds, peaked at 1.4593 GiB main
+WASM heap, verified locally and through the compiled contract, and passed the
+complete tamper and five-case fault suites. The production-host confirmation
+completed in 115.770 seconds / 1.4627 GiB under substantially heavier
+concurrent load; it confirms coherence rather than replacing the accepted G1
+performance result. The old 111.461-second / 2.316-GiB O4/O2 run remains the
+ideal-host pre-optimization reference only.
+
+These are browser-prover source defaults and proof-runtime measurements. They
+do not change claim batching by themselves. Until the statement-bound V2
+deployment is activated, the current Preprod V1 manifest remains authoritative
+for its legacy claim policy; the selected V2 candidate separately uses
+default/optimization/hard caps `6/6/7` with seven as explicit opt-in.
 
 Pinned decode skips redundant subgroup checks only for digest-authenticated PK
 chunks and still performs on-curve validation. Commitment Basis and
@@ -95,10 +107,9 @@ worker-bound stages without changing proof challenges.
 
 ## Dependency Strategy
 
-Upstream gnark v0.15.0 does not expose the required BLS12-381 `ProveStream`
-seam. The reviewed additive patch is
-`experiments/wasm-prover/patches/prove-stream.patch`. `vendor/` must equal a
-clean `go mod vendor` plus that patch:
+Upstream gnark v0.15.0 does not expose all seams required by the reviewed
+browser runtime. `vendor/` must equal a clean `go mod vendor` plus the ordered
+runtime patch set managed by these scripts:
 
 ```bash
 scripts/bootstrap-vendor.sh
@@ -132,7 +143,7 @@ uncontaminated summaries:
 
 ```bash
 node experiments/wasm-prover/scripts/guarded-browser-benchmark.mjs \
-  --case local-check --workers 8 --shards 32 --rf 2 --cpu-list 0-15
+  --case local-check --workers 16 --shards 16 --rf 2 --cpu-list 0-15
 ```
 
 See `browser-proving-asset-hosting.md` for asset generation/staging and

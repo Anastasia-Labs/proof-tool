@@ -33,7 +33,32 @@ type KeySource struct {
 	pkSectionPlan  *msmengine.PKSectionPlan
 }
 
-func OpenKeyFile(path string) (*KeySource, error) {
+type openConfig struct {
+	precomputeDomain bool
+}
+
+// OpenOption controls how a proving key is opened. Callers can keep the
+// legacy precomputed domain for A/B measurements or explicitly disable it.
+type OpenOption func(*openConfig)
+
+// WithDomainPrecompute controls whether the serialized FFT domain rebuilds
+// its twiddle and coset tables while the proving key is opened.
+func WithDomainPrecompute(enabled bool) OpenOption {
+	return func(config *openConfig) {
+		config.precomputeDomain = enabled
+	}
+}
+
+func resolveOpenConfig(opts []OpenOption) openConfig {
+	config := openConfig{precomputeDomain: true}
+	for _, opt := range opts {
+		opt(&config)
+	}
+	return config
+}
+
+func OpenKeyFile(path string, opts ...OpenOption) (*KeySource, error) {
+	config := resolveOpenConfig(opts)
 	idx, err := BuildIndex(path)
 	if err != nil {
 		return nil, err
@@ -43,19 +68,20 @@ func OpenKeyFile(path string) (*KeySource, error) {
 		return nil, fmt.Errorf("open proving key %s: %w", path, err)
 	}
 	ks := &KeySource{idx: idx, ra: f, closer: f}
-	if err := ks.loadSmallFields(); err != nil {
+	if err := ks.loadSmallFields(config); err != nil {
 		f.Close()
 		return nil, err
 	}
 	return ks, nil
 }
 
-func OpenKeyURL(idx *Index, url string) (*KeySource, error) {
+func OpenKeyURL(idx *Index, url string, opts ...OpenOption) (*KeySource, error) {
+	config := resolveOpenConfig(opts)
 	if err := ValidateIndex(idx); err != nil {
 		return nil, err
 	}
 	ks := &KeySource{idx: idx, ra: &httpRangeAt{client: httpDefaultClient(), url: url}, closer: io.NopCloser(bytes.NewReader(nil))}
-	if err := ks.loadSmallFields(); err != nil {
+	if err := ks.loadSmallFields(config); err != nil {
 		return nil, fmt.Errorf("open proving key URL %s: %w", url, err)
 	}
 	return ks, nil
@@ -68,7 +94,7 @@ func (ks *KeySource) Close() error {
 	return ks.closer.Close()
 }
 
-func (ks *KeySource) loadSmallFields() error {
+func (ks *KeySource) loadSmallFields(config openConfig) error {
 	if err := ValidateIndex(ks.idx); err != nil {
 		return err
 	}
@@ -77,9 +103,11 @@ func (ks *KeySource) loadSmallFields() error {
 	if _, err := ks.ra.ReadAt(domainBuf, 0); err != nil {
 		return fmt.Errorf("read domain header: %w", err)
 	}
-	if _, err := ks.domain.ReadFrom(bytes.NewReader(domainBuf)); err != nil {
-		return fmt.Errorf("decode domain: %w", err)
+	domain, err := decodeDomainHeader(domainBuf, config.precomputeDomain)
+	if err != nil {
+		return err
 	}
+	ks.domain = domain
 
 	g1Singletons := make([]byte, 3*G1RawBytes)
 	if _, err := ks.ra.ReadAt(g1Singletons, DomainHeaderBytes); err != nil {
@@ -129,6 +157,62 @@ func (ks *KeySource) loadSmallFields() error {
 	}
 
 	ks.commitmentKeys = make([]pedersen.ProvingKey, ks.idx.NbCommitmentKeys)
+	return nil
+}
+
+func decodeDomainHeader(header []byte, precompute bool) (fft.Domain, error) {
+	if len(header) != DomainHeaderBytes {
+		return fft.Domain{}, fmt.Errorf("decode domain: header size %d, want %d", len(header), DomainHeaderBytes)
+	}
+	if flag := header[DomainHeaderBytes-1]; flag > 1 {
+		return fft.Domain{}, fmt.Errorf("decode domain: precompute flag byte %d is not canonical", flag)
+	}
+	var domain fft.Domain
+	reader := bytes.NewReader(header)
+	var err error
+	if precompute {
+		_, err = domain.ReadFrom(reader)
+	} else {
+		_, err = domain.ReadFromWithoutPrecompute(reader)
+	}
+	if err != nil {
+		return fft.Domain{}, fmt.Errorf("decode domain: %w", err)
+	}
+	if reader.Len() != 0 {
+		return fft.Domain{}, fmt.Errorf("decode domain: %d trailing bytes", reader.Len())
+	}
+	if err := validateCanonicalDomain(&domain); err != nil {
+		return fft.Domain{}, fmt.Errorf("decode domain: %w", err)
+	}
+	return domain, nil
+}
+
+func validateCanonicalDomain(domain *fft.Domain) error {
+	if domain.Cardinality == 0 || domain.Cardinality&(domain.Cardinality-1) != 0 {
+		return fmt.Errorf("canonical field cardinality mismatch: %d is not a power of two", domain.Cardinality)
+	}
+	if _, err := fft.Generator(domain.Cardinality); err != nil {
+		return fmt.Errorf("canonical field cardinality mismatch: %w", err)
+	}
+	expected := fft.NewDomain(domain.Cardinality, fft.WithoutPrecompute())
+	if domain.Cardinality != expected.Cardinality {
+		return fmt.Errorf("canonical field cardinality mismatch")
+	}
+	if domain.CardinalityInv != expected.CardinalityInv {
+		return fmt.Errorf("canonical field cardinalityInv mismatch")
+	}
+	if domain.Generator != expected.Generator {
+		return fmt.Errorf("canonical field generator mismatch")
+	}
+	if domain.GeneratorInv != expected.GeneratorInv {
+		return fmt.Errorf("canonical field generatorInv mismatch")
+	}
+	if domain.FrMultiplicativeGen != expected.FrMultiplicativeGen {
+		return fmt.Errorf("canonical field shift mismatch")
+	}
+	if domain.FrMultiplicativeGenInv != expected.FrMultiplicativeGenInv {
+		return fmt.Errorf("canonical field shiftInv mismatch")
+	}
 	return nil
 }
 

@@ -94,6 +94,7 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
       transaction: {
         unsigned: true,
         tx_cbor_written: false,
+        tx_cbor_bytes: 2,
         reference_scripts: false,
         provider_measurement_only: true,
       },

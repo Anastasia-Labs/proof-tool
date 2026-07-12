@@ -401,6 +401,38 @@ export async function exportAttachedV2Scripts({ material, repoRoot = REPO_ROOT, 
     globalScript,
     baseScriptHash: validatorToScriptHash({ type: base.type, script: base.script }).toLowerCase(),
     globalScriptHash,
+    proofSlotEncoding: PROOF_SLOT_ENCODING,
+    batchTranscript: BATCH_TRANSCRIPT,
+    attachment: "direct",
+  };
+}
+
+export async function exportAttachedBaselineScripts({ material, repoRoot = REPO_ROOT, execFile: execFileFn = execFileAsync }) {
+  const contractDir = path.join(repoRoot, "contracts", "ownership-verifier");
+  const global = await exportScript(execFileFn, contractDir, [
+    "global",
+    material.params.policyId,
+    material.params.tokenName,
+    material.cardanoVkHex,
+  ]);
+  assertScriptShape(global, "global");
+  if (global.proof_slot_encoding !== "bytes-empty-same-as-previous-v1") {
+    throw new Stage2gV2EvaluationError(
+      "stage2g_baseline_export_invalid",
+      "baseline exporter did not return the canonical current proof-slot encoding.",
+    );
+  }
+  const globalScript = { type: global.type, script: global.script };
+  const globalScriptHash = validatorToScriptHash(globalScript).toLowerCase();
+  const base = await exportScript(execFileFn, contractDir, ["base", globalScriptHash]);
+  assertScriptShape(base, "base");
+  return {
+    baseScript: { type: base.type, script: base.script },
+    globalScript,
+    baseScriptHash: validatorToScriptHash({ type: base.type, script: base.script }).toLowerCase(),
+    globalScriptHash,
+    proofSlotEncoding: "bytes-empty-same-as-previous-v1",
+    batchTranscript: "proof-only-v1",
     attachment: "direct",
   };
 }
@@ -465,13 +497,23 @@ export async function buildSyntheticAttachedTx({ provider, material, scripts, lu
     if (entries.some((entry) => !entry)) {
       throw new Stage2gV2EvaluationError("stage2g_base_input_order", "Final synthetic ReclaimBase input order is not represented in benchmark material.");
     }
-    return Data.to(
-      new Constr(0, [
-        BigInt(paramsIndex),
-        0n,
-        entries.map((entry) => entry.proofHex),
-        entries.map((entry) => entry.publicInputDigestHex),
-      ]),
+    const proofs = entries.map((entry) => entry.proofHex);
+    if (scripts.proofSlotEncoding === PROOF_SLOT_ENCODING && scripts.batchTranscript === BATCH_TRANSCRIPT) {
+      return Data.to(
+        new Constr(0, [
+          BigInt(paramsIndex),
+          0n,
+          proofs,
+          entries.map((entry) => entry.publicInputDigestHex),
+        ]),
+      );
+    }
+    if (scripts.proofSlotEncoding === "bytes-empty-same-as-previous-v1" && scripts.batchTranscript === "proof-only-v1") {
+      return Data.to(new Constr(0, [BigInt(paramsIndex), 0n, proofs]));
+    }
+    throw new Stage2gV2EvaluationError(
+      "stage2g_proof_slot_encoding",
+      "Synthetic comparison builder received an unsupported proof-slot encoding.",
     );
   };
 
@@ -688,7 +730,7 @@ function assertBuiltTransaction(built) {
   }
 }
 
-function createPreprodProvider(env) {
+export function createPreprodProvider(env) {
   const projectId = env.RECLAIM_BLOCKFROST_PROJECT_ID?.trim() || env.BLOCKFROST_PROJECT_ID?.trim();
   if (!projectId) {
     throw new Stage2gV2EvaluationError("blockfrost_project_id_missing", "RECLAIM_BLOCKFROST_PROJECT_ID is required for Stage 2g Preprod evaluation.");
@@ -791,6 +833,7 @@ function buildEvidence({ materialPath, material, scripts, txCbor, evaluation, ou
     transaction: {
       unsigned: true,
       tx_cbor_written: false,
+      tx_cbor_bytes: txCbor.length / 2,
       tx_fingerprint: `sha256:${createHash("sha256").update(txCbor, "hex").digest("hex")}`,
       synthetic_inputs: true,
       reference_scripts: false,

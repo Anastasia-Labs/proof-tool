@@ -16,6 +16,37 @@ import (
 // Prove uses the vendored gnark ProveStream entrypoint while keeping the large
 // proving-key point vectors in source instead of in the gnark ProvingKey shell.
 func Prove(ccs constraint.ConstraintSystem, source *streampk.KeySource, assignment frontend.Circuit) (groth16.Proof, error) {
+	return prove(ccs, nil, source, assignment, Options{})
+}
+
+type Options struct {
+	OptW1 bool
+	OptW6 bool
+}
+
+func ProveWithOptions(ccs constraint.ConstraintSystem, source *streampk.KeySource, assignment frontend.Circuit, options Options) (groth16.Proof, error) {
+	return prove(ccs, nil, source, assignment, options)
+}
+
+// ProveAndRelease consumes owner after Solve succeeds. On success and on any
+// post-Solve failure, *owner is nil before the remaining proof work runs. A
+// Solve failure retains ownership so callers can diagnose the original CCS.
+func ProveAndRelease(owner *constraint.ConstraintSystem, source *streampk.KeySource, assignment frontend.Circuit) (groth16.Proof, error) {
+	return ProveAndReleaseWithOptions(owner, source, assignment, Options{})
+}
+
+func ProveAndReleaseWithOptions(owner *constraint.ConstraintSystem, source *streampk.KeySource, assignment frontend.Circuit, options Options) (groth16.Proof, error) {
+	if owner == nil || *owner == nil {
+		return nil, fmt.Errorf("constraint system owner is nil")
+	}
+	ccs := *owner
+	return prove(ccs, func() {
+		*owner = nil
+		ccs = nil
+	}, source, assignment, options)
+}
+
+func prove(ccs constraint.ConstraintSystem, release func(), source *streampk.KeySource, assignment frontend.Circuit, options Options) (groth16.Proof, error) {
 	if source == nil {
 		return nil, fmt.Errorf("stream proving key source is required")
 	}
@@ -41,7 +72,19 @@ func Prove(ccs constraint.ConstraintSystem, source *streampk.KeySource, assignme
 	pk.NbInfinityB = source.NbInfinityB()
 	pk.CommitmentKeys = source.CommitmentKeys()
 
-	proof, err := groth16_bls12381.ProveStream(r1cs, pk, source, witness)
+	var releaseAll func()
+	if release != nil {
+		releaseAll = func() {
+			release()
+			ccs = nil
+			r1cs = nil
+		}
+	}
+	runtimeOptions := groth16_bls12381.StreamRuntimeOptions{OptW1: options.OptW1, OptW6: options.OptW6}
+	if options.OptW1 {
+		runtimeOptions.YieldToEventLoop = yieldToEventLoop
+	}
+	proof, err := groth16_bls12381.ProveStreamWithRuntimeOptions(r1cs, pk, source, witness, releaseAll, runtimeOptions)
 	if err != nil {
 		return nil, fmt.Errorf("groth16 ProveStream: %w", err)
 	}

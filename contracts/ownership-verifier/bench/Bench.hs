@@ -5,8 +5,9 @@
 module Main (main) where
 
 import Control.Monad (forM_, unless)
-import Crypto.Hash (Blake2b_256, Digest, hash)
+import Crypto.Hash (Blake2b_224, Blake2b_256, Digest, hash)
 import Data.Aeson (FromJSON (..), eitherDecode, withObject, (.:))
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
 import Data.Char (digitToInt, isHexDigit)
@@ -394,15 +395,28 @@ main = do
       (compiledCodeSize (multiGlobalValidatorCode paramCurrencySymbol (multiFixtureVerifierKey fixture)))
       (compiledCodeSize (v2MultiGlobalValidatorCode paramCurrencySymbol (multiFixtureVerifierKey fixture)))
   let productionParamCurrencySymbol = V3.CurrencySymbol (bytesToBuiltin (replicate 28 0))
-      productionGlobalCredential = V3.ScriptCredential (V3.ScriptHash (bytesToBuiltin (replicate 28 0)))
       productionGlobalCode = globalValidatorCode productionParamCurrencySymbol destinationVk
       productionV2GlobalCode = v2GlobalValidatorCode productionParamCurrencySymbol destinationVk
       productionStatementV2GlobalCode = statementV2GlobalValidatorCode productionParamCurrencySymbol destinationVk (B.blake2b_256 destinationVk)
-  printf "28-byte parameter-width shape sizes (not deployment-coherent script hashes): base=%d bytes; current global=%d bytes; historical V2 global=%d bytes; statement-bound V2 global=%d bytes\n"
-    (compiledCodeSize (baseValidatorCode productionGlobalCredential))
+      productionCurrentGlobalCredential =
+        V3.ScriptCredential
+          (V3.ScriptHash (bytesToBuiltin (decodeHex (compiledCodePlutusV3ScriptHash productionGlobalCode))))
+      productionStatementV2GlobalCredential =
+        V3.ScriptCredential
+          (V3.ScriptHash (bytesToBuiltin (decodeHex (compiledCodePlutusV3ScriptHash productionStatementV2GlobalCode))))
+      productionCurrentBaseCode = baseValidatorCode productionCurrentGlobalCredential
+      productionStatementV2BaseCode = baseValidatorCode productionStatementV2GlobalCredential
+  printf "28-byte parameter-width paired shape sizes: current base=%d bytes; current global=%d bytes; historical V2 global=%d bytes; statement-bound base=%d bytes; statement-bound global=%d bytes\n"
+    (compiledCodeSize productionCurrentBaseCode)
     (compiledCodeSize productionGlobalCode)
     (compiledCodeSize productionV2GlobalCode)
+    (compiledCodeSize productionStatementV2BaseCode)
     (compiledCodeSize productionStatementV2GlobalCode)
+  printf "28-byte parameter-width paired PlutusV3 script hashes: current base=%s; current global=%s; statement-bound base=%s; statement-bound global=%s\n"
+    (compiledCodePlutusV3ScriptHash productionCurrentBaseCode)
+    (compiledCodePlutusV3ScriptHash productionGlobalCode)
+    (compiledCodePlutusV3ScriptHash productionStatementV2BaseCode)
+    (compiledCodePlutusV3ScriptHash productionStatementV2GlobalCode)
   printf "production global serialized blake2b256 snapshot: %s\n"
     (compiledCodeDigest productionGlobalCode)
 
@@ -694,7 +708,7 @@ printV2ReleasePolicy defaultSix distinctSeven duplicateCredentials = do
       <> "; policy="
       <> releaseStatus (benchTotal defaultSix)
   putStrLn $
-    "V2 N=7 distinct-credential opt-in classification: raw="
+    "V2 N=7 opt-in capacity classification (distinct benchmark material): raw="
       <> rawLimitStatus (benchTotal distinctSeven)
       <> "; policy="
       <> releaseStatus (benchTotal distinctSeven)
@@ -1193,6 +1207,14 @@ compiledCodeSize = SBS.length . V3.serialiseCompiledCode
 compiledCodeDigest :: CompiledCode a -> String
 compiledCodeDigest code =
   show (hash (SBS.fromShort (V3.serialiseCompiledCode code)) :: Digest Blake2b_256)
+
+compiledCodePlutusV3ScriptHash :: CompiledCode a -> String
+compiledCodePlutusV3ScriptHash code =
+  show
+    ( hash
+        (BS.cons 3 (SBS.fromShort (V3.serialiseCompiledCode code))) ::
+        Digest Blake2b_224
+    )
 
 reclaimGlobalMultiContext :: MultiOwnershipFixture -> V3.ScriptContext
 reclaimGlobalMultiContext fixture =

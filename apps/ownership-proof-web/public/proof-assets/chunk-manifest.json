@@ -1,8 +1,8 @@
 {
   "schema": "proof-tool-proof-assets-chunk-manifest-v1",
-  "release": "proof-assets-ownership-destination-v1-preprod-d2c944d-r3",
+  "release": "proof-assets-ownership-destination-v1-preprod-d2c944d-r3-runtime-g1-r8",
   "profile": "preprod-single-destination",
-  "generated_at": "2026-07-09T17:10:42Z",
+  "generated_at": "2026-07-11T07:01:36Z",
   "signature_key_id": "preprod-local-destination-d2c944dd753c-r3",
   "coherence": {
     "key_manifest_sha256": "sha256:d7141830b1dbf94b1a50a8a400b904c88188c6f7aec17aee6773324d0d79eee6",
@@ -1083,9 +1083,9 @@
   "assets": {
     "msmworker.wasm": {
       "path": "msmworker.wasm",
-      "size": 11964299,
-      "sha256": "sha256:b00efa5042dd4cd90f37441a06331c180fbd0d0e51c49ac950ebeeb65e22e785",
-      "blake2b256": "blake2b256:1a85915441338b491f88248fa8464e3d48e9188c9f961fda752c8a8462a4aa35"
+      "size": 11982326,
+      "sha256": "sha256:829f5d523357520ddea35003d7aec2697eccffe7ec8aa31d62fda3ed4ad89f92",
+      "blake2b256": "blake2b256:87c0f88c3eb73e2cecfa7fc2de0b03caa74e8b5e0d94f354172cfdecbefaa79b"
     },
     "ownership-destination.ccs": {
       "path": "ownership-destination.ccs",
@@ -1101,15 +1101,15 @@
     },
     "proof-destination.wasm": {
       "path": "proof-destination.wasm",
-      "size": 24190932,
-      "sha256": "sha256:a8a132997e3c79ab392d6e8431fd6fa64c0c3fbdf4ede460e4165bf1cf004af1",
-      "blake2b256": "blake2b256:a2fd2ca30aea32280601e7a0e3c31f9c958ce94bcdf4b7110a985929fb0973a5"
+      "size": 24385284,
+      "sha256": "sha256:4c9e82af624567fe0f8e1711ecd882994ac7cb27456fb19d867a6667d869ecbd",
+      "blake2b256": "blake2b256:3c5975217c8466ab2705ebf6919a8bc97ee3b383c7040ca376de6448c7e14524"
     },
     "worker.js": {
       "path": "worker.js",
-      "size": 10555,
-      "sha256": "sha256:d0443d0034aa237264fc68a7ccc10d9dfbc01e5d0690f818379d630dc88da81d",
-      "blake2b256": "blake2b256:6768151ca0ab3ff4a6b71e36ed6733c8d6a7261bda760a6bce620c6fcf5b7a48"
+      "size": 13081,
+      "sha256": "sha256:2681219f2d63b193dfed3f2dd855294271fa5e54a42ed695cb022bdc9b56c77a",
+      "blake2b256": "blake2b256:4120d3f7f4407a5160fece0cfc44b56b91afdc69b8835cf213dbfa6791db77ff"
     }
   }
 }

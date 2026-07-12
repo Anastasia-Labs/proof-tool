@@ -1,0 +1,87 @@
+--- vendor/github.com/consensys/gnark/backend/groth16/bls12-381/prove.go
++++ vendor/github.com/consensys/gnark/backend/groth16/bls12-381/prove.go
+@@ -359,6 +359,14 @@
+ // stock Prove of the same witness; only the random r,s (and thus Ar/Bs/Krs)
+ // differ.
+ func ProveStream(r1cs *cs.R1CS, pk *ProvingKey, src VectorSource, fullWitness witness.Witness, opts ...backend.ProverOption) (*Proof, error) {
++	return ProveStreamWithRelease(r1cs, pk, src, fullWitness, nil, opts...)
++}
++
++// ProveStreamWithRelease is ProveStream with an ownership-transfer seam for
++// opt-W3. releaseR1CS is called exactly once after Solve succeeds and every
++// value needed from r1cs has been snapshotted. It is not called on Solve
++// failure, so callers may inspect or retry from the still-owned R1CS.
++func ProveStreamWithRelease(r1cs *cs.R1CS, pk *ProvingKey, src VectorSource, fullWitness witness.Witness, releaseR1CS func(), opts ...backend.ProverOption) (*Proof, error) {
+ 	opt, err := backend.NewProverConfig(opts...)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("new prover config: %w", err)
+@@ -423,13 +431,35 @@
+ 		"gc_suspended": solverGCFields["gc_suspended"],
+ 	})
+ 	_solution, err := r1cs.Solve(fullWitness, solverOpts...)
+-	restoreSolverGC()
+ 	if err != nil {
++		restoreSolverGC()
+ 		endSolver(map[string]any{"error": err.Error()})
+ 		return nil, err
+ 	}
+ 	endSolver(nil)
+ 
++	// opt-W3: these are the final values derived from r1cs. Snapshot them before
++	// releasing every owner reference; no later prover path may touch r1cs.
++	privateCommitted := commitmentInfo.GetPrivateCommitted()
++	commitmentIndexes := append([]int(nil), commitmentInfo.CommitmentIndexes()...)
++	commitmentCount := len(commitmentInfo)
++	toRemoveK := append(privateCommitted, commitmentIndexes)
++	kRemovalIndexes := internal.ConcatAll(toRemoveK...)
++	nbPublicVariables := r1cs.GetNbPublicVariables()
++	commitmentInfo = nil
++	endReleaseCCS := msmengine.TraceStage("release-ccs", map[string]any{
++		"nb_public_variables": nbPublicVariables,
++	})
++	if releaseR1CS != nil {
++		releaseR1CS()
++		r1cs = nil
++		restoreSolverGC()
++		runtime.GC()
++		endReleaseCCS(map[string]any{"released": true})
++	} else {
++		restoreSolverGC()
++		endReleaseCCS(map[string]any{"released": false})
++	}
+ 	solution := _solution.(*cs.R1CSSolution)
+ 	wireValues := []fr.Element(solution.W)
+ 
+@@ -472,9 +502,9 @@
+ 		endMSM(nil)
+ 		poks[i].FromJacobian(&pokJac)
+ 	}
+-	commitmentsSerialized := make([]byte, fr.Bytes*len(commitmentInfo))
+-	for i := range commitmentInfo {
+-		copy(commitmentsSerialized[fr.Bytes*i:], wireValues[commitmentInfo[i].CommitmentIndex].Marshal())
++	commitmentsSerialized := make([]byte, fr.Bytes*commitmentCount)
++	for i, commitmentIndex := range commitmentIndexes {
++		copy(commitmentsSerialized[fr.Bytes*i:], wireValues[commitmentIndex].Marshal())
+ 	}
+ 	challenge, err := fr.Hash(commitmentsSerialized, []byte("G16-BSB22"), 1)
+ 	if err != nil {
+@@ -550,9 +580,7 @@
+ 
+ 	// Precompute _wireValues (the G1.K filtered subset of wireValues) while
+ 	// G2B workers are busy, then drop the full wireValues slice.
+-	toRemoveK := commitmentInfo.GetPrivateCommitted()
+-	toRemoveK = append(toRemoveK, commitmentInfo.CommitmentIndexes())
+-	_wireValues := filterHeap(wireValues[r1cs.GetNbPublicVariables():], r1cs.GetNbPublicVariables(), internal.ConcatAll(toRemoveK...))
++	_wireValues := filterHeap(wireValues[nbPublicVariables:], nbPublicVariables, kRemovalIndexes)
+ 	wireValues = nil
+ 
+ 	// RANGE-FETCH LEVER (Task "Browser latency"): the five big MSMs below no
+@@ -670,7 +698,6 @@
+ 	return func() {
+ 		debug.SetMemoryLimit(prevMemLimit)
+ 		debug.SetGCPercent(prevGCPercent)
+-		runtime.GC()
+ 	}, map[string]any{"gc_suspended": true}
+ }
+ 
+

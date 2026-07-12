@@ -59,11 +59,15 @@ class DeployPreprodError extends Error {
 export async function deployReclaimPreprod(options = {}) {
   const repoRoot = options.repoRoot ?? REPO_ROOT;
   const env = { ...process.env, ...(options.env ?? {}) };
+  const assertCleanPushedSourceFn = options.assertCleanPushedSourceFn ?? assertCleanPushedSource;
+  const prepareDestinationKeysFn = options.prepareDestinationKeysFn ?? prepareDestinationKeys;
+  const loadWalletFileFn = options.loadWalletFileFn ?? loadWalletFile;
   loadLocalEnv(env, repoRoot);
   assertPreprodOnly(env);
 
-  const git = await assertCleanPushedSource(repoRoot);
-  const walletFile = loadWalletFile(env, repoRoot);
+  const git = await assertCleanPushedSourceFn(repoRoot);
+  const destination = await prepareDestinationKeysFn({ env, repoRoot, git });
+  const walletFile = loadWalletFileFn(env, repoRoot);
   const deployer = walletRole(walletFile, "deployer");
   const provider = createProvider(env);
   const protocol = await provider.getProtocolParameters();
@@ -75,7 +79,6 @@ export async function deployReclaimPreprod(options = {}) {
     throw new DeployPreprodError("deployer_network_invalid", "Deployer wallet must derive a Preprod address.");
   }
 
-  const destination = await prepareDestinationKeys({ env, repoRoot, git });
   const deployerUtxos = await provider.getUtxos(deployerAddress);
   const seedUtxo = selectSeedUtxo(deployerUtxos);
   const oneShotScript = await exportScript("one-shot", seedUtxo.txHash, String(seedUtxo.outputIndex));

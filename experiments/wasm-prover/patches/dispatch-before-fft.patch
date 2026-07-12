@@ -1,0 +1,343 @@
+--- vendor/github.com/consensys/gnark/backend/groth16/bls12-381/prove.go
++++ vendor/github.com/consensys/gnark/backend/groth16/bls12-381/prove.go
+@@ -362,11 +362,25 @@
+ 	return ProveStreamWithRelease(r1cs, pk, src, fullWitness, nil, opts...)
+ }
+ 
++// StreamRuntimeOptions contains independently gated runtime-only scheduling
++// levers. Their zero value preserves the pre-W1 stream-prover ordering.
++type StreamRuntimeOptions struct {
++	OptW1            bool
++	YieldToEventLoop func()
++}
++
+ // ProveStreamWithRelease is ProveStream with an ownership-transfer seam for
+ // opt-W3. releaseR1CS is called exactly once after Solve succeeds and every
+ // value needed from r1cs has been snapshotted. It is not called on Solve
+ // failure, so callers may inspect or retry from the still-owned R1CS.
+ func ProveStreamWithRelease(r1cs *cs.R1CS, pk *ProvingKey, src VectorSource, fullWitness witness.Witness, releaseR1CS func(), opts ...backend.ProverOption) (*Proof, error) {
++	return ProveStreamWithRuntimeOptions(r1cs, pk, src, fullWitness, releaseR1CS, StreamRuntimeOptions{}, opts...)
++}
++
++// ProveStreamWithRuntimeOptions is the independently gated W1/W3 entrypoint.
++// W1 changes only scheduling and event-loop cooperation; W3 remains controlled
++// solely by whether releaseR1CS is non-nil.
++func ProveStreamWithRuntimeOptions(r1cs *cs.R1CS, pk *ProvingKey, src VectorSource, fullWitness witness.Witness, releaseR1CS func(), runtimeOptions StreamRuntimeOptions, opts ...backend.ProverOption) (*Proof, error) {
+ 	opt, err := backend.NewProverConfig(opts...)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("new prover config: %w", err)
+@@ -462,6 +476,9 @@
+ 	}
+ 	solution := _solution.(*cs.R1CSSolution)
+ 	wireValues := []fr.Element(solution.W)
++	if runtimeOptions.OptW1 {
++		return proveStreamW1(pk, src, proof, solution, wireValues, privateCommittedValues, commitmentIndexes, commitmentCount, kRemovalIndexes, nbPublicVariables, runtimeOptions)
++	}
+ 
+ 	start := time.Now()
+ 
+@@ -660,6 +677,251 @@
+ 	return proof, nil
+ }
+ 
++// proveStreamW1 preserves the exact Groth16 assembly below while moving every
++// witness-only section MSM ahead of computeH. Only Z depends on h, so it is
++// dispatched by the h waiter as soon as the FFT result exists. Collection is
++// ordered by proof dependencies; shard completion order is irrelevant because
++// each handle combines its partials by deterministic shard index.
++func proveStreamW1(
++	pk *ProvingKey,
++	src VectorSource,
++	proof *Proof,
++	solution *cs.R1CSSolution,
++	wireValues []fr.Element,
++	privateCommittedValues [][]fr.Element,
++	commitmentIndexes []int,
++	commitmentCount int,
++	kRemovalIndexes []int,
++	nbPublicVariables int,
++	runtimeOptions StreamRuntimeOptions,
++) (*Proof, error) {
++	engine, ok := msmengine.Current().(msmengine.AsyncPKSectionEngine)
++	if !ok {
++		return nil, fmt.Errorf("opt-W1 requires an asynchronous proving-key section engine")
++	}
++	plan := src.PKSectionPlan()
++	if plan == nil {
++		return nil, fmt.Errorf("opt-W1 requires a pinned proving-key section plan")
++	}
++	completed := false
++	defer func() {
++		if !completed {
++			engine.CancelOutstanding(fmt.Errorf("opt-W1 proof aborted"))
++		}
++	}()
++
++	start := time.Now()
++	wireValuesB := make([]fr.Element, len(wireValues)-int(pk.NbInfinityB))
++	for i, j := 0, 0; j < len(wireValuesB); i++ {
++		if pk.InfinityB[i] {
++			continue
++		}
++		wireValuesB[j] = wireValues[i]
++		j++
++	}
++	wireValuesA := make([]fr.Element, len(wireValues)-int(pk.NbInfinityA))
++	for i, j := 0, 0; j < len(wireValuesA); i++ {
++		if pk.InfinityA[i] {
++			continue
++		}
++		wireValuesA[j] = wireValues[i]
++		j++
++	}
++	filteredWireValues := filterHeap(wireValues[nbPublicVariables:], nbPublicVariables, kRemovalIndexes)
++	wireValues = nil
++
++	// Randomness and delta terms are unchanged; moving them before computeH does
++	// not affect any scalar vector or transcript input.
++	var r, s big.Int
++	var _r, _s, _kr fr.Element
++	if _, err := _r.SetRandom(); err != nil {
++		return nil, err
++	}
++	if _, err := _s.SetRandom(); err != nil {
++		return nil, err
++	}
++	_kr.Mul(&_r, &_s).Neg(&_kr)
++	_r.BigInt(&r)
++	_s.BigInt(&s)
++	deltas := curve.BatchScalarMultiplicationG1(&pk.G1.Delta, []fr.Element{_r, _s, _kr})
++
++	type tracedHandle struct {
++		h   msmengine.SectionHandle
++		end func(map[string]any)
++	}
++	dispatchG1 := func(stage, section string, scalars []fr.Element) (tracedHandle, error) {
++		end := msmengine.TraceStage(stage, map[string]any{"section": section, "scalars": len(scalars), "async_dispatch": true})
++		h, err := engine.DispatchG1Section(plan, section, len(scalars), scalars, nil)
++		if err != nil {
++			end(map[string]any{"error": err.Error()})
++			return tracedHandle{}, err
++		}
++		return tracedHandle{h: h, end: end}, nil
++	}
++	dispatchG2 := func(stage, section string, scalars []fr.Element) (tracedHandle, error) {
++		end := msmengine.TraceStage(stage, map[string]any{"section": section, "scalars": len(scalars), "async_dispatch": true})
++		h, err := engine.DispatchG2Section(plan, section, len(scalars), scalars, nil)
++		if err != nil {
++			end(map[string]any{"error": err.Error()})
++			return tracedHandle{}, err
++		}
++		return tracedHandle{h: h, end: end}, nil
++	}
++	collectG1 := func(dst *curve.G1Jac, item tracedHandle) error {
++		err := engine.CollectG1Section(dst, item.h)
++		if err != nil {
++			item.end(map[string]any{"error": err.Error()})
++			return err
++		}
++		item.end(nil)
++		return nil
++	}
++	collectG2 := func(dst *curve.G2Jac, item tracedHandle) error {
++		err := engine.CollectG2Section(dst, item.h)
++		if err != nil {
++			item.end(map[string]any{"error": err.Error()})
++			return err
++		}
++		item.end(nil)
++		return nil
++	}
++
++	// Populate the bounded queue in dependency-independent order before FFT.
++	sigmaHandles := make([]tracedHandle, len(pk.CommitmentKeys))
++	for i := range pk.CommitmentKeys {
++		section := commitmentSectionName("BasisExpSigma", i)
++		item, err := dispatchG1("commitment BasisExpSigma MSM", section, privateCommittedValues[i])
++		if err != nil {
++			return nil, err
++		}
++		sigmaHandles[i] = item
++	}
++	g2bHandle, err := dispatchG2("G2B", "G2B", wireValuesB)
++	if err != nil {
++		return nil, err
++	}
++	aHandle, err := dispatchG1("A", "A", wireValuesA)
++	if err != nil {
++		return nil, err
++	}
++	bHandle, err := dispatchG1("B", "B", wireValuesB)
++	if err != nil {
++		return nil, err
++	}
++	kHandle, err := dispatchG1("K", "K", filteredWireValues)
++	if err != nil {
++		return nil, err
++	}
++
++	domain := fft.NewDomain(pk.Domain.Cardinality, fft.WithoutPrecompute())
++	hCh := make(chan []fr.Element, 1)
++	go func(a, b, c []fr.Element) {
++		end := msmengine.TraceStage("computeH / FFT", map[string]any{
++			"domain_cardinality": pk.Domain.Cardinality,
++			"overlapped_with":    "commitment BasisExpSigma MSM,G2B,A,B,K",
++			"event_loop_yields":  runtimeOptions.YieldToEventLoop != nil,
++		})
++		h := computeHWithYield(a, b, c, domain, runtimeOptions.YieldToEventLoop)
++		end(map[string]any{"h_scalars": len(h)})
++		hCh <- h
++	}(solution.A, solution.B, solution.C)
++	solution.A, solution.B, solution.C = nil, nil, nil
++
++	// Z is the sole h-dependent MSM. Its waiter dispatches immediately when h
++	// becomes available even if the main goroutine is parked in an earlier collect.
++	type zDispatch struct {
++		item tracedHandle
++		h    []fr.Element
++		err  error
++	}
++	zCh := make(chan zDispatch, 1)
++	go func() {
++		h := <-hCh
++		sizeH := int(pk.Domain.Cardinality - 1)
++		item, err := dispatchG1("Z", "Z", h[:sizeH])
++		zCh <- zDispatch{item: item, h: h, err: err}
++	}()
++
++	poks := make([]curve.G1Affine, len(sigmaHandles))
++	for i, item := range sigmaHandles {
++		var pokJac curve.G1Jac
++		if err := collectG1(&pokJac, item); err != nil {
++			return nil, err
++		}
++		poks[i].FromJacobian(&pokJac)
++	}
++	commitmentsSerialized := make([]byte, fr.Bytes*commitmentCount)
++	for i, commitmentIndex := range commitmentIndexes {
++		copy(commitmentsSerialized[fr.Bytes*i:], solution.W[commitmentIndex].Marshal())
++	}
++	challenge, err := fr.Hash(commitmentsSerialized, []byte("G16-BSB22"), 1)
++	if err != nil {
++		return nil, err
++	}
++	if _, err = proof.CommitmentPok.Fold(poks, challenge[0], ecc.MultiExpConfig{NbTasks: 1}); err != nil {
++		return nil, err
++	}
++	privateCommittedValues = nil
++
++	var bs2 curve.G2Jac
++	if err := collectG2(&bs2, g2bHandle); err != nil {
++		return nil, err
++	}
++	var deltaS curve.G2Jac
++	deltaS.FromAffine(&pk.G2.Delta)
++	deltaS.ScalarMultiplication(&deltaS, &s)
++	bs2.AddAssign(&deltaS)
++	bs2.AddMixed(&pk.G2.Beta)
++	proof.Bs.FromJacobian(&bs2)
++
++	var ar curve.G1Jac
++	if err := collectG1(&ar, aHandle); err != nil {
++		return nil, err
++	}
++	wireValuesA = nil
++	ar.AddMixed(&pk.G1.Alpha)
++	ar.AddMixed(&deltas[0])
++	proof.Ar.FromJacobian(&ar)
++
++	var bs1 curve.G1Jac
++	if err := collectG1(&bs1, bHandle); err != nil {
++		return nil, err
++	}
++	wireValuesB = nil
++	bs1.AddMixed(&pk.G1.Beta)
++	bs1.AddMixed(&deltas[1])
++
++	var krs curve.G1Jac
++	if err := collectG1(&krs, kHandle); err != nil {
++		return nil, err
++	}
++	filteredWireValues = nil
++	z := <-zCh
++	if z.err != nil {
++		return nil, z.err
++	}
++	var krs2 curve.G1Jac
++	if err := collectG1(&krs2, z.item); err != nil {
++		return nil, err
++	}
++	z.h = nil
++	runtime.GC()
++
++	krs.AddMixed(&deltas[2])
++	krs.AddAssign(&krs2)
++	var p1 curve.G1Jac
++	p1.ScalarMultiplication(&ar, &s)
++	krs.AddAssign(&p1)
++	p1.ScalarMultiplication(&bs1, &r)
++	krs.AddAssign(&p1)
++	proof.Krs.FromJacobian(&krs)
++
++	completed = true
++	log := logger.Logger()
++	log.Debug().Dur("took", time.Since(start)).Msg("prover done (streampk opt-W1)")
++	return proof, nil
++}
++
+ func msmG1SectionOrRange(dst *curve.G1Jac, src VectorSource, section string, n int, scalars []fr.Element) error {
+ 	if plan := src.PKSectionPlan(); plan != nil {
+ 		if engine, ok := msmengine.Current().(msmengine.PKSectionEngine); ok {
+@@ -731,6 +993,10 @@
+ }
+ 
+ func computeH(a, b, c []fr.Element, domain *fft.Domain) []fr.Element {
++	return computeHWithYield(a, b, c, domain, nil)
++}
++
++func computeHWithYield(a, b, c []fr.Element, domain *fft.Domain, yield func()) []fr.Element {
+ 	// H part of Krs
+ 	// Compute H (hz=ab-c, where z=-2 on ker X^n+1 (z(x)=x^n-1))
+ 	// 	1 - _a = ifft(a), _b = ifft(b), _c = ifft(c)
+@@ -747,12 +1013,30 @@
+ 	n = len(a)
+ 
+ 	domain.FFTInverse(a, fft.DIF)
++	if yield != nil {
++		yield()
++	}
+ 	domain.FFTInverse(b, fft.DIF)
++	if yield != nil {
++		yield()
++	}
+ 	domain.FFTInverse(c, fft.DIF)
++	if yield != nil {
++		yield()
++	}
+ 
+ 	domain.FFT(a, fft.DIT, fft.OnCoset())
++	if yield != nil {
++		yield()
++	}
+ 	domain.FFT(b, fft.DIT, fft.OnCoset())
++	if yield != nil {
++		yield()
++	}
+ 	domain.FFT(c, fft.DIT, fft.OnCoset())
++	if yield != nil {
++		yield()
++	}
+ 
+ 	var den, one fr.Element
+ 	one.SetOne()
+@@ -768,6 +1052,9 @@
+ 				Mul(&a[i], &den)
+ 		}
+ 	})
++	if yield != nil {
++		yield()
++	}
+ 
+ 	// ifft_coset
+ 	domain.FFTInverse(a, fft.DIF, fft.OnCoset())
+

@@ -1,0 +1,86 @@
+{
+  "schema": "proof-tool-browser-g1-redacted-release-evidence-v1",
+  "date": "2026-07-11",
+  "status": "gate-g1-accepted-production-defaults",
+  "policy": {
+    "contamination": "Retain complete local telemetry. A contaminated candidate may establish adoption when it beats the current accepted best on the finding's designated metric; contamination is not grounds for a false-negative rejection.",
+    "raw_telemetry_publication": "local-only because host process snapshots contain unrelated command lines and paths"
+  },
+  "baselines": {
+    "approved_loaded_host": {
+      "prove_ms": 128202,
+      "peak_heap_gib": 2.3152,
+      "contaminated": true
+    },
+    "ideal_host_reference": {
+      "prove_ms": 111461,
+      "peak_heap_gib": 2.3156,
+      "contaminated": false
+    }
+  },
+  "accepted_g1": {
+    "profile": "signed-r8 w16/s16/rf2 all W1-W7 flags",
+    "prove_ms": 70400,
+    "peak_heap_gib": 1.4593,
+    "applied_workers": 16,
+    "shard_count": 16,
+    "range_fetch_concurrency": 2,
+    "verified_locally": true,
+    "verified_compiled_contract": true,
+    "exact_cardano_proof_bytes": 336,
+    "tamper_matrix": "pass",
+    "contaminated": true
+  },
+  "production_host_confirmation": {
+    "prove_ms": 115770,
+    "peak_heap_gib": 1.4627,
+    "applied_workers": 16,
+    "verified_locally": true,
+    "verified_compiled_contract": true,
+    "interpretation": "coherence confirmation only because unrelated concurrent load was substantially heavier"
+  },
+  "fault_suite": {
+    "outcome": "pass",
+    "cases": [
+      "real queued-worker termination",
+      "corrupt authenticated chunk",
+      "bounded network abort 3/3",
+      "reload and persistence recovery",
+      "verified worker4 4-core/8-GB completion"
+    ],
+    "worker4_peak_heap_gib": 1.4597,
+    "cpu_fallback": false
+  },
+  "production_defaults": {
+    "engine": "streampk-sharded-groth16",
+    "workers": "adaptive 8..16, safe floor 8",
+    "shards": "base 8, raised to at least applied worker count",
+    "range_fetch_concurrency": 2,
+    "pinned_decode": true,
+    "opt_w1": true,
+    "opt_w2": true,
+    "opt_w3": true,
+    "opt_w5": true,
+    "opt_w6": true,
+    "opt_w7": true,
+    "gogc": 50,
+    "gomemlimit": "3000MiB"
+  },
+  "local_raw_artifact_sha256": {
+    "baseline-pre-opt-2026-07-10.json": "9d17bcaf79ea056d0ff5ca76dcce1d35ccc8855b384cc03f535cf8dd50799cad",
+    "baseline-pre-opt-2026-07-10.summary.json": "e0efbea016d191c315689e2890915d10e717d39f6326a61c24f60c7466c54373",
+    "g1-r8-final-w16-s16-rf2-allflags-2026-07-11-r1.json": "fb7e877dfb2ac6490b3c7ecdfebaab4ecac936bb59e20e4ba6d7053887c1a03a",
+    "g1-r8-final-w16-s16-rf2-allflags-2026-07-11-r1.summary.json": "e0646f41eab3c84989970b1a0a04976562fa1d65f1399f231d6920f9484c19ed",
+    "g1-r8-final-w16-s16-rf2-allflags-2026-07-11-r1.telemetry.jsonl": "fccb9a303c1a8d6999f982bb64b8ec3473e1bb0923d75f16dc2cc3fd562e97f7",
+    "fault-r8-final/fault-all.json": "812afba89cbc0e978c29672d6ad33f7cb10dae084128826b11ea387f9ccda2ed",
+    "g1-r8-production-host-w16-s16-rf2-allflags-2026-07-11-r1.json": "e76dd84216138514d7ae46011e8b6cbb1f76d90e226672ad05012cbedd872fe2"
+  },
+  "redaction": {
+    "secrets": false,
+    "proof_bytes": false,
+    "public_input_bytes": false,
+    "credential_bytes": false,
+    "external_process_arguments": false,
+    "raw_host_paths": false
+  }
+}

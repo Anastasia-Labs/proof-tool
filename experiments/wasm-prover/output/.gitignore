@@ -1,0 +1,6 @@
+# Raw browser traces and telemetry remain local: host process snapshots can
+# contain unrelated command lines and paths. Commit only reviewed redacted
+# release evidence.
+*
+!.gitignore
+!g1-redacted-release-evidence-2026-07-11.json

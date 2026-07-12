@@ -1,4 +1,7 @@
-import type { BrowserProvingDescriptor, BrowserProvingTuning } from "../reclaim/types";
+import type {
+  BrowserProvingDescriptor,
+  BrowserProvingTuning,
+} from "../reclaim/types";
 import type { ClaimProofRequest } from "../claim/types";
 import { checkBrowserProvingCapability } from "./capability";
 import type {
@@ -12,21 +15,33 @@ import type {
   ProverWorkerResponse,
 } from "./types";
 
-type ProverWorkerRequestBody = ProverWorkerRequest extends infer T ? (T extends ProverWorkerRequest ? Omit<T, "id"> : never) : never;
+type ProverWorkerRequestBody = ProverWorkerRequest extends infer T
+  ? T extends ProverWorkerRequest
+    ? Omit<T, "id">
+    : never
+  : never;
 
 export const PROVER_WORKER_INIT_TIMEOUT_MS = 60_000;
 export const PROVER_PREFLIGHT_TIMEOUT_MS = 300_000;
 
-// Production tuning is the measured local7 configuration (115.9 s / 2.32 GiB).
-// Deployments may override via the descriptor's tuning block; code must not.
-const DEFAULT_TUNING: Required<Omit<BrowserProvingTuning, "shard_multiplier">> = {
-  worker_count: 8,
-  shard_count: 32,
-  range_fetch_concurrency: 2,
-  pinned_decode: true,
-  gogc: 50,
-  gomemlimit: "3000MiB",
-};
+// Gate G1 defaults. Deployments may still pin explicit values; host adaptation
+// occurs only when the descriptor explicitly opts into W5 and omits
+// worker_count, which preserves the worker-8 floor for older descriptors.
+const DEFAULT_TUNING: Required<Omit<BrowserProvingTuning, "shard_multiplier">> =
+  {
+    worker_count: 8,
+    shard_count: 8,
+    range_fetch_concurrency: 2,
+    pinned_decode: true,
+    opt_w1: true,
+    opt_w2: true,
+    opt_w3: true,
+    opt_w5: true,
+    opt_w6: true,
+    opt_w7: true,
+    gogc: 50,
+    gomemlimit: "3000MiB",
+  };
 
 export class ProvingCancelledError extends Error {
   constructor() {
@@ -41,7 +56,9 @@ export type BrowserWasmOptions = {
 };
 
 function defaultCreateProverWorker(): ProverWorkerLike {
-  return new Worker("/proof-runtime/prover-worker.js") as unknown as ProverWorkerLike;
+  return new Worker(
+    "/proof-runtime/prover-worker.js",
+  ) as unknown as ProverWorkerLike;
 }
 
 // Full readiness check for the browser provider: capability preflight first
@@ -59,25 +76,47 @@ export async function checkBrowserProving(
     return { status: "unsupported", capability, preflight: null };
   }
 
-  const client = new ProverWorkerClient(options.createWorker ?? defaultCreateProverWorker);
+  const client = new ProverWorkerClient(
+    options.createWorker ?? defaultCreateProverWorker,
+  );
   try {
     await client.init(descriptor);
-    const preflight = await client.preflight(buildPreflightRequestJson(descriptor));
+    const preflight = await client.preflight(
+      buildPreflightRequestJson(descriptor),
+    );
     if (preflight.ok !== true) {
-      capability.failures.push({ check: "asset-preflight", message: "Proof assets failed verification." });
-      return { status: "asset-error", capability: { ...capability, ok: false }, preflight };
+      capability.failures.push({
+        check: "asset-preflight",
+        message: "Proof assets failed verification.",
+      });
+      return {
+        status: "asset-error",
+        capability: { ...capability, ok: false },
+        preflight,
+      };
     }
     if (preflight.vk_hash !== expectedVkHash) {
       capability.failures.push({
         check: "vk-hash",
         message: "Proof assets do not match this deployment's verifier key.",
       });
-      return { status: "asset-error", capability: { ...capability, ok: false }, preflight };
+      return {
+        status: "asset-error",
+        capability: { ...capability, ok: false },
+        preflight,
+      };
     }
     return { status: "ready", capability, preflight };
   } catch (error) {
-    capability.failures.push({ check: "asset-preflight", message: sanitizeProverError(error) });
-    return { status: "asset-error", capability: { ...capability, ok: false }, preflight: null };
+    capability.failures.push({
+      check: "asset-preflight",
+      message: sanitizeProverError(error),
+    });
+    return {
+      status: "asset-error",
+      capability: { ...capability, ok: false },
+      preflight: null,
+    };
   } finally {
     client.terminate();
   }
@@ -97,7 +136,9 @@ export async function proveDestinationInBrowser(
     throw new Error("Browser proving is not enabled for this deployment.");
   }
   const total = input.draft.proofRequests.length;
-  const client = new ProverWorkerClient(options.createWorker ?? defaultCreateProverWorker);
+  const client = new ProverWorkerClient(
+    options.createWorker ?? defaultCreateProverWorker,
+  );
   let masterXPrvHex: string | null = null;
   const onAbort = () => client.terminate(new ProvingCancelledError());
   try {
@@ -107,36 +148,66 @@ export async function proveDestinationInBrowser(
     input.signal?.addEventListener("abort", onAbort);
 
     await client.init(descriptor);
-    const preflight = await client.preflight(buildPreflightRequestJson(descriptor));
+    const preflight = await client.preflight(
+      buildPreflightRequestJson(descriptor),
+    );
     if (preflight.ok !== true) {
       throw new Error("Proof assets failed verification.");
     }
     if (preflight.vk_hash !== input.expectedVkHash) {
-      throw new Error("Proof assets do not match this deployment's verifier key.");
+      throw new Error(
+        "Proof assets do not match this deployment's verifier key.",
+      );
     }
 
     masterXPrvHex = bytesToHex(input.masterXPrv);
-    const artifacts: Array<{ out_ref: string; artifact: Record<string, unknown> }> = [];
+    const artifacts: Array<{
+      out_ref: string;
+      artifact: Record<string, unknown>;
+    }> = [];
+    const artifactByStatement = new Map<string, Record<string, unknown>>();
     for (const [index, request] of input.draft.proofRequests.entries()) {
       if (input.signal?.aborted) {
         throw new ProvingCancelledError();
       }
-      const result = await client.prove(buildProveRequestJson(descriptor, masterXPrvHex, request), (stage, frac) => {
+      const statementKey = proofRequestStatementKey(request);
+      const reusedArtifact = artifactByStatement.get(statementKey);
+      if (reusedArtifact) {
+        artifacts.push({ out_ref: request.out_ref, artifact: reusedArtifact });
         input.onProgress?.({
           provider: "browser-wasm",
-          stage: stage ?? "prove",
-          frac,
+          stage: "reuse-proof",
+          frac: 1,
           current: index + 1,
           total,
           engine: "streampk-sharded-groth16",
         });
-      });
+        continue;
+      }
+      const result = await client.prove(
+        buildProveRequestJson(descriptor, masterXPrvHex, request),
+        (stage, frac) => {
+          input.onProgress?.({
+            provider: "browser-wasm",
+            stage: stage ?? "prove",
+            frac,
+            current: index + 1,
+            total,
+            engine: "streampk-sharded-groth16",
+          });
+        },
+      );
       if (result.verified_locally !== true) {
-        throw new Error("The browser prover could not verify a generated proof locally.");
+        throw new Error(
+          "The browser prover could not verify a generated proof locally.",
+        );
       }
       if (!result.artifact || typeof result.artifact !== "object") {
-        throw new Error("The browser prover returned a malformed proof artifact.");
+        throw new Error(
+          "The browser prover returned a malformed proof artifact.",
+        );
       }
+      artifactByStatement.set(statementKey, result.artifact);
       artifacts.push({ out_ref: request.out_ref, artifact: result.artifact });
     }
 
@@ -156,8 +227,21 @@ export async function proveDestinationInBrowser(
   }
 }
 
-function buildPreflightRequestJson(descriptor: BrowserProvingDescriptor): string {
-  return JSON.stringify({ artifacts: buildArtifactsBlock(descriptor) });
+function proofRequestStatementKey(request: ClaimProofRequest): string {
+  return [
+    request.target_credential,
+    request.destination_address_encoding,
+    request.destination_address,
+  ].join(":");
+}
+
+function buildPreflightRequestJson(
+  descriptor: BrowserProvingDescriptor,
+): string {
+  return JSON.stringify({
+    artifacts: buildArtifactsBlock(descriptor),
+    tuning: buildTuningBlock(descriptor),
+  });
 }
 
 function buildProveRequestJson(
@@ -165,7 +249,6 @@ function buildProveRequestJson(
   masterXPrvHex: string,
   request: ClaimProofRequest,
 ): string {
-  const tuning = { ...DEFAULT_TUNING, ...descriptor.tuning };
   return JSON.stringify({
     master_xprv_hex: masterXPrvHex,
     target_credential_hex: request.target_credential,
@@ -175,15 +258,88 @@ function buildProveRequestJson(
       max_index: 999,
     },
     artifacts: buildArtifactsBlock(descriptor),
-    tuning: {
-      worker_count: tuning.worker_count,
-      shard_count: tuning.shard_count,
-      range_fetch_concurrency: tuning.range_fetch_concurrency,
-      pinned_decode: tuning.pinned_decode,
-      ...(descriptor.tuning?.shard_multiplier !== undefined ? { shard_multiplier: descriptor.tuning.shard_multiplier } : {}),
-    },
+    tuning: buildTuningBlock(descriptor),
     include_debug_path: false,
   });
+}
+
+function buildTuningBlock(
+  descriptor: BrowserProvingDescriptor,
+): Record<string, boolean | number> {
+  const tuning = { ...DEFAULT_TUNING, ...descriptor.tuning };
+  const workerCount = resolveBrowserWorkerCount(descriptor);
+  return {
+    worker_count: workerCount,
+    // Every selected Worker must receive at least one section shard. The
+    // descriptor's shard count is a floor; adaptive W5 and explicit larger
+    // worker pools raise it without changing the published base descriptor.
+    shard_count: Math.max(tuning.shard_count, workerCount),
+    range_fetch_concurrency: tuning.range_fetch_concurrency,
+    pinned_decode: tuning.pinned_decode,
+    opt_w1: tuning.opt_w1,
+    opt_w2: tuning.opt_w2,
+    opt_w3: tuning.opt_w3,
+    opt_w5: tuning.opt_w5,
+    opt_w6: tuning.opt_w6,
+    opt_w7: tuning.opt_w7,
+    ...(descriptor.tuning?.shard_multiplier !== undefined
+      ? { shard_multiplier: descriptor.tuning.shard_multiplier }
+      : {}),
+  };
+}
+
+const W5_WORKER_FLOOR = 8;
+const W5_WORKER_CAP = 16;
+const W5_RESERVED_THREADS = 2;
+const W5_MIN_DEVICE_MEMORY_GIB = 8;
+
+export type BrowserWorkerHostCapacity = {
+  hardwareConcurrency: number | null;
+  deviceMemoryGiB: number | null;
+};
+
+// W5 is descriptor-gated and honors valid explicit worker_count values up to
+// the advertised cap. Older clients ignore opt_w5 and retain their worker-8
+// default; newer clients also fail safely to eight when either host signal is
+// absent or insufficient.
+export function resolveBrowserWorkerCount(
+  descriptor: BrowserProvingDescriptor,
+  host: BrowserWorkerHostCapacity = browserWorkerHostCapacity(),
+): number {
+  const explicit = descriptor.tuning?.worker_count;
+  if (Number.isSafeInteger(explicit) && Number(explicit) > 0) {
+    return Math.min(W5_WORKER_CAP, Number(explicit));
+  }
+  if (descriptor.tuning?.opt_w5 !== true) {
+    return W5_WORKER_FLOOR;
+  }
+  if (
+    host.hardwareConcurrency === null ||
+    !Number.isFinite(host.hardwareConcurrency) ||
+    host.deviceMemoryGiB === null ||
+    !Number.isFinite(host.deviceMemoryGiB) ||
+    host.deviceMemoryGiB < W5_MIN_DEVICE_MEMORY_GIB
+  ) {
+    return W5_WORKER_FLOOR;
+  }
+  const available = Math.floor(host.hardwareConcurrency) - W5_RESERVED_THREADS;
+  return Math.min(W5_WORKER_CAP, Math.max(W5_WORKER_FLOOR, available));
+}
+
+function browserWorkerHostCapacity(): BrowserWorkerHostCapacity {
+  if (typeof navigator === "undefined") {
+    return { hardwareConcurrency: null, deviceMemoryGiB: null };
+  }
+  const hardwareConcurrency = Number.isFinite(navigator.hardwareConcurrency)
+    ? navigator.hardwareConcurrency
+    : null;
+  const deviceMemory = (navigator as Navigator & { deviceMemory?: number })
+    .deviceMemory;
+  const deviceMemoryGiB =
+    typeof deviceMemory === "number" && Number.isFinite(deviceMemory)
+      ? deviceMemory
+      : null;
+  return { hardwareConcurrency, deviceMemoryGiB };
 }
 
 // Per-MSM-worker Go runtime limits (the O5 gap). The MSM worker reads these
@@ -205,7 +361,9 @@ function msmWorkerUrlWithTuning(url: string): string {
 // always loads `msmworker.wasm` relative to its own script URL. The descriptor
 // must keep both files co-located under runtime_base_url so the pinned URL and
 // the actually-loaded URL coincide.
-function buildArtifactsBlock(descriptor: BrowserProvingDescriptor): Record<string, string> {
+function buildArtifactsBlock(
+  descriptor: BrowserProvingDescriptor,
+): Record<string, string> {
   return {
     manifest_url: absolutize(descriptor.manifest_url),
     manifest_sig_url: absolutize(descriptor.manifest_sig_url),
@@ -285,7 +443,9 @@ class ProverWorkerClient {
       {
         type: "init",
         wasmUrl: absolutize(descriptor.proof_wasm_url),
-        wasmExecUrl: absolutize(`${trimSlash(descriptor.runtime_base_url)}/wasm_exec.js`),
+        wasmExecUrl: absolutize(
+          `${trimSlash(descriptor.runtime_base_url)}/wasm_exec.js`,
+        ),
         gogc: tuning.gogc,
         gomemlimit: tuning.gomemlimit,
       },
@@ -301,12 +461,20 @@ class ProverWorkerClient {
     return response.type === "preflight-result" ? response.result : {};
   }
 
-  async prove(requestJson: string, onProgress: (stage?: string, frac?: number) => void): Promise<ProverProveResult> {
-    const response = await this.request({ type: "prove", requestJson }, { expected: "prove-result", onProgress });
+  async prove(
+    requestJson: string,
+    onProgress: (stage?: string, frac?: number) => void,
+  ): Promise<ProverProveResult> {
+    const response = await this.request(
+      { type: "prove", requestJson },
+      { expected: "prove-result", onProgress },
+    );
     return response.type === "prove-result" ? response.result : {};
   }
 
-  terminate(pendingError: unknown = new Error("The proving worker was stopped.")): void {
+  terminate(
+    pendingError: unknown = new Error("The proving worker was stopped."),
+  ): void {
     // Remember why we stopped so any request issued after termination (e.g. the
     // next prove in the loop racing an abort) rejects with the same reason,
     // not a generic "not running".
@@ -337,7 +505,9 @@ class ProverWorkerClient {
     },
   ): Promise<ProverWorkerResponse> {
     if (!this.worker) {
-      throw this.terminationError ?? new Error("The proving worker is not running.");
+      throw (
+        this.terminationError ?? new Error("The proving worker is not running.")
+      );
     }
     const id = `prove-${(this.nextId += 1)}`;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -346,7 +516,9 @@ class ProverWorkerClient {
         this.pending.set(id, {
           resolve: (response) => {
             if (response.type !== options.expected) {
-              reject(new Error("The proving worker sent an unexpected response."));
+              reject(
+                new Error("The proving worker sent an unexpected response."),
+              );
               return;
             }
             resolve(response);

@@ -1,7 +1,9 @@
 import type { AssetMap, ReclaimDeployment, ReclaimNetwork } from "../reclaim/types";
 
 // Statement-bound V2 capacity policy. Seven is deliberately not an automatic
-// batch size: it requires the deployment's explicit seven-slot opt-in.
+// batch size: it requires the deployment's explicit seven-slot opt-in. The
+// opt-in is a width/ex-unit policy only; credential uniqueness is never a
+// drafting or transaction-build requirement.
 export const CLAIM_DEFAULT_BATCH_CAP = 6;
 export const CLAIM_OPTIMIZATION_BATCH_CAP = 6;
 export const CLAIM_HARD_BATCH_CAP = 7;

@@ -79,6 +79,12 @@ type tuningRequest struct {
 	ShardMultiplier       int   `json:"shard_multiplier,omitempty"`
 	RangeFetchConcurrency int   `json:"range_fetch_concurrency,omitempty"`
 	PinnedDecode          *bool `json:"pinned_decode,omitempty"`
+	OptW1                 bool  `json:"opt_w1,omitempty"`
+	OptW2                 bool  `json:"opt_w2,omitempty"`
+	OptW3                 bool  `json:"opt_w3,omitempty"`
+	OptW5                 bool  `json:"opt_w5,omitempty"`
+	OptW6                 bool  `json:"opt_w6,omitempty"`
+	OptW7                 bool  `json:"opt_w7,omitempty"`
 }
 
 type proveResult struct {
@@ -88,6 +94,7 @@ type proveResult struct {
 	WallSeconds     float64                `json:"wall_seconds"`
 	PeakHeapGiB     float64                `json:"peak_heap_gib"`
 	VerifiedLocally bool                   `json:"verified_locally"`
+	RuntimeOptions  map[string]bool        `json:"runtime_options"`
 	Trace           *proofTrace            `json:"trace,omitempty"`
 }
 
@@ -110,6 +117,7 @@ type proofTrace struct {
 	ProgressDenominator  int                 `json:"progress_denominator,omitempty"`
 	ProgressScalars      []int               `json:"progress_scalars,omitempty"`
 	PKRangeStats         streampk.RangeStats `json:"pk_range_stats"`
+	RuntimeOptions       map[string]bool     `json:"runtime_options,omitempty"`
 	Events               []traceEvent        `json:"events"`
 	started              time.Time
 	activeStages         map[string]memSnapshot
@@ -140,6 +148,15 @@ type memSnapshot struct {
 func main() {
 	js.Global().Set("proveDestination", js.FuncOf(proveDestination))
 	js.Global().Set("preflightProofAssets", js.FuncOf(preflightProofAssets))
+	js.Global().Set("probeMSMEngine", js.FuncOf(probeMSMEngineJS))
+	capabilities, err := toJS(map[string]any{
+		"optimization_flags": []string{"w1", "w2", "w3", "w5", "w6", "w7"},
+		"worker_count":       map[string]any{"explicit": true, "max": 16, "probe": true},
+	})
+	if err != nil {
+		panic(err)
+	}
+	js.Global().Set("__wasmProverCapabilities", capabilities)
 	js.Global().Set("__wasmProverReady", true)
 	select {}
 }
@@ -189,12 +206,56 @@ func preflightProofAssets(_ js.Value, args []js.Value) any {
 	return js.Global().Get("Promise").New(handler)
 }
 
+func probeMSMEngineJS(_ js.Value, args []js.Value) any {
+	requestJSON := ""
+	if len(args) > 0 {
+		requestJSON = args[0].String()
+	}
+	handler := js.FuncOf(func(_ js.Value, promiseArgs []js.Value) any {
+		resolve, reject := promiseArgs[0], promiseArgs[1]
+		go func() {
+			result, err := probeEngine(requestJSON)
+			if err != nil {
+				reject.Invoke(js.Global().Get("Error").New(err.Error()))
+				return
+			}
+			resolve.Invoke(result)
+		}()
+		return nil
+	})
+	return js.Global().Get("Promise").New(handler)
+}
+
+// probeEngine constructs the exact engine requested by the caller and reports
+// its instrumentation. Unlike preflight's requested_tuning echo, this is
+// evidence of the selected engine and actual Web Worker pool size. The fault
+// harness uses it before cases that may fail before a proof result exists.
+func probeEngine(requestJSON string) (js.Value, error) {
+	var req proveRequest
+	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
+		return js.Undefined(), fmt.Errorf("parse request json: %w", err)
+	}
+	requested := msmOptions(req.Tuning, req.Artifacts)
+	selected := msmengine.SelectWithOptions(probeCapabilities(), requested)
+	defer selected.Close()
+	applied := map[string]any{"worker_count": 0}
+	if instrumented, ok := selected.(msmengine.InstrumentedEngine); ok {
+		applied = instrumented.Instrumentation()
+	}
+	return toJS(map[string]any{
+		"ok":               true,
+		"engine":           selected.Name(),
+		"requested_tuning": tuningFields(requested),
+		"applied_tuning":   applied,
+	})
+}
+
 func preflight(requestJSON string) (js.Value, error) {
 	var req proveRequest
 	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
 		return js.Undefined(), fmt.Errorf("parse request json: %w", err)
 	}
-	bundle, err := openStreamingArtifacts(req.Artifacts)
+	bundle, err := openStreamingArtifacts(req.Artifacts, keyOpenOptions(req.Tuning)...)
 	if err != nil {
 		return js.Undefined(), fmt.Errorf("load destination streaming artifacts: %w", err)
 	}
@@ -204,10 +265,12 @@ func preflight(requestJSON string) (js.Value, error) {
 		return js.Undefined(), err
 	}
 	out := map[string]any{
-		"ok":             true,
-		"vk_hash":        bundle.manifest.VKHash,
-		"constraints":    ccs.GetNbConstraints(),
-		"chunk_manifest": bundle.chunkManifest != nil,
+		"ok":               true,
+		"vk_hash":          bundle.manifest.VKHash,
+		"constraints":      ccs.GetNbConstraints(),
+		"chunk_manifest":   bundle.chunkManifest != nil,
+		"runtime_options":  appliedRuntimeOptions(req.Tuning),
+		"requested_tuning": tuningFields(msmOptions(req.Tuning, req.Artifacts)),
 	}
 	if bundle.chunkManifest != nil {
 		out["chunks"] = len(bundle.chunkManifest.ProvingKey.Chunks)
@@ -237,6 +300,8 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 		return js.Undefined(), fmt.Errorf("parse request json: %w", err)
 	}
 	endParse(nil)
+	runtimeOptions := appliedRuntimeOptions(req.Tuning)
+	trace.RuntimeOptions = runtimeOptions
 
 	endInputs := trace.span("decode-inputs", nil)
 	master, err := ownership.DecodeMasterXPrvHex(req.MasterXPrvHex)
@@ -255,7 +320,7 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 
 	progress(progressCB, "open-keys", 0.08)
 	endOpenKeys := trace.span("open-keys", map[string]any{"source": artifactSource(req.Artifacts)})
-	bundle, err := openStreamingArtifacts(req.Artifacts)
+	bundle, err := openStreamingArtifacts(req.Artifacts, keyOpenOptions(req.Tuning)...)
 	if err != nil {
 		return js.Undefined(), fmt.Errorf("load destination streaming artifacts: %w", err)
 	}
@@ -329,19 +394,47 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 	proveStarted := time.Now()
 	var proof groth16.Proof
 	usedEngine := selected.Name()
-	runErr := msmengine.WithFallback(selected, func(e msmengine.MSMEngine) error {
+	runWithEngine := func(e msmengine.MSMEngine) error {
 		usedEngine = e.Name()
 		msmengine.SetCurrent(e)
 		trace.Engine = "streampk-" + usedEngine + "-groth16"
 		trace.applyEngine(e)
-		p, perr := streamprove.Prove(ccs, bundle.keySource, assignment)
+		var p groth16.Proof
+		var perr error
+		streamOptions := streamprove.Options{OptW1: req.Tuning.OptW1, OptW6: req.Tuning.OptW6}
+		if req.Tuning.OptW3 {
+			p, perr = streamprove.ProveAndReleaseWithOptions(&ccs, bundle.keySource, assignment, streamOptions)
+		} else {
+			p, perr = streamprove.ProveWithOptions(ccs, bundle.keySource, assignment, streamOptions)
+		}
 		if perr != nil {
 			return perr
 		}
 		proof = p
 		return nil
-	})
+	}
+	var runErr error
+	if req.Tuning.OptW3 {
+		runErr = msmengine.WithFallbackReload(selected, func() error {
+			// W3: never retry from the primary attempt's CCS. A Solve failure still
+			// owns it; a post-Solve failure has already consumed it. Drop either
+			// state and reopen through the same hash/size-pinned loader.
+			ccs = nil
+			endReload := trace.span("reload-ccs", map[string]any{"reason": "cpu-fallback"})
+			reloaded, reloadErr := reopenPinnedConstraintSystem(req.Artifacts, bundle.manifest, bundle.chunkManifest)
+			if reloadErr != nil {
+				endReload(map[string]any{"error": reloadErr.Error()})
+				return fmt.Errorf("reload hash-pinned constraint system: %w", reloadErr)
+			}
+			ccs = reloaded
+			endReload(map[string]any{"constraints": ccs.GetNbConstraints()})
+			return nil
+		}, runWithEngine)
+	} else {
+		runErr = msmengine.WithFallback(selected, runWithEngine)
+	}
 	if runErr != nil {
+		ccs = nil
 		return js.Undefined(), runErr
 	}
 	if proof == nil {
@@ -406,6 +499,7 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 		WallSeconds:     time.Since(started).Seconds(),
 		PeakHeapGiB:     float64(peak) / (1 << 30),
 		VerifiedLocally: true,
+		RuntimeOptions:  runtimeOptions,
 		Trace:           trace,
 	}
 	progress(progressCB, "done", 1.0)
@@ -577,6 +671,7 @@ func msmOptions(req tuningRequest, artifacts artifactRequest) msmengine.Options 
 		RangeFetchConcurrency: req.RangeFetchConcurrency,
 		WorkerURL:             workerURL,
 		PinnedDecode:          pinnedDecode,
+		OptW7:                 req.OptW7,
 	}
 }
 
@@ -588,7 +683,16 @@ func tuningFields(opts msmengine.Options) map[string]any {
 		"range_fetch_concurrency": opts.RangeFetchConcurrency,
 		"worker_url":              opts.WorkerURL,
 		"pinned_decode":           opts.PinnedDecode,
+		"opt_w7":                  opts.OptW7,
 	}
+}
+
+func keyOpenOptions(req tuningRequest) []streampk.OpenOption {
+	return []streampk.OpenOption{streampk.WithDomainPrecompute(!req.OptW2)}
+}
+
+func appliedRuntimeOptions(req tuningRequest) map[string]bool {
+	return map[string]bool{"w1": req.OptW1, "w2": req.OptW2, "w3": req.OptW3, "w5": req.OptW5, "w6": req.OptW6, "w7": req.OptW7}
 }
 
 func openConstraintSystem(req artifactRequest, manifest *artifact.KeyManifest, chunkManifest *proofassets.ChunkManifest) (constraint.ConstraintSystem, error) {
@@ -645,6 +749,13 @@ func openConstraintSystem(req artifactRequest, manifest *artifact.KeyManifest, c
 		return nil, fmt.Errorf("constraint system has no constraints")
 	}
 	return ccs, nil
+}
+
+func reopenPinnedConstraintSystem(req artifactRequest, manifest *artifact.KeyManifest, chunkManifest *proofassets.ChunkManifest) (constraint.ConstraintSystem, error) {
+	if strings.TrimSpace(req.CCSURL) == "" {
+		return nil, fmt.Errorf("ccs_url is required for W3 fallback reload; refusing unpinned compile fallback")
+	}
+	return openConstraintSystem(req, manifest, chunkManifest)
 }
 
 func fetchCCS(rawURL string) (constraint.ConstraintSystem, prover.FileDigest, error) {
@@ -753,14 +864,14 @@ func (b *streamingArtifacts) Close() error {
 	return b.keySource.Close()
 }
 
-func openStreamingArtifacts(req artifactRequest) (*streamingArtifacts, error) {
+func openStreamingArtifacts(req artifactRequest, opts ...streampk.OpenOption) (*streamingArtifacts, error) {
 	if req.KeyBundleDir != "" {
-		return openStreamingArtifactsFromDir(req.KeyBundleDir)
+		return openStreamingArtifactsFromDir(req.KeyBundleDir, opts...)
 	}
-	return openStreamingArtifactsFromURLs(req)
+	return openStreamingArtifactsFromURLs(req, opts...)
 }
 
-func openStreamingArtifactsFromDir(dir string) (*streamingArtifacts, error) {
+func openStreamingArtifactsFromDir(dir string, opts ...streampk.OpenOption) (*streamingArtifacts, error) {
 	bundle, err := prover.LoadOwnershipDestinationVerifier(dir)
 	if err != nil {
 		return nil, err
@@ -781,14 +892,14 @@ func openStreamingArtifactsFromDir(dir string) (*streamingArtifacts, error) {
 		return nil, fmt.Errorf("proving key size mismatch: manifest %d, file %d", bundle.Manifest.ProvingKeySize, digest.Size)
 	}
 
-	source, err := streampk.OpenKeyFile(pkPath)
+	source, err := streampk.OpenKeyFile(pkPath, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return &streamingArtifacts{manifest: bundle.Manifest, verifyingKey: bundle.VerifyingKey, keySource: source}, nil
 }
 
-func openStreamingArtifactsFromURLs(req artifactRequest) (*streamingArtifacts, error) {
+func openStreamingArtifactsFromURLs(req artifactRequest, opts ...streampk.OpenOption) (*streamingArtifacts, error) {
 	manifestURL, err := resolveAssetURL(req.ManifestURL)
 	if err != nil {
 		return nil, fmt.Errorf("manifest_url: %w", err)
@@ -862,7 +973,7 @@ func openStreamingArtifactsFromURLs(req artifactRequest) (*streamingArtifacts, e
 		return nil, err
 	}
 
-	source, err := streampk.OpenKeyURL(&index, pkURL)
+	source, err := streampk.OpenKeyURL(&index, pkURL, opts...)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,339 @@
+--- vendor/github.com/consensys/gnark-crypto/ecc/bls12-381/fr/fft/options.go
++++ vendor/github.com/consensys/gnark-crypto/ecc/bls12-381/fr/fft/options.go
+@@ -17,8 +17,21 @@
+ type Option func(fftConfig) fftConfig
+ 
+ type fftConfig struct {
+-	coset   bool
+-	nbTasks int
++	coset      bool
++	nbTasks    int
++	cosetTable []fr.Element
++}
++
++// WithCosetTable supplies a caller-owned exponent table for OnCoset transforms.
++// FFT expects powers of FrMultiplicativeGen; FFTInverse expects powers of
++// FrMultiplicativeGenInv. The table must have at least len(a) elements and is
++// borrowed only for the duration of the call. This avoids rebuilding the same
++// domain-sized table across adjacent transforms without retaining it on Domain.
++func WithCosetTable(table []fr.Element) Option {
++	return func(opt fftConfig) fftConfig {
++		opt.cosetTable = table
++		return opt
++	}
+ }
+ 
+ // OnCoset if provided, FFT(a) returns the evaluation of a on a coset.
+--- vendor/github.com/consensys/gnark-crypto/ecc/bls12-381/fr/fft/fft.go
++++ vendor/github.com/consensys/gnark-crypto/ecc/bls12-381/fr/fft/fft.go
+@@ -43,10 +43,16 @@
+ 
+ 	// if coset != 0, scale by coset table
+ 	if opt.coset {
++		if opt.cosetTable != nil && len(opt.cosetTable) < len(a) {
++			panic("fft: supplied coset table is shorter than input")
++		}
+ 		if decimation == DIT {
+ 			// scale by coset table (in bit reversed order)
+-			cosetTable := domain.cosetTable
+-			if !domain.withPrecompute {
++			cosetTable := opt.cosetTable
++			if cosetTable == nil {
++				cosetTable = domain.cosetTable
++			}
++			if cosetTable == nil {
+ 				// we need to build the full table or do a bit reverse dance.
+ 				cosetTable = make([]fr.Element, len(a))
+ 				BuildExpTable(domain.FrMultiplicativeGen, cosetTable)
+@@ -60,10 +66,14 @@
+ 				}
+ 			}, opt.nbTasks)
+ 		} else {
+-			if domain.withPrecompute {
++			if opt.cosetTable != nil || domain.withPrecompute {
++				cosetTable := opt.cosetTable
++				if cosetTable == nil {
++					cosetTable = domain.cosetTable
++				}
+ 				parallel.Execute(len(a), func(start, end int) {
+ 					v1 := fr.Vector(a[start:end])
+-					v2 := fr.Vector(domain.cosetTable[start:end])
++					v2 := fr.Vector(cosetTable[start:end])
+ 					v1.Mul(v1, v2)
+ 				}, opt.nbTasks)
+ 			} else {
+@@ -111,6 +121,9 @@
+ // len(a) must be a power of 2, and w must be a len(a)th root of unity in field F.
+ func (domain *Domain) FFTInverse(a []fr.Element, decimation Decimation, opts ...Option) {
+ 	opt := fftOptions(opts)
++	if opt.coset && opt.cosetTable != nil && len(opt.cosetTable) < len(a) {
++		panic("fft: supplied inverse coset table is shorter than input")
++	}
+ 
+ 	// find the stage where we should stop spawning go routines in our recursive calls
+ 	// (ie when we have as many go routines running as we have available CPUs)
+@@ -152,10 +165,14 @@
+ 	}
+ 
+ 	if decimation == DIT {
+-		if domain.withPrecompute {
++		if opt.cosetTable != nil || domain.withPrecompute {
++			cosetTableInv := opt.cosetTable
++			if cosetTableInv == nil {
++				cosetTableInv = domain.cosetTableInv
++			}
+ 			parallel.Execute(len(a), func(start, end int) {
+ 				for i := start; i < end; i++ {
+-					a[i].Mul(&a[i], &domain.cosetTableInv[i]).
++					a[i].Mul(&a[i], &cosetTableInv[i]).
+ 						Mul(&a[i], &domain.CardinalityInv)
+ 				}
+ 			}, opt.nbTasks)
+@@ -175,8 +192,11 @@
+ 	}
+ 
+ 	// decimation == DIF, need to access coset table in bit reversed order.
+-	cosetTableInv := domain.cosetTableInv
+-	if !domain.withPrecompute {
++	cosetTableInv := opt.cosetTable
++	if cosetTableInv == nil {
++		cosetTableInv = domain.cosetTableInv
++	}
++	if cosetTableInv == nil {
+ 		// we need to build the full table or do a bit reverse dance.
+ 		cosetTableInv = make([]fr.Element, len(a))
+ 		BuildExpTable(domain.FrMultiplicativeGenInv, cosetTableInv)
+--- vendor/github.com/consensys/gnark/backend/groth16/bls12-381/prove.go
++++ vendor/github.com/consensys/gnark/backend/groth16/bls12-381/prove.go
+@@ -366,6 +366,7 @@
+ // levers. Their zero value preserves the pre-W1 stream-prover ordering.
+ type StreamRuntimeOptions struct {
+ 	OptW1            bool
++	OptW6            bool
+ 	YieldToEventLoop func()
+ }
+ 
+@@ -492,7 +493,7 @@
+ 			"domain_cardinality": pk.Domain.Cardinality,
+ 			"overlapped_with":    "commitment BasisExpSigma MSM,G2B,A,B",
+ 		})
+-		h := computeH(a, b, c, domain)
++		h := computeHWithRuntime(a, b, c, domain, nil, runtimeOptions.OptW6)
+ 		endComputeH(map[string]any{"h_scalars": len(h)})
+ 		runtime.GC()
+ 		hCh <- h
+@@ -821,7 +822,7 @@
+ 			"overlapped_with":    "commitment BasisExpSigma MSM,G2B,A,B,K",
+ 			"event_loop_yields":  runtimeOptions.YieldToEventLoop != nil,
+ 		})
+-		h := computeHWithYield(a, b, c, domain, runtimeOptions.YieldToEventLoop)
++		h := computeHWithRuntime(a, b, c, domain, runtimeOptions.YieldToEventLoop, runtimeOptions.OptW6)
+ 		end(map[string]any{"h_scalars": len(h)})
+ 		hCh <- h
+ 	}(solution.A, solution.B, solution.C)
+@@ -993,10 +994,14 @@
+ }
+ 
+ func computeH(a, b, c []fr.Element, domain *fft.Domain) []fr.Element {
+-	return computeHWithYield(a, b, c, domain, nil)
++	return computeHWithRuntime(a, b, c, domain, nil, false)
+ }
+ 
+ func computeHWithYield(a, b, c []fr.Element, domain *fft.Domain, yield func()) []fr.Element {
++	return computeHWithRuntime(a, b, c, domain, yield, false)
++}
++
++func computeHWithRuntime(a, b, c []fr.Element, domain *fft.Domain, yield func(), optW6 bool) []fr.Element {
+ 	// H part of Krs
+ 	// Compute H (hz=ab-c, where z=-2 on ker X^n+1 (z(x)=x^n-1))
+ 	// 	1 - _a = ifft(a), _b = ifft(b), _c = ifft(c)
+@@ -1005,11 +1010,19 @@
+ 
+ 	n := len(a)
+ 
+-	// add padding to ensure input length is domain cardinality
+-	padding := make([]fr.Element, int(domain.Cardinality)-n)
+-	a = append(a, padding...)
+-	b = append(b, padding...)
+-	c = append(c, padding...)
++	// Add zero padding to the domain cardinality. W6 grows each vector exactly
++	// once (reusing solver capacity when available) instead of sharing a padding
++	// allocation across three append operations with uncertain capacities.
++	if optW6 {
++		a = padHVector(a, int(domain.Cardinality))
++		b = padHVector(b, int(domain.Cardinality))
++		c = padHVector(c, int(domain.Cardinality))
++	} else {
++		padding := make([]fr.Element, int(domain.Cardinality)-n)
++		a = append(a, padding...)
++		b = append(b, padding...)
++		c = append(c, padding...)
++	}
+ 	n = len(a)
+ 
+ 	domain.FFTInverse(a, fft.DIF)
+@@ -1025,18 +1038,29 @@
+ 		yield()
+ 	}
+ 
+-	domain.FFT(a, fft.DIT, fft.OnCoset())
++	forwardOptions := []fft.Option{fft.OnCoset()}
++	var reusableCosetTable []fr.Element
++	if optW6 {
++		reusableCosetTable = buildHExpTable(reusableCosetTable, domain.FrMultiplicativeGen, n)
++		forwardOptions = append(forwardOptions, fft.WithCosetTable(reusableCosetTable))
++	}
++	domain.FFT(a, fft.DIT, forwardOptions...)
+ 	if yield != nil {
+ 		yield()
+ 	}
+-	domain.FFT(b, fft.DIT, fft.OnCoset())
++	domain.FFT(b, fft.DIT, forwardOptions...)
+ 	if yield != nil {
+ 		yield()
+ 	}
+-	domain.FFT(c, fft.DIT, fft.OnCoset())
++	domain.FFT(c, fft.DIT, forwardOptions...)
+ 	if yield != nil {
+ 		yield()
+ 	}
++	// W6 lifetime boundary: the forward options no longer borrow the table.
++	// Rebuild inverse powers into the same backing array below; allocating a
++	// second domain-sized table made heap_sys grow by one full 128 MiB table at
++	// the production cardinality because nil alone does not force a GC here.
++	forwardOptions = nil
+ 
+ 	var den, one fr.Element
+ 	one.SetOne()
+@@ -1057,7 +1081,37 @@
+ 	}
+ 
+ 	// ifft_coset
+-	domain.FFTInverse(a, fft.DIF, fft.OnCoset())
++	inverseOptions := []fft.Option{fft.OnCoset()}
++	if optW6 {
++		reusableCosetTable = buildHExpTable(reusableCosetTable, domain.FrMultiplicativeGenInv, n)
++		inverseOptions = append(inverseOptions, fft.WithCosetTable(reusableCosetTable))
++	}
++	domain.FFTInverse(a, fft.DIF, inverseOptions...)
+ 
+ 	return a
+ }
++
++func buildHExpTable(table []fr.Element, generator fr.Element, size int) []fr.Element {
++	if cap(table) < size {
++		table = make([]fr.Element, size)
++	} else {
++		table = table[:size]
++	}
++	fft.BuildExpTable(generator, table)
++	return table
++}
++
++func padHVector(src []fr.Element, size int) []fr.Element {
++	if len(src) > size {
++		panic("computeH: input exceeds FFT domain cardinality")
++	}
++	originalLen := len(src)
++	if cap(src) >= size {
++		src = src[:size]
++		clear(src[originalLen:])
++		return src
++	}
++	dst := make([]fr.Element, size)
++	copy(dst, src)
++	return dst
++}
+--- /dev/null
++++ vendor/github.com/consensys/gnark/backend/groth16/bls12-381/prove_w6_test.go
+@@ -0,0 +1,89 @@
++package groth16
++
++import (
++	"testing"
++
++	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
++	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr/fft"
++)
++
++func TestComputeHW6VectorEqualityAndCorruption(t *testing.T) {
++	a, b, c := fixedComputeHWitness(13)
++	domainLegacy := fft.NewDomain(16, fft.WithoutPrecompute())
++	legacy := computeHWithRuntime(cloneElements(a), cloneElements(b), cloneElements(c), domainLegacy, nil, false)
++
++	domainW6 := fft.NewDomain(16, fft.WithoutPrecompute())
++	yields := 0
++	optimized := computeHWithRuntime(cloneElements(a), cloneElements(b), cloneElements(c), domainW6, func() { yields++ }, true)
++	if yields != 7 {
++		t.Fatalf("W1 yield count with W6 = %d, want 7", yields)
++	}
++	assertElementVectorsEqual(t, optimized, legacy)
++
++	corruptA := cloneElements(a)
++	var one fr.Element
++	one.SetOne()
++	corruptA[0].Add(&corruptA[0], &one)
++	corrupt := computeHWithRuntime(corruptA, cloneElements(b), cloneElements(c), fft.NewDomain(16, fft.WithoutPrecompute()), nil, true)
++	if elementVectorsEqual(corrupt, legacy) {
++		t.Fatal("corrupt fixed-witness A vector unexpectedly produced the reference h vector")
++	}
++}
++
++func TestW6RebuildsInverseCosetTableInPlace(t *testing.T) {
++	domain := fft.NewDomain(16, fft.WithoutPrecompute())
++	table := buildHExpTable(nil, domain.FrMultiplicativeGen, 16)
++	firstAddress := &table[0]
++	forwardFirst := table[1]
++
++	table = buildHExpTable(table, domain.FrMultiplicativeGenInv, 16)
++	if &table[0] != firstAddress {
++		t.Fatal("W6 inverse coset table allocated a new backing array")
++	}
++	if table[1].Equal(&forwardFirst) {
++		t.Fatal("W6 inverse coset table did not overwrite forward powers")
++	}
++	want := make([]fr.Element, 16)
++	fft.BuildExpTable(domain.FrMultiplicativeGenInv, want)
++	assertElementVectorsEqual(t, table, want)
++}
++
++func fixedComputeHWitness(n int) ([]fr.Element, []fr.Element, []fr.Element) {
++	a := make([]fr.Element, n)
++	b := make([]fr.Element, n)
++	c := make([]fr.Element, n)
++	for i := 0; i < n; i++ {
++		a[i].SetUint64(uint64(3*i + 1))
++		b[i].SetUint64(uint64(5*i + 2))
++		c[i].SetUint64(uint64(7*i + 4))
++	}
++	return a, b, c
++}
++
++func cloneElements(src []fr.Element) []fr.Element {
++	return append([]fr.Element(nil), src...)
++}
++
++func assertElementVectorsEqual(t *testing.T, got, want []fr.Element) {
++	t.Helper()
++	if len(got) != len(want) {
++		t.Fatalf("h length = %d, want %d", len(got), len(want))
++	}
++	for i := range got {
++		if !got[i].Equal(&want[i]) {
++			t.Fatalf("h[%d] differs between W6 and baseline", i)
++		}
++	}
++}
++
++func elementVectorsEqual(a, b []fr.Element) bool {
++	if len(a) != len(b) {
++		return false
++	}
++	for i := range a {
++		if !a[i].Equal(&b[i]) {
++			return false
++		}
++	}
++	return true
++}
+
