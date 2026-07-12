@@ -30,8 +30,21 @@ describe("preprod live transaction config", () => {
       nativeAssetUnit: nativeUnit,
       nativeAssetQuantity: "1",
       nativeReclaimCount: 5,
+      existingNativeReclaimCount: 0,
       expectedMinimumReclaimUtxos: 6,
     });
+  });
+
+  it("counts confirmed existing native reclaim UTxOs without lowering the six-UTxO gate", () => {
+    const config = validatePreprodLiveConfig({
+      RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,
+      RECLAIM_E2E_NATIVE_RECLAIM_COUNT: "4",
+      RECLAIM_E2E_EXISTING_NATIVE_RECLAIM_COUNT: "1",
+    });
+
+    expect(config.nativeReclaimCount).toBe(4);
+    expect(config.existingNativeReclaimCount).toBe(1);
+    expect(config.expectedMinimumReclaimUtxos).toBe(6);
   });
 
   it("rejects malformed values before live work", () => {
@@ -46,6 +59,12 @@ describe("preprod live transaction config", () => {
         RECLAIM_E2E_NATIVE_RECLAIM_COUNT: "4",
       }),
     ).toThrow(/at least 5/u);
+    expect(() =>
+      validatePreprodLiveConfig({
+        RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,
+        RECLAIM_E2E_EXISTING_NATIVE_RECLAIM_COUNT: "-1",
+      }),
+    ).toThrow(/non-negative integer/u);
     expect(() =>
       validatePreprodLiveConfig({
         RECLAIM_E2E_NATIVE_ASSET_UNIT: nativeUnit,

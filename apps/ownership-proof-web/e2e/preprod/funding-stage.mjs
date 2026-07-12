@@ -22,6 +22,8 @@ const DEFAULT_NATIVE_RECLAIM_COUNT = 5;
 const DEFAULT_NATIVE_ADA_AMOUNT = "2";
 const DEFAULT_LIVE_FUNDING_SETTLEMENT_MS = 45_000;
 const WALLET_INVENTORY_READY = /^[0-9]+ UTxOs?, [0-9]+ assets?$/iu;
+const WALLET_INVENTORY_TIMEOUT_MS = 30_000;
+const WALLET_INVENTORY_POLL_MS = 100;
 const BUILD_RESULT_TIMEOUT_MS = 180_000;
 const SUBMIT_RESULT_TIMEOUT_MS = 120_000;
 
@@ -105,11 +107,15 @@ export async function runNativeAssetFundingStage(options = {}) {
   const nativeReclaimCount = parseNativeCount(env[NATIVE_RECLAIM_COUNT_ENV]?.trim() || String(DEFAULT_NATIVE_RECLAIM_COUNT));
   const settlementWaitMs = parseFundingSettlementMs(env);
   const seenTxHashes = new Set(normalizeTxHashList(options.previousFundingTxHashes));
+  const startsAfterPriorFunding = seenTxHashes.size > 0;
   validateAdaAmount(NATIVE_ADA_AMOUNT_ENV, adaAmount);
   validateNativeAssetUnit(nativeAssetUnit);
   validateNativeAssetQuantity(nativeAssetQuantity);
   const compromisedCredential = getCompromisedCredential(walletHarness, compromisedRole);
 
+  if (startsAfterPriorFunding) {
+    await page.getByRole("button", { name: /lock another batch/iu }).click();
+  }
   await connectFundingRole(page, walletHarness, fundingRole);
   const screenshots = [];
   const transactions = [];
@@ -143,6 +149,9 @@ export async function runNativeAssetFundingStage(options = {}) {
       screenshot: path.relative(outputDir, screenshotPath),
     });
     await waitForFundingSettlement(sleep, settlementWaitMs);
+    if (index + 1 < nativeReclaimCount) {
+      await page.getByRole("button", { name: /lock another batch/iu }).click();
+    }
   }
 
   const artifactPath = path.join(outputDir, "fund-native-asset-reclaims.json");
@@ -186,18 +195,17 @@ async function buildSignSubmitFundingTransaction(
 ) {
   await page.getByLabel("Payment key credential").fill(compromisedCredential);
   await page.getByLabel("ADA amount").fill(adaAmount);
-  if (nativeAsset) {
-    await page.getByPlaceholder("policyId + tokenName hex").fill(nativeAsset.unit);
-    await page.getByRole("textbox", { name: /^quantity$/iu }).fill(nativeAsset.quantity);
-  }
   await page.getByRole("button", { name: /refresh assets/iu }).click();
-  await page.locator('section[aria-labelledby="assets-section"] .inventory-empty').filter({ hasText: WALLET_INVENTORY_READY }).waitFor();
+  await waitForWalletInventory(page);
+  if (nativeAsset) {
+    await selectNativeAsset(page, nativeAsset);
+  }
   await page.getByRole("button", { name: /build transaction/iu }).click();
   const buildResult = await waitForBuildResult(page);
   if (buildResult.status === "failed") {
     throw new PreprodFundingStageError("funding_build_failed", buildResult.message || "Funding transaction build failed.");
   }
-  const reviewedTxHash = sanitizeText(await page.locator(".review-item").filter({ hasText: "Tx hash" }).locator("code").textContent());
+  const reviewedTxHash = sanitizeText(await page.locator(".claim-review-row").filter({ hasText: "Tx hash" }).locator("code").textContent());
   if (disallowedTxHashes.has(reviewedTxHash)) {
     throw new PreprodFundingStageError(
       "funding_review_tx_reused",
@@ -210,7 +218,7 @@ async function buildSignSubmitFundingTransaction(
   if (submitResult.status === "failed") {
     throw new PreprodFundingStageError("funding_submit_failed", submitResult.message || "Funding transaction submission failed.");
   }
-  const submittedTxHash = sanitizeText(await page.locator(".result-band.ok span").last().textContent());
+  const submittedTxHash = sanitizeText(await page.locator(".claim-review-row").filter({ hasText: "Tx hash" }).locator("code").textContent());
   if (!submittedTxHash) {
     throw new PreprodFundingStageError("submitted_tx_hash_missing", "Funding flow did not expose a submitted transaction hash.");
   }
@@ -220,16 +228,41 @@ async function buildSignSubmitFundingTransaction(
   };
 }
 
+async function selectNativeAsset(page, nativeAsset) {
+  await page.getByRole("button", { name: /^token$/iu }).click();
+  await page.getByPlaceholder("Search policy ID or token name").fill(nativeAsset.unit);
+  await page.getByRole("button", { name: /^select$/iu }).click();
+  await page.getByRole("textbox", { name: /amount to lock/iu }).fill(nativeAsset.quantity);
+  await page.getByRole("button", { name: /add token/iu }).click();
+}
+
+async function waitForWalletInventory(page, sleep = defaultSleep) {
+  const inventory = page.getByLabel("Wallet inventory");
+  await inventory.waitFor({ timeout: WALLET_INVENTORY_TIMEOUT_MS });
+  const deadline = Date.now() + WALLET_INVENTORY_TIMEOUT_MS;
+  while (Date.now() <= deadline) {
+    const value = sanitizeText(await inventory.inputValue());
+    if (WALLET_INVENTORY_READY.test(value)) {
+      return;
+    }
+    await sleep(WALLET_INVENTORY_POLL_MS);
+  }
+  throw new PreprodFundingStageError(
+    "wallet_inventory_timeout",
+    `Wallet inventory did not load within ${WALLET_INVENTORY_TIMEOUT_MS / 1000}s.`,
+  );
+}
+
 async function waitForBuildResult(page) {
   try {
     return await Promise.race([
       page.getByText("Datum CBOR").waitFor({ timeout: BUILD_RESULT_TIMEOUT_MS }).then(() => ({ status: "built" })),
       page
-        .locator(".result-band.bad")
+        .locator(".claim-notice.bad")
         .waitFor({ timeout: BUILD_RESULT_TIMEOUT_MS })
         .then(async () => ({
           status: "failed",
-          message: sanitizeText(await page.locator(".result-band.bad span").last().textContent()),
+          message: sanitizeText(await page.locator(".claim-notice.bad p").last().textContent()),
         })),
     ]);
   } catch (error) {
@@ -247,11 +280,11 @@ async function waitForSubmitResult(page) {
     return await Promise.race([
       page.getByText("Transaction submitted").waitFor({ timeout: SUBMIT_RESULT_TIMEOUT_MS }).then(() => ({ status: "submitted" })),
       page
-        .locator(".result-band.bad")
+        .locator(".claim-notice.bad")
         .waitFor({ timeout: SUBMIT_RESULT_TIMEOUT_MS })
         .then(async () => ({
           status: "failed",
-          message: sanitizeText(await page.locator(".result-band.bad span").last().textContent()),
+          message: sanitizeText(await page.locator(".claim-notice.bad p").last().textContent()),
         })),
     ]);
   } catch (error) {
