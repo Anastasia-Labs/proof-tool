@@ -124,7 +124,7 @@ ownershipDestinationDomain = "ROOT-OWNERSHIP-DESTINATION-v1"
 {-# INLINABLE ownershipDestinationPublicInputDigest #-}
 ownershipDestinationPublicInputDigest :: BuiltinByteString -> BuiltinByteString -> BuiltinByteString
 ownershipDestinationPublicInputDigest paymentKeyHash destinationAddress =
-  blake2b_256 (ownershipDestinationDomain <> paymentKeyHash <> destinationAddress)
+  blake2b_256 ((ownershipDestinationDomain <> paymentKeyHash) <> destinationAddress)
 
 {-# INLINABLE ownershipDestinationPublicInputScalar #-}
 ownershipDestinationPublicInputScalar :: BuiltinByteString -> BuiltinByteString -> Integer
@@ -663,27 +663,28 @@ groth16VerifyCommittedParsedBatchNoPok
   (Scalar pubBytes) =
   if lengthOfByteString p /= 336
     then traceError "proof must be 336 bytes"
-    else if not (commitmentYIsCanonical p)
-      then traceError "commitment Y must be canonical"
-      else
-        let a = bls12_381_G1_uncompress (sliceByteString 0   48 p)
-            b = bls12_381_G2_uncompress (sliceByteString 48  96 p)
-            c = bls12_381_G1_uncompress (sliceByteString 144 48 p)
+    else
+      let yBytes = sliceByteString 240 48 p
+          yInt = byteStringToInteger BigEndian yBytes
+       in if yInt >= blsBaseFieldOrder
+            then traceError "commitment Y must be canonical"
+            else
+              let a = bls12_381_G1_uncompress (sliceByteString 0   48 p)
+                  b = bls12_381_G2_uncompress (sliceByteString 48  96 p)
+                  c = bls12_381_G1_uncompress (sliceByteString 144 48 p)
 
-            cmtUncompressed = sliceByteString 192 96 p
-            yBytes = sliceByteString 240 48 p
-            yInt   = byteStringToInteger BigEndian yBytes
-            sortBit = if (2 * yInt) > blsBaseFieldOrder then 32 else 0
-            comp0  = indexByteString p 192 + 128 + sortBit
-            comp   = consByteString comp0 (sliceByteString 193 47 p)
+                  cmtUncompressed = sliceByteString 192 96 p
+                  sortBit = if (2 * yInt) > blsBaseFieldOrder then 32 else 0
+                  comp0  = indexByteString p 192 + 128 + sortBit
+                  comp   = consByteString comp0 (sliceByteString 193 47 p)
 
-            commitment = bls12_381_G1_uncompress comp
-            pok        = bls12_381_G1_uncompress (sliceByteString 288 48 p)
+                  commitment = bls12_381_G1_uncompress comp
+                  pok        = bls12_381_G1_uncompress (sliceByteString 288 48 p)
 
-            eCmt = byteStringToInteger BigEndian (expandMsgXmd48 cmtUncompressed)
-                     `modInteger` blsScalarFieldOrder
-            pub  = byteStringToInteger LittleEndian pubBytes `modInteger` blsScalarFieldOrder
-         in BatchCommittedProofCheck commitment pok a b c pub eCmt
+                  eCmt = byteStringToInteger BigEndian (expandMsgXmd48 cmtUncompressed)
+                           `modInteger` blsScalarFieldOrder
+                  pub  = byteStringToInteger LittleEndian pubBytes `modInteger` blsScalarFieldOrder
+               in BatchCommittedProofCheck commitment pok a b c pub eCmt
 
 {-# INLINABLE groth16VerifyCommittedParsedBatchLegacyNoPok #-}
 groth16VerifyCommittedParsedBatchLegacyNoPok :: ParsedBatchVerifyingKey -> Proof -> Scalar -> CommittedProofCheck

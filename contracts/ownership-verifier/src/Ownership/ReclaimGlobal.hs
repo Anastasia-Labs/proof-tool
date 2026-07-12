@@ -46,9 +46,12 @@ import Ownership.Verify
   ( BatchCommittedProofCheck (..)
   , CommittedProofCheck (..)
   , ParsedBatchVerifyingKey
+  , Proof (Proof)
+  , Scalar (Scalar)
   , blsScalarFieldOrder
   , coefficientFirstVkX
   , committedProofChallengeScalar
+  , groth16VerifyCommittedParsedBatchNoPok
   , ownershipDestinationPublicInputDigest
   , ownershipDestinationPublicInputScalar
   , ownershipProofBatchChallenge
@@ -309,9 +312,13 @@ txInResolved txIn =
 {-# INLINABLE valueCoversData #-}
 valueCoversData :: BuiltinData -> BuiltinData -> BI.BuiltinBool
 valueCoversData requiredValueData paidValueData =
-  let !requiredPolicies = BI.unsafeDataAsMap requiredValueData
-      !paidPolicies = BI.unsafeDataAsMap paidValueData
-   in ledgerValueCovers requiredPolicies paidPolicies
+  builtinIf
+    (BI.equalsData requiredValueData paidValueData)
+    BI.true
+    ( let !requiredPolicies = BI.unsafeDataAsMap requiredValueData
+          !paidPolicies = BI.unsafeDataAsMap paidValueData
+       in ledgerValueCovers requiredPolicies paidPolicies
+    )
 
 -- | Linear componentwise coverage for ledger-normalized TxOut Values. A
 -- required key that sorts before the current paid key is absent and therefore
@@ -443,10 +450,10 @@ reclaimBatchTranscriptV2 verifierKeyHash proofs publicInputDigests =
   if lengthOfByteString verifierKeyHash == 32
     then
       let !(!count, !items) = go 0 proofs publicInputDigests
-       in ownershipProofBatchDomainV2
-            <> verifierKeyHash
-            <> integerToByteString BigEndian 2 count
-            <> items
+          !header =
+            (ownershipProofBatchDomainV2 <> verifierKeyHash)
+              <> integerToByteString BigEndian 2 count
+       in header <> items
     else traceError "verifier key hash must be 32 bytes"
   where
     go !count !remainingProofs !remainingDigests =
@@ -469,8 +476,9 @@ reclaimBatchTranscriptV2 verifierKeyHash proofs publicInputDigests =
                         )
                         ( if count < 65535
                             then
-                              let !(!finalCount, !remainingItems) = go (count + 1) moreProofs moreDigests
-                               in (finalCount, proof <> digest <> remainingItems)
+                              let !item = proof <> digest
+                                  !(!finalCount, !remainingItems) = go (count + 1) moreProofs moreDigests
+                               in (finalCount, item <> remainingItems)
                             else traceError "reclaim batch count exceeds u16"
                         )
                         (traceError "invalid reclaim proof or digest width")
@@ -539,8 +547,12 @@ stakeAddressBytes stakingCredentialMaybe =
 {-# INLINABLE destinationAddressV1FromTxOutData #-}
 destinationAddressV1FromTxOutData :: BuiltinData -> BuiltinByteString
 destinationAddressV1FromTxOutData txOut =
-  let !txOutFields = constrFields txOut
-      !address = field0 txOutFields
+  destinationAddressV1FromTxOutFields (constrFields txOut)
+
+{-# INLINABLE destinationAddressV1FromTxOutFields #-}
+destinationAddressV1FromTxOutFields :: BI.BuiltinList BuiltinData -> BuiltinByteString
+destinationAddressV1FromTxOutFields txOutFields =
+  let !address = field0 txOutFields
       !addressFields = constrFields address
       !encoded =
         credentialAddressBytes (field0 addressFields)
@@ -560,6 +572,23 @@ validateFreshBatchReclaimProof parsedVerifierKey paymentKeyHash destinationAddre
   builtinIf
     (BI.equalsInteger (lengthOfByteString paymentKeyHash) 28)
     (verifyOwnershipDestinationWithParsedBatchVKKnown28NoPok parsedVerifierKey proof paymentKeyHash destinationAddress)
+    (traceError "reclaim payment key hash must be 28 bytes")
+
+-- | V2 has already authenticated this digest against the current
+-- payment-key hash and destination output before parsing the proof. Reusing
+-- those exact 32 bytes avoids hashing the same statement a second time while
+-- preserving the proof parser and scalar reduction unchanged.
+{-# INLINABLE validateFreshBatchReclaimProofWithDigest #-}
+validateFreshBatchReclaimProofWithDigest ::
+  ParsedBatchVerifyingKey ->
+  BuiltinByteString ->
+  BuiltinByteString ->
+  BuiltinByteString ->
+  BatchCommittedProofCheck
+validateFreshBatchReclaimProofWithDigest parsedVerifierKey paymentKeyHash publicInputDigest proof =
+  builtinIf
+    (BI.equalsInteger (lengthOfByteString paymentKeyHash) 28)
+    (groth16VerifyCommittedParsedBatchNoPok parsedVerifierKey (Proof proof) (Scalar publicInputDigest))
     (traceError "reclaim payment key hash must be 28 bytes")
 
 {-# INLINABLE validateFreshSingleReclaimProof #-}
@@ -961,15 +990,16 @@ validateReclaimInputsV2 baseScriptHash parsedVerifierKey verifierKeyHash proofs 
                                       let !proof = BI.unsafeDataAsB proofData
                                           !claimedDigest = BI.unsafeDataAsB digestData
                                           !paymentKeyHash = decodeBasePaymentKeyHashFromFields txOutFields
-                                          !destinationAddress = destinationAddressV1FromTxOutData destinationOutput
+                                          !destinationOutputFields = constrFields destinationOutput
+                                          !destinationAddress = destinationAddressV1FromTxOutFields destinationOutputFields
                                           !actualDigest = ownershipDestinationPublicInputDigest paymentKeyHash destinationAddress
                                           !inputValueData = field1 txOutFields
-                                          !outputValueData = field1 (constrFields destinationOutput)
+                                          !outputValueData = field1 destinationOutputFields
                                        in builtinIf
                                             (valueCoversData inputValueData outputValueData)
                                             ( builtinIf
                                                 (BI.equalsByteString claimedDigest actualDigest)
-                                                ( let !proofCheck = validateFreshBatchReclaimProof parsedVerifierKey paymentKeyHash destinationAddress proof
+                                                ( let !proofCheck = validateFreshBatchReclaimProofWithDigest parsedVerifierKey paymentKeyHash actualDigest proof
                                                    in case proofCheck of
                                                         BatchCommittedProofCheck commitment pok a b c pub eCmt ->
                                                           restOfBatch rest moreProofs moreDigests moreOutputs commitment pok (bls12_381_millerLoop a b) c pub eCmt 1 batchChallenge
@@ -1022,15 +1052,16 @@ validateReclaimInputsV2 baseScriptHash parsedVerifierKey verifierKeyHash proofs 
                                       let !proof = BI.unsafeDataAsB proofData
                                           !claimedDigest = BI.unsafeDataAsB digestData
                                           !paymentKeyHash = decodeBasePaymentKeyHashFromFields txOutFields
-                                          !destinationAddress = destinationAddressV1FromTxOutData destinationOutput
+                                          !destinationOutputFields = constrFields destinationOutput
+                                          !destinationAddress = destinationAddressV1FromTxOutFields destinationOutputFields
                                           !actualDigest = ownershipDestinationPublicInputDigest paymentKeyHash destinationAddress
                                           !inputValueData = field1 txOutFields
-                                          !outputValueData = field1 (constrFields destinationOutput)
+                                          !outputValueData = field1 destinationOutputFields
                                        in builtinIf
                                             (valueCoversData inputValueData outputValueData)
                                             ( builtinIf
                                                 (BI.equalsByteString claimedDigest actualDigest)
-                                                ( let !proofCheck = validateFreshBatchReclaimProof parsedVerifierKey paymentKeyHash destinationAddress proof
+                                                ( let !proofCheck = validateFreshBatchReclaimProofWithDigest parsedVerifierKey paymentKeyHash actualDigest proof
                                                    in case proofCheck of
                                                         BatchCommittedProofCheck commitment pok a b c pub eCmt ->
                                                           let !(!newCommitment, !newPok, !newGrothLhs, !newC) =
