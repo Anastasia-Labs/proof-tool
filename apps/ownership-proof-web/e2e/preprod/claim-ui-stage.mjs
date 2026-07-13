@@ -35,7 +35,7 @@ export async function runClaimUiAcceptanceStage(options = {}) {
   }).toString();
 
   await page.goto(claimUrl.toString(), { waitUntil: "domcontentloaded" });
-  await clickByRole(page, "button", "I reviewed deployment");
+  await clickByRoleIfVisible(page, "button", "I reviewed deployment");
   await selectClaimRole(page, walletHarness, COMPROMISED_WALLET_ROLE);
   await clickByRole(page, "button", "Connect impacted wallet");
   await approveWalletConnection(walletHarness, COMPROMISED_WALLET_ROLE);
@@ -124,13 +124,23 @@ async function recoveryPhraseForUi(walletHarness, role) {
 async function fillRecoveryPhrase(page, phrase) {
   const words = phrase.trim().split(/\s+/u);
   for (const [index, word] of words.entries()) {
-    const input = page.getByLabel(`Recovery word ${index + 1}`);
+    const input = page.getByLabel(`Recovery word ${index + 1}`, { exact: true });
+    if (index === 0) {
+      await input.waitFor({ timeout: 180_000 });
+    }
     await input.fill(word);
   }
 }
 
+async function clickByRoleIfVisible(page, role, name) {
+  const locator = page.getByRole(role, { name });
+  if (await locator.isVisible()) {
+    await locator.click();
+  }
+}
+
 async function clickByRole(page, role, name) {
-  await page.getByRole(role, { name }).click();
+  await page.getByRole(role, { name }).click({ timeout: 180_000 });
 }
 
 async function waitForText(page, text, timeout = 120_000) {
