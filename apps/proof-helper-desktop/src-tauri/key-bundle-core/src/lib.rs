@@ -9,12 +9,15 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-pub const KEY_VERSION: &str = "ownership-destination-v1";
-pub const CIRCUIT_ID: &str = "root-ownership-destination-v1/bls12-381/groth16";
+pub const KEY_VERSION: &str = "ownership-destination-v2";
+pub const CIRCUIT_ID: &str = "root-ownership-destination-v2/bls12-381/groth16";
 pub const MANIFEST_FILE: &str = "manifest.json";
 pub const MANIFEST_SIGNATURE_FILE: &str = "manifest.sig";
 pub const PROVING_KEY_FILE: &str = "ownership.pk";
 pub const VERIFYING_KEY_FILE: &str = "ownership.vk";
+/// Frozen compiled constraint system shipped with v2+ bundles so the helper
+/// deserializes the exact ceremony constraint system instead of recompiling.
+pub const CONSTRAINT_SYSTEM_FILE: &str = "ownership-destination.ccs";
 pub const RELEASE_METADATA_FILE: &str = "proof-assets-release.json";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -30,6 +33,10 @@ pub struct KeyManifest {
     pub proving_key_size: u64,
     pub verifying_key_sha256: String,
     pub verifying_key_size: u64,
+    /// BLAKE2b-256 pin for ownership-destination.ccs. Absent in v1-era
+    /// manifests; when present the bundle must ship a matching file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constraint_system_hash: Option<String>,
     pub signature_key_id: String,
 }
 
@@ -121,6 +128,11 @@ pub fn inspect_active_bundle(active_dir: &Path) -> BundleInspection {
         return inspection("invalid", false, Some(manifest), Some(err));
     }
     if let Err(err) = validate_key_files(&manifest, &pk_path, &vk_path) {
+        return inspection("invalid", false, Some(manifest), Some(err));
+    }
+    if let Err(err) =
+        validate_constraint_system(&manifest, &active_dir.join(CONSTRAINT_SYSTEM_FILE))
+    {
         return inspection("invalid", false, Some(manifest), Some(err));
     }
     let release = read_release_metadata(&active_dir.join(RELEASE_METADATA_FILE)).ok();
@@ -228,6 +240,7 @@ pub fn validate_staged_bundle(
         request.trusted_manifest_public_key_hex,
     )?;
     validate_key_files(&manifest, &pk_path, &vk_path)?;
+    validate_constraint_system(&manifest, &request.bundle_dir.join(CONSTRAINT_SYSTEM_FILE))?;
     Ok(manifest)
 }
 
@@ -305,7 +318,17 @@ where
         vk_path,
         &request.downloading_dir.join(VERIFYING_KEY_FILE),
         on_progress,
-    )
+    )?;
+    let ccs_path = request.source_dir.join(CONSTRAINT_SYSTEM_FILE);
+    if ccs_path.exists() {
+        copy_file_with_progress(
+            CONSTRAINT_SYSTEM_FILE,
+            &ccs_path,
+            &request.downloading_dir.join(CONSTRAINT_SYSTEM_FILE),
+            on_progress,
+        )?;
+    }
+    Ok(())
 }
 
 pub fn delete_cache(active_dir: &Path, downloading_dir: &Path) -> Result<(), String> {
@@ -474,6 +497,32 @@ fn validate_key_files(
     Ok(())
 }
 
+// validate_constraint_system enforces the frozen-constraint-system pin: a
+// manifest that declares constraint_system_hash must ship a matching file,
+// and a bundle must not carry an unpinned constraint system. v1-era bundles
+// (no pin, no file) pass unchanged.
+fn validate_constraint_system(manifest: &KeyManifest, ccs_path: &Path) -> Result<(), String> {
+    match (&manifest.constraint_system_hash, ccs_path.exists()) {
+        (Some(want), true) => {
+            let ccs = digest_file(ccs_path)?;
+            if &ccs.blake2b256 != want {
+                return Err(format!(
+                    "constraint system hash mismatch: manifest {}, file {}",
+                    want, ccs.blake2b256
+                ));
+            }
+            Ok(())
+        }
+        (Some(_), false) => Err(format!(
+            "manifest pins constraint_system_hash but {CONSTRAINT_SYSTEM_FILE} is missing"
+        )),
+        (None, true) => Err(format!(
+            "bundle contains {CONSTRAINT_SYSTEM_FILE} but the manifest does not pin constraint_system_hash"
+        )),
+        (None, false) => Ok(()),
+    }
+}
+
 fn copy_file_with_progress<F>(
     file_name: &'static str,
     from: &Path,
@@ -582,7 +631,9 @@ fn inspection_with_release(
         key_version: manifest.as_ref().map(|value| value.key_version.clone()),
         vk_hash: manifest.as_ref().map(|value| value.vk_hash.clone()),
         circuit_id: manifest.as_ref().map(|value| value.circuit_id.clone()),
-        signature_key_id: manifest.as_ref().map(|value| value.signature_key_id.clone()),
+        signature_key_id: manifest
+            .as_ref()
+            .map(|value| value.signature_key_id.clone()),
         installed_release_tag: release.as_ref().map(|value| value.release_tag.clone()),
         installed_at: release.map(|value| value.installed_at),
         error,
@@ -753,6 +804,7 @@ mod tests {
                 proving_key_size: pk_digest.size,
                 verifying_key_sha256: vk_digest.sha256,
                 verifying_key_size: vk_digest.size,
+                constraint_system_hash: None,
                 signature_key_id: SIGNATURE_KEY_ID.to_string(),
             };
             let manifest_bytes = serde_json::to_vec_pretty(&manifest).unwrap();

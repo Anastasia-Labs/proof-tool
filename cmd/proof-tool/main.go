@@ -1061,6 +1061,7 @@ func cmdServeHelper(args []string) error {
 	devCreateKeys := fs.Bool("dev-create-keys", false, "development only: create the key bundle if it is missing")
 	fixtureMode := fs.Bool("fixture", false, "development only: return fixture artifacts for UI/control-flow testing")
 	noOpen := fs.Bool("no-open", false, "do not open the paired website automatically")
+	keyIdleTTL := fs.Duration("key-idle-ttl", 0, "how long loaded proving keys stay cached in memory after the last request (0 = default 10m)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -1074,7 +1075,12 @@ func cmdServeHelper(args []string) error {
 	if err != nil {
 		return err
 	}
-	var generator helper.Generator = &helper.OwnershipGenerator{KeysDir: *keysDir, DestinationKeysDir: *destinationKeysDir, AllowCreateKeys: *devCreateKeys}
+	var generator helper.Generator = &helper.OwnershipGenerator{
+		KeysDir:               *keysDir,
+		DestinationKeysDir:    *destinationKeysDir,
+		AllowCreateKeys:       *devCreateKeys,
+		DestinationKeyIdleTTL: *keyIdleTTL,
+	}
 	if *fixtureMode {
 		generator = helper.FixtureGenerator{}
 	}

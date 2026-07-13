@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
-const KEY_VERSION: &str = "ownership-destination-v1";
+const KEY_VERSION: &str = "ownership-destination-v2";
 const KEY_BUNDLE_PROGRESS_EVENT: &str = "key-bundle-progress";
 
 #[derive(Default)]

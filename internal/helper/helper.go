@@ -6,8 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/consensys/gnark/constraint"
 
 	"proof-tool/internal/artifact"
 	"proof-tool/internal/circuit/ownership"
@@ -116,10 +121,104 @@ type KeyStatus struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// defaultDestinationKeyIdleTTL is how long the loaded destination proving
+// bundle and frozen constraint system stay cached in memory after the last
+// request. Within the window repeat proofs skip the ~10 s proving-key load;
+// after it the ~2-3 GiB of key material is released back to the OS.
+const defaultDestinationKeyIdleTTL = 10 * time.Minute
+
 type OwnershipGenerator struct {
 	KeysDir            string
 	DestinationKeysDir string
 	AllowCreateKeys    bool
+
+	// DestinationKeyIdleTTL overrides defaultDestinationKeyIdleTTL when > 0.
+	DestinationKeyIdleTTL time.Duration
+
+	mu        sync.Mutex
+	destCache *destinationProverCache
+
+	// Test seams; nil means the production implementations.
+	loadDestinationProver func(dir string) (*prover.OwnershipBundle, error)
+	loadDestinationCCS    func(dir string, manifest *artifact.KeyManifest) (constraint.ConstraintSystem, error)
+	compileDestination    func() (constraint.ConstraintSystem, error)
+}
+
+// destinationProverCache holds the request-independent proving material: the
+// deserialized proving key bundle and the constraint system. Both are public
+// data; only memory footprint motivates eviction.
+type destinationProverCache struct {
+	bundle *prover.OwnershipBundle
+	ccs    constraint.ConstraintSystem
+	evict  *time.Timer
+}
+
+func (g *OwnershipGenerator) destinationIdleTTL() time.Duration {
+	if g.DestinationKeyIdleTTL > 0 {
+		return g.DestinationKeyIdleTTL
+	}
+	return defaultDestinationKeyIdleTTL
+}
+
+// acquireDestinationProver returns the cached proving bundle and constraint
+// system, loading them on first use. The frozen ceremony constraint system
+// (ownership-destination.ccs, digest-pinned by the key manifest) is preferred;
+// bundles without one fall back to compiling the circuit in-process so local
+// dev key directories keep working.
+func (g *OwnershipGenerator) acquireDestinationProver() (*prover.OwnershipBundle, constraint.ConstraintSystem, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.destCache != nil {
+		g.destCache.evict.Reset(g.destinationIdleTTL())
+		return g.destCache.bundle, g.destCache.ccs, nil
+	}
+
+	loadBundle := g.loadDestinationProver
+	if loadBundle == nil {
+		loadBundle = prover.LoadOwnershipDestinationProver
+	}
+	loadCCS := g.loadDestinationCCS
+	if loadCCS == nil {
+		loadCCS = prover.LoadOwnershipDestinationCCS
+	}
+	compile := g.compileDestination
+	if compile == nil {
+		compile = prover.CompileOwnershipDestination
+	}
+
+	bundle, err := loadBundle(g.destinationKeysDir())
+	if err != nil {
+		return nil, nil, err
+	}
+	ccs, err := loadCCS(g.destinationKeysDir(), bundle.Manifest)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			// A present-but-unverifiable frozen constraint system is a hard
+			// error: falling back to a compile would silently mask a corrupt
+			// or tampered bundle.
+			return nil, nil, err
+		}
+		ccs, err = compile()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	g.destCache = &destinationProverCache{
+		bundle: bundle,
+		ccs:    ccs,
+		evict:  time.AfterFunc(g.destinationIdleTTL(), g.evictDestinationProver),
+	}
+	return bundle, ccs, nil
+}
+
+func (g *OwnershipGenerator) evictDestinationProver() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.destCache != nil {
+		g.destCache.evict.Stop()
+		g.destCache = nil
+	}
 }
 
 func BuildInput(req ProveRequest) (ProveInput, error) {
@@ -259,11 +358,7 @@ func (g *OwnershipGenerator) GenerateDestinationProofs(ctx context.Context, inpu
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	bundle, err := prover.LoadOwnershipDestinationProver(g.destinationKeysDir())
-	if err != nil {
-		return nil, err
-	}
-	ccs, err := prover.CompileOwnershipDestination()
+	bundle, ccs, err := g.acquireDestinationProver()
 	if err != nil {
 		return nil, err
 	}

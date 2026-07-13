@@ -5,7 +5,7 @@ use blake2::{
 };
 use flate2::read::GzDecoder;
 use key_bundle_core::{
-    self, BundleValidationRequest, InstalledReleaseMetadata, MANIFEST_FILE,
+    self, BundleValidationRequest, InstalledReleaseMetadata, CONSTRAINT_SYSTEM_FILE, MANIFEST_FILE,
     MANIFEST_SIGNATURE_FILE, PROVING_KEY_FILE, VERIFYING_KEY_FILE,
 };
 use reqwest::blocking::Client;
@@ -90,27 +90,27 @@ struct ArchiveDigest {
 
 pub fn active_descriptor() -> ProofAssetsReleaseDescriptor {
     ProofAssetsReleaseDescriptor {
-        release_tag: "proof-assets-ownership-destination-v1-preprod-d2c944d-r3".to_string(),
+        release_tag: "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a".to_string(),
         profile: "preprod-single-destination".to_string(),
-        archive_url: "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-assets-ownership-destination-v1-preprod-d2c944d-r3/proof-assets-ownership-destination-v1-preprod-d2c944d-r3.tar".to_string(),
-        archive_size: 2_079_528_960,
+        archive_url: "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a.tar".to_string(),
+        archive_size: 1_417_943_040,
         archive_sha256:
-            "sha256:dd08bb8f59420b92a7176529032adb438cb5596a9be5ee1dc37f7ea4ca848df0"
+            "sha256:ee2f232f828da815428965ceb7d57719e32b706fce3373cff603de73a29fdff9"
                 .to_string(),
         archive_blake2b256:
-            "blake2b256:017cf1c1b6059917d5453fd275422df68488011fde2f1677ac9db55652f1af0b"
+            "blake2b256:2a44af40ef01cbdca91728098c96978af247ca65dd7ea632090393709a516a28"
                 .to_string(),
-        key_bundle_prefix: "key-bundle/ownership-destination-v1-preprod-d2c944d-r3".to_string(),
-        expected_key_version: "ownership-destination-v1".to_string(),
-        expected_circuit_id: "root-ownership-destination-v1/bls12-381/groth16".to_string(),
+        key_bundle_prefix: "key-bundle/ownership-destination-v2-preprod-9fac96b-g3a".to_string(),
+        expected_key_version: "ownership-destination-v2".to_string(),
+        expected_circuit_id: "root-ownership-destination-v2/bls12-381/groth16".to_string(),
         expected_vk_hash:
-            "blake2b256:6057da91b15dea8f8e93997f1b1944c35bc2c86faf9a9de17b814f6a172d430a"
+            "blake2b256:b1c03cf24376bcd6c743cb372169ff71f93b210e0d8d52b2c6831808f50ded80"
                 .to_string(),
-        expected_signature_key_id: "preprod-local-destination-d2c944dd753c-r3".to_string(),
+        expected_signature_key_id: "preprod-local-destination-v2-9fac96b-g3a".to_string(),
         trusted_manifest_public_key_hex:
-            "e20b0fb38fb6dc0a66284a8f3a6e8d05bf55b8e966d86f53b77d284b524463d6".to_string(),
+            "2af3b300b9e641ede236d4b7d48b43eccfb843ffa9aca74abb38f98e7211eccb".to_string(),
         expected_cardano_vk_blake2b256:
-            "blake2b256:d35ce80449fddb17cacbf922dfe27e57c28afcd59bee44bcef8eecbd7b317acf"
+            "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4"
                 .to_string(),
         minimum_free_bytes: MINIMUM_FREE_BYTES,
     }
@@ -366,6 +366,7 @@ where
         MANIFEST_SIGNATURE_FILE,
         PROVING_KEY_FILE,
         VERIFYING_KEY_FILE,
+        CONSTRAINT_SYSTEM_FILE,
     ];
     let mut seen = HashSet::new();
     for entry in archive
@@ -467,6 +468,7 @@ fn bundle_file_for_entry(
         MANIFEST_SIGNATURE_FILE => Ok(Some(MANIFEST_SIGNATURE_FILE)),
         PROVING_KEY_FILE => Ok(Some(PROVING_KEY_FILE)),
         VERIFYING_KEY_FILE => Ok(Some(VERIFYING_KEY_FILE)),
+        CONSTRAINT_SYSTEM_FILE => Ok(Some(CONSTRAINT_SYSTEM_FILE)),
         _ => Ok(None),
     }
 }
@@ -733,10 +735,10 @@ mod tests {
         let descriptor = active_descriptor();
         assert!(!descriptor.release_tag.is_empty());
         assert!(!descriptor.profile.is_empty());
-        assert_eq!(descriptor.expected_key_version, "ownership-destination-v1");
+        assert_eq!(descriptor.expected_key_version, "ownership-destination-v2");
         assert_eq!(
             descriptor.expected_circuit_id,
-            "root-ownership-destination-v1/bls12-381/groth16"
+            "root-ownership-destination-v2/bls12-381/groth16"
         );
         assert!(descriptor.expected_vk_hash.starts_with("blake2b256:"));
         assert!(!descriptor.expected_signature_key_id.is_empty());
@@ -747,12 +749,12 @@ mod tests {
         assert!(descriptor.minimum_free_bytes > 0);
         assert!(descriptor.download_configured());
         assert!(descriptor.archive_url.starts_with("https://github.com/"));
-        assert_eq!(descriptor.archive_size, 2_079_528_960);
+        assert_eq!(descriptor.archive_size, 1_417_943_040);
         assert!(descriptor.archive_sha256.starts_with("sha256:"));
         assert!(descriptor.archive_blake2b256.starts_with("blake2b256:"));
         assert_eq!(
             descriptor.key_bundle_prefix,
-            "key-bundle/ownership-destination-v1-preprod-d2c944d-r3"
+            "key-bundle/ownership-destination-v2-preprod-9fac96b-g3a"
         );
     }
 
@@ -777,7 +779,9 @@ mod tests {
         let descriptor = active_descriptor();
         assert_eq!(
             bundle_file_for_entry(
-                Path::new("./key-bundle/ownership-destination-v1-preprod-d2c944d-r3/manifest.json"),
+                Path::new(
+                    "./key-bundle/ownership-destination-v2-preprod-9fac96b-g3a/manifest.json"
+                ),
                 &descriptor.key_bundle_prefix,
             )
             .unwrap(),
@@ -785,7 +789,7 @@ mod tests {
         );
         assert_eq!(
             bundle_file_for_entry(
-                Path::new("key-bundle/ownership-destination-v1-preprod-d2c944d-r3/ownership.pk"),
+                Path::new("key-bundle/ownership-destination-v2-preprod-9fac96b-g3a/ownership.pk"),
                 &descriptor.key_bundle_prefix,
             )
             .unwrap(),
@@ -793,7 +797,19 @@ mod tests {
         );
         assert_eq!(
             bundle_file_for_entry(
-                Path::new("proof-assets-ownership-destination-v1-preprod-d2c944d-r3/manifest.json"),
+                Path::new(
+                    "key-bundle/ownership-destination-v2-preprod-9fac96b-g3a/ownership-destination.ccs"
+                ),
+                &descriptor.key_bundle_prefix,
+            )
+            .unwrap(),
+            Some(CONSTRAINT_SYSTEM_FILE)
+        );
+        assert_eq!(
+            bundle_file_for_entry(
+                Path::new(
+                    "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a/manifest.json"
+                ),
                 &descriptor.key_bundle_prefix,
             )
             .unwrap(),
@@ -1030,9 +1046,15 @@ mod tests {
             fs::create_dir_all(&bundle_dir).unwrap();
             fs::write(bundle_dir.join(PROVING_KEY_FILE), b"test proving key").unwrap();
             fs::write(bundle_dir.join(VERIFYING_KEY_FILE), b"test verifying key").unwrap();
+            fs::write(
+                bundle_dir.join(CONSTRAINT_SYSTEM_FILE),
+                b"test constraint system",
+            )
+            .unwrap();
 
             let pk_digest = digest_file(&bundle_dir.join(PROVING_KEY_FILE)).unwrap();
             let vk_digest = digest_file(&bundle_dir.join(VERIFYING_KEY_FILE)).unwrap();
+            let ccs_digest = digest_file(&bundle_dir.join(CONSTRAINT_SYSTEM_FILE)).unwrap();
             let manifest = KeyManifest {
                 schema: "proof-tool-key-manifest-v1".to_string(),
                 key_version: key_bundle_core::KEY_VERSION.to_string(),
@@ -1045,6 +1067,7 @@ mod tests {
                 proving_key_size: pk_digest.size,
                 verifying_key_sha256: vk_digest.sha256,
                 verifying_key_size: vk_digest.size,
+                constraint_system_hash: Some(ccs_digest.blake2b256),
                 signature_key_id: SIGNATURE_KEY_ID.to_string(),
             };
             let manifest_bytes = serde_json::to_vec_pretty(&manifest).unwrap();
@@ -1069,6 +1092,7 @@ mod tests {
                 MANIFEST_SIGNATURE_FILE,
                 PROVING_KEY_FILE,
                 VERIFYING_KEY_FILE,
+                CONSTRAINT_SYSTEM_FILE,
             ] {
                 if file_name == omitted_file_name {
                     continue;

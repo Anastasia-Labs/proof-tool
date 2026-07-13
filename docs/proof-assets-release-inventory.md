@@ -1,6 +1,6 @@
 # Proof Assets Release Inventory
 
-Last verified: 2026-07-09.
+Last verified: 2026-07-13.
 
 This document records the current proof-assets release state in
 `Anastasia-Labs/proof-tool-release`. It is factual release inventory, not a
@@ -17,7 +17,27 @@ anonymous public download route for the desktop app. The desktop app still pins
 the archive size and hashes; GitHub's route is the transport, not the trust
 root.
 
-## Current Preprod Proof-Assets Release
+## Current Preprod Proof-Assets Release (v2)
+
+- Tag: `proof-assets-ownership-destination-v2-preprod-9fac96b-g3a`
+- Release URL:
+  `https://github.com/Anastasia-Labs/proof-tool-release/releases/tag/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a`
+- Published at: `2026-07-13`
+- Circuit: `root-ownership-destination-v2/bls12-381/groth16` (G3a freeze,
+  source commit `9fac96bc0669285433ca51e62873b1ab1fa274de`)
+- The desktop app's `active_descriptor()` pins this release (archive size
+  `1417943040`, `sha256:ee2f232f…`, `blake2b256:2a44af40…`).
+
+### v2 Assets
+
+| Asset | Size | Notes |
+| --- | ---: | --- |
+| `proof-assets-ownership-destination-v2-preprod-9fac96b-g3a.tar` | `1417943040` | Key-bundle archive: `manifest.json`, `manifest.sig`, `ownership.pk`, `ownership.vk`, and the new `ownership-destination.ccs` (frozen compiled constraint system, blake2b256-pinned by the manifest, loaded by the helper instead of recompiling the circuit). |
+| `proof-assets-ownership-destination-v2-preprod-9fac96b-g3a.tar.sha256` | `201` | SHA-256 sidecar. |
+| `proof-assets-ownership-destination-v2-preprod-9fac96b-g3a.tar.blake2b256` | `201` | BLAKE2b-256 sidecar. |
+| `proof-assets-ownership-destination-v2-preprod-9fac96b-g3a.release-manifest.json` | `2498` | Release manifest and provenance. |
+
+## Previous Preprod Proof-Assets Release (v1)
 
 - Tag: `proof-assets-ownership-destination-v1-preprod-d2c944d-r3`
 - Name: `Proof Assets: ownership-destination-v1 preprod d2c944d r3`

@@ -255,6 +255,49 @@ func loadProver(dir string, cfg keyConfig) (*OwnershipBundle, error) {
 	return &OwnershipBundle{Dir: dir, Manifest: manifest, ProvingKey: pk, VerifyingKey: vk}, nil
 }
 
+// DestinationConstraintSystemFile is the frozen compiled constraint system
+// shipped alongside the destination key bundle. Loading it binds the helper to
+// the exact ceremony constraint system (the same bytes the proving key was set
+// up for) instead of trusting a local recompile, and replaces a ~6 s compile
+// with a sub-second deserialization.
+const DestinationConstraintSystemFile = "ownership-destination.ccs"
+
+// LoadOwnershipDestinationCCS loads the frozen destination constraint system
+// from the key bundle directory. The manifest must pin its BLAKE2b-256 in
+// constraint_system_hash; an unpinned or mismatched file is rejected. When the
+// bundle simply does not contain the file (pre-CCS bundles, local dev keys),
+// the returned error wraps fs.ErrNotExist so callers can fall back to
+// compiling the circuit.
+func LoadOwnershipDestinationCCS(dir string, manifest *artifact.KeyManifest) (constraint.ConstraintSystem, error) {
+	if dir == "" {
+		dir = defaultKeyDir(DefaultDestinationKeyVersion)
+	}
+	path := filepath.Join(dir, DestinationConstraintSystemFile)
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("frozen constraint system %s: %w", path, err)
+	}
+	if manifest == nil || manifest.ConstraintSystemHash == "" {
+		return nil, fmt.Errorf("bundle contains %s but the key manifest does not pin constraint_system_hash", DestinationConstraintSystemFile)
+	}
+	digest, err := digestFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if digest.Blake2b256 != manifest.ConstraintSystemHash {
+		return nil, fmt.Errorf("constraint system hash mismatch: manifest %s, file %s", manifest.ConstraintSystemHash, digest.Blake2b256)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	ccs := groth16.NewCS(curve)
+	if _, err := ccs.ReadFrom(f); err != nil {
+		return nil, fmt.Errorf("read frozen constraint system: %w", err)
+	}
+	return ccs, nil
+}
+
 func LoadOwnershipVerifier(dir string) (*OwnershipBundle, error) {
 	return loadVerifier(dir, ownershipKeyConfig())
 }
