@@ -90,3 +90,37 @@ Caveats: WSL2 host (native Linux may differ slightly); single golden witness
 (prove time is witness-independent for fixed circuit size); run-to-run spread
 was ±0.5 s; PK load measured from warm page cache — cold-disk load will be
 higher.
+
+## Follow-up (same day): single-task MSM pin found and lifted — 19.4 s → 3.84 s
+
+A CPU profile of the 19.4 s run showed **188% CPU utilization on a 32-thread
+host** — the prover averaged under two cores. Root cause: the vendored
+streaming prover routes every MSM through `internal/msmengine`, and the CPU
+rung (`internal/msmengine/cpu.go`) hardcoded `ecc.MultiExpConfig{NbTasks: 1}` —
+the Phase-0 single-thread lever that is correct inside a one-thread WASM
+worker but was never meant to govern the native binary. Only the 3–4
+concurrent MSM *sections* in the prover overlapped; each MSM itself ran
+single-threaded.
+
+Fix in this branch: `cpuNbTasks` is now a build-tagged constant —
+`1` on `js && wasm` (Phase-0 lever preserved exactly), `runtime.NumCPU()`
+elsewhere. An MSM is a group sum, so task count changes only the internal
+addition order, not the resulting group element; the emitted proof is
+unaffected (and Groth16 proofs are randomized per run regardless). All
+`internal/msmengine` tests pass; every benchmark proof verifies against the
+pinned ceremony VK.
+
+| | Before (NbTasks=1) | After (NbTasks=NumCPU) |
+| --- | ---: | ---: |
+| Prove median | 19.43 s | **3.84 s** |
+| Prove runs | 20.16/19.44/19.43/19.14 | 4.05/3.56/3.99/3.69 |
+| CPU utilization | ~1.9 cores | multi-core |
+| vs browser (~70 s) | 3.6× | **≈ 18×** |
+
+The corrected end state: first proof on a machine ≈ 14 s (PK load 9.8 s warm +
+prove 3.8 s) after a one-time 1.29 GB download; subsequent proofs ≈ 3.8 s.
+The original "15–40× faster than browser" intuition was right about the
+hardware and wrong about the software — the native binary was artificially
+single-threaded. Production adoption is runtime-only (no ceremony): take the
+`cpuNbTasks` build-tag split, confirm the WASM bundle still pins 1, and run
+the standard proof-byte/verification acceptance.

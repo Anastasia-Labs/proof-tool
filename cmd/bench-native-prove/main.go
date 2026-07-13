@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"time"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -70,6 +71,7 @@ func run() error {
 	vkPath := flag.String("vk", "", "path to ownership.vk")
 	runs := flag.Int("runs", 4, "number of timed prove runs")
 	skipDigests := flag.Bool("skip-digests", false, "skip artifact digest verification (not recommended)")
+	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile covering the prove runs to this path")
 	flag.Parse()
 	if *ccsPath == "" || *pkPath == "" || *vkPath == "" {
 		return fmt.Errorf("--ccs, --pk, and --vk are required")
@@ -153,6 +155,18 @@ func run() error {
 		GOMAXPROCS:  runtime.GOMAXPROCS(0),
 		CCSLoadMS:   ccsLoadMS,
 		PKLoadMS:    pkLoadMS,
+	}
+
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			return err
+		}
+		defer pprof.StopCPUProfile()
 	}
 
 	for i := 0; i < *runs; i++ {

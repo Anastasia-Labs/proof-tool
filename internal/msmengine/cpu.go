@@ -28,7 +28,7 @@ func (cpuMSM) Instrumentation() map[string]any {
 // MultiExp directly, which is the correctness invariant the seam must preserve.
 func (cpuMSM) MSMG1(dst *bls12381.G1Jac, points []bls12381.G1Affine, scalars []fr.Element, prog ProgressFn) error {
 	prog = progressReporter(prog)
-	_, err := dst.MultiExp(points, scalars, ecc.MultiExpConfig{NbTasks: 1})
+	_, err := dst.MultiExp(points, scalars, ecc.MultiExpConfig{NbTasks: cpuNbTasks})
 	if err == nil && prog != nil {
 		prog(len(scalars), len(scalars))
 	}
@@ -38,7 +38,7 @@ func (cpuMSM) MSMG1(dst *bls12381.G1Jac, points []bls12381.G1Affine, scalars []f
 // MSMG2 delegates to G2Jac.MultiExp with NbTasks:1.
 func (cpuMSM) MSMG2(dst *bls12381.G2Jac, points []bls12381.G2Affine, scalars []fr.Element, prog ProgressFn) error {
 	prog = progressReporter(prog)
-	_, err := dst.MultiExp(points, scalars, ecc.MultiExpConfig{NbTasks: 1})
+	_, err := dst.MultiExp(points, scalars, ecc.MultiExpConfig{NbTasks: cpuNbTasks})
 	if err == nil && prog != nil {
 		prog(len(scalars), len(scalars))
 	}
@@ -70,7 +70,7 @@ func (cpuMSM) MSMG1Ranged(dst *bls12381.G1Jac, n int, fetch FetchG1, scalars []f
 			return fmt.Errorf("cpuMSM.MSMG1Ranged: fetch [%d,%d) returned %d points, want %d", r[0], r[1], len(pts), r[1]-r[0])
 		}
 		var part bls12381.G1Jac
-		if _, err := part.MultiExp(pts, scalars[r[0]:r[1]], ecc.MultiExpConfig{NbTasks: 1}); err != nil {
+		if _, err := part.MultiExp(pts, scalars[r[0]:r[1]], ecc.MultiExpConfig{NbTasks: cpuNbTasks}); err != nil {
 			return err
 		}
 		sum.AddAssign(&part)
@@ -104,7 +104,7 @@ func (cpuMSM) MSMG2Ranged(dst *bls12381.G2Jac, n int, fetch FetchG2, scalars []f
 			return fmt.Errorf("cpuMSM.MSMG2Ranged: fetch [%d,%d) returned %d points, want %d", r[0], r[1], len(pts), r[1]-r[0])
 		}
 		var part bls12381.G2Jac
-		if _, err := part.MultiExp(pts, scalars[r[0]:r[1]], ecc.MultiExpConfig{NbTasks: 1}); err != nil {
+		if _, err := part.MultiExp(pts, scalars[r[0]:r[1]], ecc.MultiExpConfig{NbTasks: cpuNbTasks}); err != nil {
 			return err
 		}
 		sum.AddAssign(&part)
