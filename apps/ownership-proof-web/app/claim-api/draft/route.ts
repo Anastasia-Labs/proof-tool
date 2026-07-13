@@ -42,7 +42,13 @@ export async function POST(request: NextRequest) {
 }
 
 function errorResponse(error: unknown) {
-  if (error instanceof ClaimValidationError || error instanceof ReclaimValidationError) {
+  if (error instanceof ClaimValidationError) {
+    return NextResponse.json(
+      { error: error.message, code: error.code, ...(error.details ? { details: error.details } : {}) },
+      { status: 400 },
+    );
+  }
+  if (error instanceof ReclaimValidationError) {
     return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
   }
   return NextResponse.json(

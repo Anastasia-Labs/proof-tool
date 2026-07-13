@@ -20,7 +20,8 @@ describe("claim discovery preprod browser stage", () => {
 
     const result = await runClaimDiscoveryStage({
       env: {
-        RECLAIM_E2E_NATIVE_RECLAIM_COUNT: "5",
+        RECLAIM_E2E_NATIVE_RECLAIM_COUNT: "4",
+        RECLAIM_E2E_EXISTING_NATIVE_RECLAIM_COUNT: "1",
       },
       page,
       walletHarness: fakeWalletHarness([0, 0]),

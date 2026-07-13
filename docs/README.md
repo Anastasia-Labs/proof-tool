@@ -3,6 +3,16 @@
 Start here when choosing which part of the repository to change. Plans describe
 unfinished work; the documents below describe the implementation that exists.
 
+## Credit
+
+This project builds substantially on
+[Charles Hoskinson's `CharlesHoskinson/proof-zk-recovery`](https://github.com/CharlesHoskinson/proof-zk-recovery),
+which deserves credit for the heavy lifting behind the work inherited here.
+All code, proof-system and Cardano integration work, designs, fixtures,
+documentation, and other material sourced or adapted from that repository are
+credited to Charles Hoskinson and its contributors. This repository builds on
+that foundation.
+
 ## Proof Engine And Local Services
 
 - [`ownership-proof-system.md`](ownership-proof-system.md): circuit profiles,

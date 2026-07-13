@@ -30,7 +30,6 @@ import {
   RefreshCw,
   Rocket,
   Search,
-  Settings,
   Shield,
   ShieldCheck,
   SlidersHorizontal,
@@ -40,20 +39,19 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  ClaimBuildResponse,
-  ClaimDraftResponse,
-  ClaimProgressResponse,
-  ClaimSubmitResponse,
-  IndexedReclaimUtxo,
-  ReclaimUtxosResponse,
-} from "../lib/claim/types";
+import { isValidRecoveryWord, validateRecoveryPhrase } from "@proof-zk-recovery/proof-tool-client";
 import {
   CLAIM_DEFAULT_BATCH_CAP,
   CLAIM_HARD_BATCH_CAP,
   CLAIM_LEGACY_DEFAULT_BATCH_CAP,
   CLAIM_LEGACY_HARD_BATCH_CAP,
   CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP,
+  type ClaimBuildResponse,
+  type ClaimDraftResponse,
+  type ClaimProgressResponse,
+  type ClaimSubmitResponse,
+  type IndexedReclaimUtxo,
+  type ReclaimUtxosResponse,
 } from "../lib/claim/types";
 import type { AssetMap, BrowserProvingDescriptor, DeploymentResponse, ReclaimApiError, ReclaimNetwork } from "../lib/reclaim/types";
 import { LOVELACE_UNIT } from "../lib/reclaim/types";
@@ -88,8 +86,6 @@ type ClaimScreen =
   | "signature-rejected"
   | "submitted-refreshing"
   | "claim-review-complete";
-
-const STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING = "full-proof-plus-public-input-digest-v2";
 
 type StepStatus = "pending" | "active" | "complete";
 
@@ -248,6 +244,13 @@ type RecoveryPhrasePasteStatus = {
   message: string;
 };
 
+// C32: structured amounts carried by the backend's
+// safe_wallet_lovelace_unavailable error (lovelace strings, never secrets).
+type InsufficientAdaDetails = {
+  availableLovelace: string;
+  requiredLovelace: string;
+};
+
 type ClaimFlowResumeSnapshot = {
   version: 1;
   updatedAt: number;
@@ -281,8 +284,11 @@ type ClaimFlowRuntime = {
   safeWallet: SafeWalletSummary | null;
   safeWalletError: string;
   connectSafeWallet: () => void;
+  confirmSafeWalletDestination: () => void;
+  chooseDifferentSafeWallet: () => void;
   claimRows: ClaimRow[];
   claimIndexerTotal: number;
+  claimScanProgress: number;
   claimDiscoveryError: string;
   refreshClaimMatches: () => void;
   changeClaimsPage: (page: 1 | 2) => void;
@@ -292,12 +298,15 @@ type ClaimFlowRuntime = {
   setSevenSlotOptIn: React.Dispatch<React.SetStateAction<boolean>>;
   draft: ClaimDraftResponse | null;
   draftError: string;
+  insufficientAdaDetails: InsufficientAdaDetails | null;
   helperState: ClaimHelperState;
   helperStatus: ClaimHelperStatusResponse | null;
   helperError: string;
   checkHelper: () => void;
   proofArtifacts: Record<string, unknown>[];
   proofError: string;
+  phraseChecksumFailed: boolean;
+  clearPhraseChecksumError: () => void;
   proofMethod: LocalProofMethod | null;
   setProofMethod: React.Dispatch<React.SetStateAction<LocalProofMethod | null>>;
   browserProvingStatus: BrowserProvingStatus;
@@ -309,6 +318,7 @@ type ClaimFlowRuntime = {
   build: ClaimBuildResponse | null;
   buildError: string;
   submitError: string;
+  submitFailureKind: ClaimSubmitFailureKind | null;
   safeWalletSigningAvailable: boolean;
   safeWalletSigningSessionState: SafeWalletSigningSessionState;
   submitPhase: ClaimSubmitPhase;
@@ -316,6 +326,10 @@ type ClaimFlowRuntime = {
   progress: ClaimProgressResponse | null;
   buildOrSubmitCurrentBatch: () => void;
   refreshSubmittedProgress: () => void;
+  checkSubmittedBatchStatus: () => void;
+  startNextBatch: () => void;
+  startAnotherRecovery: () => void;
+  finishRecovery: () => void;
   goToCurrentBatch: () => void;
 };
 
@@ -331,8 +345,12 @@ type TransactionRow = {
   txHash: string;
   displayHash: string;
   value: string;
+  ada?: string;
+  tokens?: string;
   status: "Confirmed" | "Pending";
 };
+
+type ClaimSubmitFailureKind = "signature" | "post-sign-submit";
 
 const fixtureScreens = new Set<ClaimScreen>([
   "deployment-review",
@@ -360,13 +378,13 @@ const fixtureScreens = new Set<ClaimScreen>([
 ]);
 
 const steps: Step[] = [
-  { id: 1, label: "Deployment", icon: Rocket },
-  { id: 2, label: "Impacted Wallet", icon: Wallet },
-  { id: 3, label: "Available Claims", icon: Coins },
-  { id: 4, label: "Safe Wallet", icon: ShieldCheck },
-  { id: 5, label: "Create Proofs", icon: KeyRound },
-  { id: 6, label: "Current Batch", icon: RefreshCw },
-  { id: 7, label: "Claim Review", icon: FileText },
+  { id: 1, label: "Verify service", icon: Rocket },
+  { id: 2, label: "Impacted wallet", icon: Wallet },
+  { id: 3, label: "Available claims", icon: Coins },
+  { id: 4, label: "Safe wallet", icon: ShieldCheck },
+  { id: 5, label: "Create proofs", icon: KeyRound },
+  { id: 6, label: "Claim funds", icon: RefreshCw },
+  { id: 7, label: "Claim review", icon: FileText },
 ];
 
 const screenStep: Record<ClaimScreen, number> = {
@@ -447,42 +465,42 @@ function claimFixtureData(): {
   transactions: TransactionRow[];
 } {
   const allClaims: ClaimRow[] = [
-  { id: 1, tx: "b1e4c8d2...9af3", output: 0, credential: "cred ...6c9a", ada: "1.20 ADA", assets: "2 assets", summary: ["SECOND", "LP"] },
-  { id: 2, tx: "b1e4c8d2...9af3", output: 1, credential: "cred ...6c9a", ada: "0.80 ADA", assets: "No tokens", summary: [] },
-  { id: 3, tx: "7f9a2d11...c4e0", output: 0, credential: "cred ...1d72", ada: "0.98 ADA", assets: "1 asset", summary: ["NFT"] },
-  { id: 4, tx: "7f9a2d11...c4e0", output: 1, credential: "cred ...1d72", ada: "0.60 ADA", assets: "17 assets", summary: ["PASS", "GOLD"] },
-  { id: 5, tx: "3c7bfa90...1d6a", output: 0, credential: "cred ...aa31", ada: "0.74 ADA", assets: "1 asset", summary: ["BADGE"] },
-  { id: 6, tx: "3c7bfa90...1d6a", output: 1, credential: "cred ...aa31", ada: "0.40 ADA", assets: "No tokens", summary: [] },
-  { id: 7, tx: "a9d431bb...7e33", output: 0, credential: "cred ...b8f4", ada: "1.05 ADA", assets: "3 assets", summary: ["XP", "MINT"] },
-  { id: 8, tx: "d4a98b27...5b99", output: 0, credential: "cred ...90fe", ada: "0.50 ADA", assets: "2 assets", summary: ["Arena", "Boost"] },
-  { id: 9, tx: "d4a98b27...5b99", output: 1, credential: "cred ...90fe", ada: "1.10 ADA", assets: "255 assets", summary: ["SECOND", "Badge"] },
-  { id: 10, tx: "e52f6a10...2c41", output: 0, credential: "cred ...6c9a", ada: "0.35 ADA", assets: "5 assets", summary: ["Collect"] },
-  { id: 11, tx: "e52f6a10...2c41", output: 0, credential: "cred ...6c9a", ada: "0.44 ADA", assets: "8 assets", summary: ["SECOND"] },
-  { id: 12, tx: "a0b1d448...ef22", output: 1, credential: "cred ...1d72", ada: "0.69 ADA", assets: "No tokens", summary: [] },
-  { id: 13, tx: "8dd9e7b1...7a10", output: 0, credential: "cred ...aa31", ada: "1.18 ADA", assets: "42 assets", summary: ["Gold"] },
-  { id: 14, tx: "c6842fdd...5b7e", output: 2, credential: "cred ...90fe", ada: "0.36 ADA", assets: "1 asset", summary: ["Silver"] },
-  { id: 15, tx: "5f91ac77...e0a8", output: 5, credential: "cred ...6c9a", ada: "0.82 ADA", assets: "15 assets", summary: ["Arena"] },
-  { id: 16, tx: "9b2d14c3...3f90", output: 0, credential: "cred ...1d72", ada: "0.27 ADA", assets: "No tokens", summary: [] },
-  { id: 17, tx: "1d7e5aaf...9b61", output: 1, credential: "cred ...aa31", ada: "0.63 ADA", assets: "4 assets", summary: ["Pass"] },
-  { id: 18, tx: "7c31d9b5...2f8c", output: 2, credential: "cred ...90fe", ada: "0.31 ADA", assets: "No tokens", summary: [] },
+  { id: 1, tx: "b1e4c8d2...9af3", output: 0, credential: "cred ...6c9a", ada: "1.20 ADA", assets: "2 assets", summary: ["SECOND", "LP"], lovelace: "1200000", assetCount: 2 },
+  { id: 2, tx: "b1e4c8d2...9af3", output: 1, credential: "cred ...6c9a", ada: "0.80 ADA", assets: "No tokens", summary: [], lovelace: "800000", assetCount: 0 },
+  { id: 3, tx: "7f9a2d11...c4e0", output: 0, credential: "cred ...1d72", ada: "0.98 ADA", assets: "1 asset", summary: ["NFT"], lovelace: "980000", assetCount: 1 },
+  { id: 4, tx: "7f9a2d11...c4e0", output: 1, credential: "cred ...1d72", ada: "0.60 ADA", assets: "17 assets", summary: ["PASS", "GOLD"], lovelace: "600000", assetCount: 17 },
+  { id: 5, tx: "3c7bfa90...1d6a", output: 0, credential: "cred ...aa31", ada: "0.74 ADA", assets: "1 asset", summary: ["BADGE"], lovelace: "740000", assetCount: 1 },
+  { id: 6, tx: "3c7bfa90...1d6a", output: 1, credential: "cred ...aa31", ada: "0.40 ADA", assets: "No tokens", summary: [], lovelace: "400000", assetCount: 0 },
+  { id: 7, tx: "a9d431bb...7e33", output: 0, credential: "cred ...b8f4", ada: "1.05 ADA", assets: "3 assets", summary: ["XP", "MINT"], lovelace: "1050000", assetCount: 3 },
+  { id: 8, tx: "d4a98b27...5b99", output: 0, credential: "cred ...90fe", ada: "0.50 ADA", assets: "2 assets", summary: ["Arena", "Boost"], lovelace: "500000", assetCount: 2 },
+  { id: 9, tx: "d4a98b27...5b99", output: 1, credential: "cred ...90fe", ada: "1.10 ADA", assets: "255 assets", summary: ["SECOND", "Badge"], lovelace: "1100000", assetCount: 255 },
+  { id: 10, tx: "e52f6a10...2c41", output: 0, credential: "cred ...6c9a", ada: "0.35 ADA", assets: "5 assets", summary: ["Collect"], lovelace: "350000", assetCount: 5 },
+  { id: 11, tx: "e52f6a10...2c41", output: 0, credential: "cred ...6c9a", ada: "0.44 ADA", assets: "8 assets", summary: ["SECOND"], lovelace: "440000", assetCount: 8 },
+  { id: 12, tx: "a0b1d448...ef22", output: 1, credential: "cred ...1d72", ada: "0.69 ADA", assets: "No tokens", summary: [], lovelace: "690000", assetCount: 0 },
+  { id: 13, tx: "8dd9e7b1...7a10", output: 0, credential: "cred ...aa31", ada: "1.18 ADA", assets: "42 assets", summary: ["Gold"], lovelace: "1180000", assetCount: 42 },
+  { id: 14, tx: "c6842fdd...5b7e", output: 2, credential: "cred ...90fe", ada: "0.36 ADA", assets: "1 asset", summary: ["Silver"], lovelace: "360000", assetCount: 1 },
+  { id: 15, tx: "5f91ac77...e0a8", output: 5, credential: "cred ...6c9a", ada: "0.82 ADA", assets: "15 assets", summary: ["Arena"], lovelace: "820000", assetCount: 15 },
+  { id: 16, tx: "9b2d14c3...3f90", output: 0, credential: "cred ...1d72", ada: "0.27 ADA", assets: "No tokens", summary: [], lovelace: "270000", assetCount: 0 },
+  { id: 17, tx: "1d7e5aaf...9b61", output: 1, credential: "cred ...aa31", ada: "0.63 ADA", assets: "4 assets", summary: ["Pass"], lovelace: "630000", assetCount: 4 },
+  { id: 18, tx: "7c31d9b5...2f8c", output: 2, credential: "cred ...90fe", ada: "0.31 ADA", assets: "No tokens", summary: [], lovelace: "310000", assetCount: 0 },
   ];
   const batchRows = allClaims.slice(0, 4);
   return {
     allClaims,
     batchRows,
     proofQueue: [
-      { claim: "1", value: "1.20 ADA + 2 tokens", proof: "Ready", status: "ready" },
-      { claim: "2", value: "0.98 ADA + 1 token", proof: "Ready", status: "ready" },
-      { claim: "3", value: "0.74 ADA + 1 token", proof: "Ready", status: "ready" },
+      { claim: "1", value: "1.20 ADA + 2 tokens", proof: "Generated", status: "ready" },
+      { claim: "2", value: "0.98 ADA + 1 token", proof: "Generated", status: "ready" },
+      { claim: "3", value: "0.74 ADA + 1 token", proof: "Generated", status: "ready" },
       { claim: "8", value: "0.44 ADA", proof: "Generating", status: "generating" },
       { claim: "9", value: "1.05 ADA + 3 tokens", proof: "Waiting", status: "waiting" },
     ],
     transactions: [
-      { batch: 1, txHash: `${"8b4c2a".padEnd(58, "0")}91fd`, displayHash: "8b4c2a...91fd", value: "3.42 ADA + 6 tokens", status: "Confirmed" },
-      { batch: 2, txHash: `${"19af70".padEnd(58, "0")}a2c8`, displayHash: "19af70...a2c8", value: "4.01 ADA + 5 tokens", status: "Confirmed" },
-      { batch: 3, txHash: `${"ef7739".padEnd(58, "0")}c014`, displayHash: "ef7739...c014", value: "2.84 ADA + 4 tokens", status: "Confirmed" },
-      { batch: 4, txHash: `${"a60bd4".padEnd(58, "0")}771e`, displayHash: "a60bd4...771e", value: "3.15 ADA + 6 tokens", status: "Confirmed" },
-      { batch: 5, txHash: `${"d2fc91".padEnd(58, "0")}0ab7`, displayHash: "d2fc91...0ab7", value: "2.45 ADA + 2 tokens", status: "Confirmed" },
+      { batch: 1, txHash: `${"8b4c2a".padEnd(58, "0")}91fd`, displayHash: "8b4c2a...91fd", value: "3.42 ADA + 6 tokens", ada: "3.42", tokens: "6", status: "Confirmed" },
+      { batch: 2, txHash: `${"19af70".padEnd(58, "0")}a2c8`, displayHash: "19af70...a2c8", value: "4.01 ADA + 5 tokens", ada: "4.01", tokens: "5", status: "Confirmed" },
+      { batch: 3, txHash: `${"ef7739".padEnd(58, "0")}c014`, displayHash: "ef7739...c014", value: "2.84 ADA + 4 tokens", ada: "2.84", tokens: "4", status: "Confirmed" },
+      { batch: 4, txHash: `${"a60bd4".padEnd(58, "0")}771e`, displayHash: "a60bd4...771e", value: "3.15 ADA + 6 tokens", ada: "3.15", tokens: "6", status: "Confirmed" },
+      { batch: 5, txHash: `${"d2fc91".padEnd(58, "0")}0ab7`, displayHash: "d2fc91...0ab7", value: "2.45 ADA + 2 tokens", ada: "2.45", tokens: "2", status: "Confirmed" },
     ],
   };
 }
@@ -519,6 +537,11 @@ const proofHelperDownloadChoices = [
   },
 ] as const;
 
+// C26: the deployment manifest does not expose an incident name yet, so it is
+// centralized here. Move this to the manifest once it carries incident
+// metadata.
+const INCIDENT_NAME = "SecondFi";
+
 const claimFlowResumeStorageKey = "proof-tool.claim-flow.resume.v1";
 const claimFlowResumeMaxAgeMs = 2 * 60 * 60 * 1000;
 const clipboardReadTimeoutMs = 2_500;
@@ -530,6 +553,17 @@ const defaultCreateWorker = () =>
 
 export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps = {}) {
   const [screen, setScreen] = useState<ClaimScreen>("deployment-review");
+  // Mirror of `screen` for async completions that must know where the user is
+  // right now (C5/C11). Synchronously updated by changeScreen for user
+  // navigation and kept in sync with renders below.
+  const screenRef = useRef<ClaimScreen>("deployment-review");
+  useEffect(() => {
+    screenRef.current = screen;
+  }, [screen]);
+  const changeScreen = useCallback((next: ClaimScreen) => {
+    screenRef.current = next;
+    setScreen(next);
+  }, []);
   const fixtureEnabled = process.env.NEXT_PUBLIC_CLAIM_UI_FIXTURE === "1";
   const [deployment, setDeployment] = useState<ClaimDeploymentResponse | null>(null);
   const [deploymentLoading, setDeploymentLoading] = useState(!fixtureEnabled);
@@ -551,10 +585,11 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
   const [claimDiscoveryError, setClaimDiscoveryError] = useState("");
   const [assetModalRow, setAssetModalRow] = useState<ClaimRow | null>(null);
   const [assetModalReturnScreen, setAssetModalReturnScreen] = useState<"available-claims-page-1" | "available-claims-page-2">("available-claims-page-1");
-  const [sevenSlotOptIn, setSevenSlotOptIn] = useState(false);
   const [pendingOutrefs, setPendingOutrefs] = useState<string[]>([]);
   const [draft, setDraft] = useState<ClaimDraftResponse | null>(null);
   const [draftError, setDraftError] = useState("");
+  // C32: required/available amounts from the backend insufficient-ADA error.
+  const [insufficientAdaDetails, setInsufficientAdaDetails] = useState<InsufficientAdaDetails | null>(null);
   const [helperUrl, setHelperUrl] = useState("");
   const [helperToken, setHelperToken] = useState("");
   const [helperState, setHelperState] = useState<ClaimHelperState>("unpaired");
@@ -562,17 +597,35 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
   const [helperError, setHelperError] = useState("");
   const [proofArtifacts, setProofArtifacts] = useState<Record<string, unknown>[]>([]);
   const [proofError, setProofError] = useState("");
+  // C28: set when the entered phrase is wordlist-valid but fails the BIP-39
+  // checksum at generate time. Boolean only — never the words themselves.
+  const [phraseChecksumFailed, setPhraseChecksumFailed] = useState(false);
+  // Stable identity: CreateProofs re-runs word-status recomputation whenever
+  // this callback changes, so a fresh closure per render would immediately
+  // clear a just-set checksum failure.
+  const clearPhraseChecksumError = useCallback(() => setPhraseChecksumFailed(false), []);
   const [proofMethod, setProofMethod] = useState<LocalProofMethod | null>("browser");
   const [browserProvingStatus, setBrowserProvingStatus] = useState<BrowserProvingStatus>("unknown");
   const [browserProvingDetail, setBrowserProvingDetail] = useState("");
   const [proofProgress, setProofProgress] = useState<ProofProgressEvent | null>(null);
   const proofAbortRef = useRef<AbortController | null>(null);
+  // Superseded-run guard (C5): each proving run gets an id; late resolutions
+  // only navigate when the run is still current and the user is still on the
+  // generating screen, otherwise artifacts/errors are stashed silently.
+  const proofRunIdRef = useRef(0);
+  const proofRunInFlightRef = useRef(false);
+  const scanAbortRef = useRef<AbortController | null>(null);
+  const [claimScanProgress, setClaimScanProgress] = useState(0);
+  const submittedRefreshInFlightRef = useRef(false);
   const [build, setBuild] = useState<ClaimBuildResponse | null>(null);
   const [buildError, setBuildError] = useState("");
   const [submitError, setSubmitError] = useState("");
+  const [submitFailureKind, setSubmitFailureKind] = useState<ClaimSubmitFailureKind | null>(null);
   const [submitPhase, setSubmitPhase] = useState<ClaimSubmitPhase>("ready-to-sign");
   const [submittedClaims, setSubmittedClaims] = useState<SubmittedClaimTx[]>([]);
   const [progress, setProgress] = useState<ClaimProgressResponse | null>(null);
+  const [resumePromptSnapshot, setResumePromptSnapshot] = useState<ClaimFlowResumeSnapshot | null>(null);
+  const [sevenSlotOptIn, setSevenSlotOptIn] = useState(false);
   const sevenSlotOptInAvailable = supportsExplicitSevenSlotBatch(deployment);
   const useSevenSlotBatch = sevenSlotOptIn && sevenSlotOptInAvailable;
 
@@ -596,6 +649,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     setBuild(snapshot.build ?? null);
     setBuildError("");
     setSubmitError("");
+    setSubmitFailureKind(null);
     safeWalletApiRef.current = null;
     setSafeWalletSigningAvailable(false);
     setSafeWalletSigningSessionState("resume-reconnect-required");
@@ -666,6 +720,23 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     setWallets(nextWallets);
     setSelectedImpactedWallet((current) => current || nextWallets[0]?.[0] || "");
     setSelectedSafeWallet((current) => current || nextWallets.find(([id]) => id !== selectedImpactedWallet)?.[0] || nextWallets[0]?.[0] || "");
+  }, [fixtureEnabled]);
+
+  // Resume-on-refresh (C9): offer the stored snapshot instead of silently
+  // restarting. Runs before the pairing effect below so the pairing fragment
+  // is still present in the URL when we check for it; helper pairing keeps
+  // its existing auto-apply behavior.
+  useEffect(() => {
+    if (fixtureEnabled) {
+      return;
+    }
+    if (readPairingFragment()) {
+      return;
+    }
+    const snapshot = readClaimFlowResumeSnapshot();
+    if (snapshot) {
+      setResumePromptSnapshot(snapshot);
+    }
   }, [fixtureEnabled]);
 
   useEffect(() => {
@@ -826,9 +897,14 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     }
   }, [browserProvingStatus, deployment, fixtureEnabled, proofMethod, refreshBrowserProvingStatus]);
 
-  const browserProofRunning = screen === "create-proofs-generating" && proofMethod === "browser";
+  // beforeunload guard (C10): active during any proof generation (browser or
+  // helper) and on the batch review screens while a built unsigned tx or
+  // generated proof artifacts would be lost with the tab.
+  const unloadGuardActive =
+    screen === "create-proofs-generating" ||
+    ((screen === "current-batch" || screen === "claim-funds-overview") && (Boolean(build) || proofArtifacts.length > 0));
   useEffect(() => {
-    if (!browserProofRunning || typeof window === "undefined") {
+    if (!unloadGuardActive || typeof window === "undefined") {
       return;
     }
     const guard = (event: BeforeUnloadEvent) => {
@@ -836,11 +912,28 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     };
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
-  }, [browserProofRunning]);
+  }, [unloadGuardActive]);
 
   const cancelBrowserProving = useCallback(() => {
     proofAbortRef.current?.abort();
   }, []);
+
+  // A11y (C37): after the user navigates between screens, move focus to the
+  // new screen's H1 so assistive tech announces the step change. The initial
+  // render keeps the browser's default focus.
+  const initialScreenFocusRef = useRef(true);
+  useEffect(() => {
+    if (initialScreenFocusRef.current) {
+      initialScreenFocusRef.current = false;
+      return;
+    }
+    // The asset modal is a screen-level state but renders a dialog that
+    // manages its own focus (C36) — do not steal it back to the heading.
+    if (screen === "available-claims-asset-modal") {
+      return;
+    }
+    document.querySelector<HTMLHeadingElement>(".claim-page-heading h1")?.focus();
+  }, [screen]);
 
   const visibleScreen = screen === "available-claims-asset-modal" ? assetModalReturnScreen : screen;
   const activeStep = screenStep[screen];
@@ -849,7 +942,14 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       setScreen(nextScreen[screen] ?? screen);
     }
   };
-  const goBack = () => setScreen(previousScreen[screen] ?? screen);
+  const goBack = () => {
+    if (screen === "scanning-claims") {
+      // Leaving the scan cancels it (C11); a completed scan must not yank the
+      // user back to the results afterwards.
+      scanAbortRef.current?.abort();
+    }
+    changeScreen(previousScreen[screen] ?? screen);
+  };
 
   const refreshDeployment = async () => {
     if (fixtureEnabled) {
@@ -902,7 +1002,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     const provider = wallets.find(([id]) => id === selectedImpactedWallet)?.[1];
     if (!provider) {
       setImpactedWallet(null);
-      setImpactedWalletError("No CIP-30 wallet is available for impacted credential discovery.");
+      setImpactedWalletError("No Cardano browser wallet was found. Install or unlock a CIP-30 compatible wallet extension, then try again.");
       return;
     }
 
@@ -912,7 +1012,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       if (networkId !== deployment.deployment.networkId) {
         setImpactedWallet(null);
         setImpactedWalletError(
-          `Connected wallet is on network id ${networkId}; this deployment expects ${deployment.deployment.networkId}.`,
+          `Connected wallet is on ${networkIdName(networkId)}; this deployment expects ${deployment.deployment.network}.`,
         );
         setScreen("wrong-network");
         return;
@@ -951,11 +1051,24 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     setBuild(null);
     setBuildError("");
     setSubmitError("");
+    setSubmitFailureKind(null);
     setSubmitPhase("ready-to-sign");
     setClaimDiscoveryError("");
-    setScreen("scanning-claims");
+    // Cancellable scan (C11): navigating Back from the scanning screen aborts
+    // the page loop and suppresses the late completion navigation.
+    scanAbortRef.current?.abort();
+    const scanController = new AbortController();
+    scanAbortRef.current = scanController;
+    setClaimScanProgress(0);
+    changeScreen("scanning-claims");
     try {
-      const utxos = await fetchAllReclaimUtxos();
+      const utxos = await fetchAllReclaimUtxos({
+        signal: scanController.signal,
+        onProgress: setClaimScanProgress,
+      });
+      if (scanController.signal.aborted || screenRef.current !== "scanning-claims") {
+        return;
+      }
       const credentialSet = new Set(credentials.map((credential) => credential.toLowerCase()));
       const matched = utxos.filter(
         (utxo) =>
@@ -967,9 +1080,14 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       setClaimRows(matched.map(toClaimRow));
       setScreen(matched.length > 0 ? "available-claims-page-1" : "no-matching-funds");
     } catch (error) {
+      if (scanController.signal.aborted || screenRef.current !== "scanning-claims") {
+        return;
+      }
       setClaimRows([]);
       setClaimIndexerTotal(0);
-      setClaimDiscoveryError(error instanceof Error ? error.message : "Unable to scan ReclaimBase UTxOs.");
+      // Lookup failures are presented distinctly from genuinely-empty results
+      // on the same screen (C31), with the sanitized error detail.
+      setClaimDiscoveryError(sanitizeRecoverableError(error, "Unable to scan ReclaimBase UTxOs."));
       setScreen("no-matching-funds");
     }
   };
@@ -999,7 +1117,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       return;
     }
     if (!impactedWallet || claimRows.length === 0) {
-      setClaimDiscoveryError("Find locally matching reclaim funds before connecting a safe wallet.");
+      setClaimDiscoveryError("Find matching locked funds before connecting a safe wallet.");
       setScreen(claimRows.length === 0 ? "no-matching-funds" : "available-claims-page-1");
       return;
     }
@@ -1029,17 +1147,19 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     );
     const selectedOutrefs = selectedRows.map((row) => row.outRefId).filter((outRefId): outRefId is string => Boolean(outRefId));
     if (selectedOutrefs.length === 0) {
-      setDraftError("No locally matched reclaim UTxOs remain for the next claim batch.");
+      setDraftError("No matching locked funds remain for the next claim batch.");
       setScreen("claim-review-complete");
       return null;
     }
 
     setDraftError("");
+    setInsufficientAdaDetails(null);
     setProofArtifacts([]);
     setProofError("");
     setBuild(null);
     setBuildError("");
     setSubmitError("");
+    setSubmitFailureKind(null);
     setSubmitPhase("ready-to-sign");
     try {
       const nextDraft = await postJSON<ClaimDraftResponse>("/claim-api/draft", {
@@ -1058,7 +1178,15 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       return nextDraft;
     } catch (error) {
       setDraft(null);
-      setDraftError(sanitizeRecoverableError(error, "Unable to create a claim draft."));
+      const message = sanitizeRecoverableError(error, "Unable to create a claim draft.");
+      setDraftError(message);
+      // Route backend insufficient-funds failures to the purpose-built
+      // insufficient-ada screen instead of a generic draft error (C32),
+      // carrying the required/available amounts when the backend sent them.
+      if (isInsufficientSafeWalletFundsError(error, message)) {
+        setInsufficientAdaDetails(insufficientAdaDetailsFromError(error));
+        setScreen("insufficient-ada");
+      }
       return null;
     }
   };
@@ -1080,7 +1208,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       return;
     }
     if (!impactedWallet || claimRows.length === 0) {
-      setSafeWalletError("Find locally matching impacted-wallet funds before connecting a safe wallet.");
+      setSafeWalletError("Find matching locked funds before connecting a safe wallet.");
       setScreen("available-claims-page-1");
       return;
     }
@@ -1090,7 +1218,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       safeWalletApiRef.current = null;
       setSafeWalletSigningAvailable(false);
       setSafeWalletSigningSessionState("not-connected");
-      setSafeWalletError("No CIP-30 wallet is available for safe-wallet signing.");
+      setSafeWalletError("No Cardano browser wallet is available for safe-wallet signing (a CIP-30 wallet is required).");
       return;
     }
 
@@ -1101,7 +1229,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         safeWalletApiRef.current = null;
         setSafeWalletSigningAvailable(false);
         setSafeWalletSigningSessionState("not-connected");
-        setSafeWalletError("The safe wallet must support CIP-30 signTx.");
+        setSafeWalletError("This wallet cannot sign claim transactions here (it must support CIP-30 signTx).");
         return;
       }
       const networkId = await api.getNetworkId();
@@ -1111,7 +1239,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         setSafeWalletSigningAvailable(false);
         setSafeWalletSigningSessionState("not-connected");
         setSafeWalletError(
-          `Safe wallet is on network id ${networkId}; this deployment expects ${deployment.deployment.networkId}.`,
+          `Safe wallet is on ${networkIdName(networkId)}; this deployment expects ${deployment.deployment.network}.`,
         );
         return;
       }
@@ -1127,7 +1255,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         safeWalletApiRef.current = null;
         setSafeWalletSigningAvailable(false);
         setSafeWalletSigningSessionState("destination-blocked");
-        setSafeWalletError("This safe wallet shares a claimable wallet credential hash with the impacted wallet. Choose a different destination.");
+        setSafeWalletError("This safe wallet shares a wallet key with the impacted wallet. Choose a different destination.");
         setScreen("safe-wallet-overlap");
         return;
       }
@@ -1135,8 +1263,11 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       setSafeWalletSigningAvailable(true);
       setSafeWalletSigningSessionState("ready");
       setSafeWallet(walletSummary);
-      const nextDraft = await createOrRefreshClaimDraft(walletSummary);
-      setScreen(nextDraft ? "create-proofs-ready" : "safe-wallet");
+      // Stay on the safe-wallet screen after a successful connect (C17) so the
+      // user sees the populated destination panel and confirms it explicitly.
+      // The draft is still created here; only the auto-advance is removed.
+      await createOrRefreshClaimDraft(walletSummary);
+      setScreen((current) => (current === "insufficient-ada" ? current : "safe-wallet"));
     } catch (error) {
       setSafeWallet(null);
       safeWalletApiRef.current = null;
@@ -1147,9 +1278,75 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     }
   };
 
+  // Explicit confirmation beat for step 4 (C17): advancing to proofs happens
+  // only when the user confirms the populated destination panel.
+  const confirmSafeWalletDestination = async () => {
+    if (fixtureEnabled) {
+      goNext();
+      return;
+    }
+    if (!safeWallet) {
+      setSafeWalletError("Connect a safe wallet before continuing.");
+      return;
+    }
+    if (draft) {
+      setScreen("create-proofs-ready");
+      return;
+    }
+    const nextDraft = await createOrRefreshClaimDraft(safeWallet);
+    if (nextDraft) {
+      setScreen("create-proofs-ready");
+    }
+  };
+
+  const chooseDifferentSafeWallet = () => {
+    setSafeWallet(null);
+    safeWalletApiRef.current = null;
+    setSafeWalletSigningAvailable(false);
+    setSafeWalletSigningSessionState("not-connected");
+    setSafeWalletError("");
+    setDraft(null);
+    setDraftError("");
+    setProofArtifacts([]);
+    setBuild(null);
+    setSubmitPhase("ready-to-sign");
+    setScreen("safe-wallet");
+  };
+
+  // Late-resolution handlers for proving runs (C5): state is only applied for
+  // the current run; navigation happens only while the user is still on the
+  // generating screen. Otherwise the result is stashed silently so returning
+  // to the proof step shows it.
+  const applyProofRunSuccess = (runId: number, artifacts: Record<string, unknown>[]) => {
+    if (proofRunIdRef.current !== runId) {
+      return;
+    }
+    setProofArtifacts(artifacts);
+    setProofError("");
+    if (screenRef.current === "create-proofs-generating") {
+      setScreen("create-proofs-complete");
+    }
+  };
+
+  const applyProofRunFailure = (runId: number, message: string) => {
+    if (proofRunIdRef.current !== runId) {
+      return;
+    }
+    setProofArtifacts([]);
+    setProofError(message);
+    if (screenRef.current === "create-proofs-generating") {
+      setScreen("proof-failed");
+    }
+  };
+
   const generateClaimProofs = async () => {
     if (fixtureEnabled) {
       goNext();
+      return;
+    }
+    // In-flight guard (C6): a second invocation while a run is active must be
+    // a no-op — it would read empty phrase inputs and spawn a racing run.
+    if (proofRunInFlightRef.current) {
       return;
     }
     setProofError("");
@@ -1162,50 +1359,63 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       return;
     }
 
-    if (proofMethod === "browser") {
-      await generateClaimProofsInBrowser(deployment.deployment.verifierVkHash);
+    // C28: validate the full phrase (wordlist + BIP-39 checksum) straight from
+    // the DOM inputs BEFORE any worker/helper run starts and BEFORE the grid
+    // is cleared. On failure the inputs are left intact so the user can fix
+    // word order or spelling. Only the boolean outcome leaves this check — the
+    // words never reach React state, error messages, or logs.
+    if (!recoveryPhraseInputsPassValidation()) {
+      setPhraseChecksumFailed(true);
       return;
     }
+    setPhraseChecksumFailed(false);
 
-    const helperReady = await checkHelper();
-    if (!helperReady) {
-      setScreen("helper-unavailable");
-      return;
-    }
-
-    const seedPhrase = readAndClearRecoveryPhrase();
-    setScreen("create-proofs-generating");
-    let masterBytes: Uint8Array | null = null;
+    proofRunInFlightRef.current = true;
+    const runId = ++proofRunIdRef.current;
     try {
-      const workerResponse = await deriveMasterXPrv(seedPhrase, createWorker);
-      if (workerResponse.type === "error") {
-        setProofError(workerResponse.message);
-        setScreen(workerResponse.code === "path_not_found" ? "proof-failed" : "proof-failed");
+      if (proofMethod === "browser") {
+        await generateClaimProofsInBrowser(deployment.deployment.verifierVkHash, runId);
         return;
       }
-      masterBytes = new Uint8Array(workerResponse.masterXPrv);
-      const helperResponse = await proveDestinationViaHelper({
-        masterXPrv: masterBytes,
-        draft,
-        helperUrl,
-        helperToken,
-      });
-      const artifacts = validateDestinationProofResponse(helperResponse, draft, deployment.deployment.verifierVkHash);
-      setProofArtifacts(artifacts);
-      setScreen("create-proofs-complete");
-    } catch (error) {
-      setProofArtifacts([]);
-      setProofError(sanitizeRecoverableError(error, "The local helper could not generate destination-bound proofs."));
-      setScreen("proof-failed");
+
+      const helperReady = await checkHelper();
+      if (!helperReady) {
+        setScreen("helper-unavailable");
+        return;
+      }
+
+      const seedPhrase = readAndClearRecoveryPhrase();
+      changeScreen("create-proofs-generating");
+      let masterBytes: Uint8Array | null = null;
+      try {
+        const workerResponse = await deriveMasterXPrv(seedPhrase, createWorker);
+        if (workerResponse.type === "error") {
+          applyProofRunFailure(runId, workerResponse.message);
+          return;
+        }
+        masterBytes = new Uint8Array(workerResponse.masterXPrv);
+        const helperResponse = await proveDestinationViaHelper({
+          masterXPrv: masterBytes,
+          draft,
+          helperUrl,
+          helperToken,
+        });
+        const artifacts = validateDestinationProofResponse(helperResponse, draft, deployment.deployment.verifierVkHash);
+        applyProofRunSuccess(runId, artifacts);
+      } catch (error) {
+        applyProofRunFailure(runId, sanitizeRecoverableError(error, "The helper could not generate destination-bound proofs."));
+      } finally {
+        masterBytes?.fill(0);
+      }
     } finally {
-      masterBytes?.fill(0);
+      proofRunInFlightRef.current = false;
     }
   };
 
   // Browser provider path: capability + asset preflight re-runs and must pass
   // BEFORE the phrase is read from the DOM — if this browser cannot prove, no
   // seed material may exist in page memory.
-  const generateClaimProofsInBrowser = async (expectedVkHash: string) => {
+  const generateClaimProofsInBrowser = async (expectedVkHash: string, runId: number) => {
     if (!draft || !browserProvingDescriptor) {
       setProofError("Browser proving is not enabled for this build yet.");
       return;
@@ -1217,7 +1427,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     }
 
     const seedPhrase = readAndClearRecoveryPhrase();
-    setScreen("create-proofs-generating");
+    changeScreen("create-proofs-generating");
     setProofProgress(null);
     let masterBytes: Uint8Array | null = null;
     const abortController = new AbortController();
@@ -1225,8 +1435,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     try {
       const workerResponse = await deriveMasterXPrv(seedPhrase, createWorker);
       if (workerResponse.type === "error") {
-        setProofError(workerResponse.message);
-        setScreen("proof-failed");
+        applyProofRunFailure(runId, workerResponse.message);
         return;
       }
       masterBytes = new Uint8Array(workerResponse.masterXPrv);
@@ -1239,17 +1448,19 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         onProgress: setProofProgress,
       });
       const artifacts = validateDestinationProofResponse(browserResponse, draft, expectedVkHash);
-      setProofArtifacts(artifacts);
-      setScreen("create-proofs-complete");
+      applyProofRunSuccess(runId, artifacts);
     } catch (error) {
-      setProofArtifacts([]);
       if (error instanceof ProvingCancelledError) {
-        setProofError("");
-        setScreen("create-proofs-ready");
+        if (proofRunIdRef.current === runId) {
+          setProofArtifacts([]);
+          setProofError("");
+          if (screenRef.current === "create-proofs-generating") {
+            setScreen("create-proofs-ready");
+          }
+        }
         return;
       }
-      setProofError(sanitizeRecoverableError(error, "Browser proving failed. Proof Helper Desktop is still available."));
-      setScreen("proof-failed");
+      applyProofRunFailure(runId, sanitizeRecoverableError(error, "Browser proving failed. Proof Helper Desktop is still available."));
     } finally {
       masterBytes?.fill(0);
       proofAbortRef.current = null;
@@ -1291,7 +1502,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         setSafeWalletSigningAvailable(false);
         setSafeWalletSigningSessionState("resume-reconnect-required");
         setSubmitPhase("reconnect-required");
-        setSubmitError("The safe wallet must support CIP-30 signTx before the claim can be signed.");
+        setSubmitError("This wallet cannot sign claim transactions here (it must support CIP-30 signTx).");
         return null;
       }
       const networkId = await api.getNetworkId();
@@ -1299,7 +1510,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         setSafeWalletSigningAvailable(false);
         setSafeWalletSigningSessionState("resume-reconnect-required");
         setSubmitPhase("reconnect-required");
-        setSubmitError(`Safe wallet is on network id ${networkId}; this deployment expects ${deployment.deployment.networkId}.`);
+        setSubmitError(`Safe wallet is on ${networkIdName(networkId)}; this deployment expects ${deployment.deployment.network}.`);
         return null;
       }
       const walletSummary = await readSafeWalletSummary(api, {
@@ -1314,7 +1525,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         setSafeWalletSigningAvailable(false);
         setSafeWalletSigningSessionState("destination-blocked");
         setSubmitPhase("failed");
-        setSubmitError("The reconnected safe wallet now overlaps with an impacted credential. Choose a different destination and create a new proof batch.");
+        setSubmitError("The reconnected safe wallet now shares a wallet key with the impacted wallet. Choose a different destination and create a new proof batch.");
         return null;
       }
       if (!sameSafeWalletDestination(walletSummary, safeWallet)) {
@@ -1407,9 +1618,14 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       return;
     }
     setSubmitError("");
+    setSubmitFailureKind(null);
+    // Tracked locally (not via submitPhase state) so the catch block can tell a
+    // pre-sign wallet rejection apart from a post-sign submission failure (C14).
+    let signedInWallet = false;
     try {
       setSubmitPhase("signing-in-wallet");
       const witnessSetCbor = await signingApi.signTx(build.txCbor, true);
+      signedInWallet = true;
       setSubmitPhase("submitting");
       const submit = await postJSON<ClaimSubmitResponse>("/claim-api/submit", {
         deploymentId: deployment.deployment.id,
@@ -1440,8 +1656,52 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     } catch (error) {
       submitInFlightRef.current = false;
       setSubmitPhase("failed");
-      setSubmitError(sanitizeRecoverableError(error, "Claim transaction was not submitted."));
+      if (!signedInWallet) {
+        setSubmitFailureKind("signature");
+        setSubmitError(sanitizeRecoverableError(error, "Signature declined in wallet. The transaction was not submitted."));
+        setScreen("signature-rejected");
+        return;
+      }
+      // The wallet signed but submission failed afterwards: we cannot claim the
+      // transaction was not submitted. Check current chain status passively
+      // before the user is offered a re-sign (C14).
+      setSubmitFailureKind("post-sign-submit");
+      setSubmitError("Submission failed after signing — the transaction may or may not have reached the chain. Checking current status...");
       setScreen("signature-rejected");
+      await checkSubmittedBatchStatus(draft.orderedInputs.map((input) => input.outRefId));
+    }
+  };
+
+  // Passive on-chain status check: fetches claim progress for the given outrefs
+  // without navigating, clearing the draft/build, or creating a new draft.
+  const checkSubmittedBatchStatus = async (outrefs?: string[]) => {
+    if (fixtureEnabled) {
+      return;
+    }
+    const targetOutrefs = outrefs ?? draft?.orderedInputs.map((input) => input.outRefId) ?? [];
+    if (targetOutrefs.length === 0) {
+      return;
+    }
+    try {
+      const params = new URLSearchParams({ outrefs: targetOutrefs.join(",") });
+      const nextProgress = await fetchJSON<ClaimProgressResponse>(`/claim-api/progress?${params.toString()}`);
+      setProgress(nextProgress);
+      const settledCount = nextProgress.outrefs.filter(
+        (entry) => entry.state === "spent_or_unknown" || entry.state === "confirmed_spent",
+      ).length;
+      if (settledCount === targetOutrefs.length) {
+        setSubmitError(
+          "Submission failed after signing, but the claim inputs are now spent on-chain — the signed transaction likely landed. Do not re-sign; refresh status instead.",
+        );
+      } else {
+        setSubmitError(
+          "Submission failed after signing — the claim inputs are still unspent, so the transaction has not been observed on-chain yet. Re-signing may double-submit if the first transaction later lands; check status again before retrying.",
+        );
+      }
+    } catch {
+      setSubmitError(
+        "Submission failed after signing — the transaction may or may not have reached the chain, and the status check also failed. Check on-chain status before re-signing; re-signing may double-submit if the first transaction landed.",
+      );
     }
   };
 
@@ -1495,7 +1755,9 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         }
         setSevenSlotOptIn(false);
         const nextDraft = await createOrRefreshClaimDraft(safeWallet, nextRows, false);
-        setScreen(nextDraft ? "create-proofs-ready" : "available-claims-page-1");
+        setScreen((current) =>
+          nextDraft ? "create-proofs-ready" : current === "insufficient-ada" ? current : "available-claims-page-1",
+        );
       }
     } catch (error) {
       setSubmitPhase("failed");
@@ -1504,13 +1766,111 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     }
   };
 
+  // Passive status refresh shared by the manual button and the auto-poll
+  // (C3/C12). The in-flight ref pauses the poll while a refresh is running.
+  const runPassiveStatusRefresh = async () => {
+    if (submittedRefreshInFlightRef.current) {
+      return;
+    }
+    submittedRefreshInFlightRef.current = true;
+    try {
+      const outrefs = submittedClaims.flatMap((claim) => claim.selectedOutrefs);
+      await refreshProgressAfterSubmit(outrefs.length > 0 ? outrefs : undefined, pendingOutrefs, {
+        prepareNextBatch: false,
+      });
+    } finally {
+      submittedRefreshInFlightRef.current = false;
+    }
+  };
+
+  // "Refresh status" is passive (C3): it refreshes progress and remaining
+  // claims without creating a new draft or navigating back to Create Proofs.
   const refreshSubmittedProgress = () => {
     if (fixtureEnabled) {
       goNext();
       return;
     }
-    const outrefs = submittedClaims.flatMap((claim) => claim.selectedOutrefs);
-    void refreshProgressAfterSubmit(outrefs.length > 0 ? outrefs : undefined, pendingOutrefs);
+    setSubmitError("");
+    setSubmitFailureKind(null);
+    void runPassiveStatusRefresh();
+  };
+
+  // Polite auto-poll on the submitted-refreshing screen (C12): re-checks claim
+  // progress every 20 seconds while the screen is visible.
+  const runPassiveStatusRefreshRef = useRef(runPassiveStatusRefresh);
+  runPassiveStatusRefreshRef.current = runPassiveStatusRefresh;
+  useEffect(() => {
+    if (fixtureEnabled || screen !== "submitted-refreshing") {
+      return;
+    }
+    const timer = setInterval(() => {
+      void runPassiveStatusRefreshRef.current();
+    }, 20_000);
+    return () => clearInterval(timer);
+  }, [fixtureEnabled, screen]);
+
+  // Explicit next-batch CTA (C3): creates the next draft and returns to the
+  // proof step, where the recovery phrase will be needed again.
+  const startNextBatch = async () => {
+    if (fixtureEnabled) {
+      goNext();
+      return;
+    }
+    if (claimRows.length === 0) {
+      setScreen("claim-review-complete");
+      return;
+    }
+    const nextDraft = await createOrRefreshClaimDraft(safeWallet, claimRows);
+    if (nextDraft) {
+      setScreen("create-proofs-ready");
+    }
+  };
+
+  // Full flow reset (C4): clears claim state and the stored resume snapshot,
+  // keeping only the loaded deployment, then restarts at the impacted wallet.
+  const resetClaimFlowState = () => {
+    clearClaimFlowResumeSnapshot();
+    setResumePromptSnapshot(null);
+    setImpactedWallet(null);
+    setImpactedWalletError("");
+    setSafeWallet(null);
+    safeWalletApiRef.current = null;
+    setSafeWalletSigningAvailable(false);
+    setSafeWalletSigningSessionState("not-connected");
+    setSafeWalletError("");
+    setClaimRows([]);
+    setClaimIndexerTotal(0);
+    setClaimDiscoveryError("");
+    setPendingOutrefs([]);
+    setDraft(null);
+    setDraftError("");
+    setInsufficientAdaDetails(null);
+    setProofArtifacts([]);
+    setProofError("");
+    setPhraseChecksumFailed(false);
+    setProofProgress(null);
+    setBuild(null);
+    setBuildError("");
+    setSubmitError("");
+    setSubmitFailureKind(null);
+    setSubmitPhase("ready-to-sign");
+    setSubmittedClaims([]);
+    setProgress(null);
+    submitInFlightRef.current = false;
+  };
+
+  const startAnotherRecovery = () => {
+    resetClaimFlowState();
+    setScreen("impacted-wallet");
+  };
+
+  // Terminal "Done" action (C1): clears all claim state plus the resume
+  // snapshot and returns to the landing page.
+  const finishRecovery = () => {
+    resetClaimFlowState();
+    if (typeof window !== "undefined") {
+      window.location.assign("/");
+    }
   };
 
   return (
@@ -1519,6 +1879,42 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       <section className="claim-workspace">
         <ClaimTopNav />
         <div className="claim-page">
+          {!fixtureEnabled && resumePromptSnapshot && screen === "deployment-review" ? (
+            <div className="claim-notice info" role="status" data-testid="claim-resume-banner">
+              <span className="claim-icon-circle">
+                <RefreshCw size={28} aria-hidden="true" />
+              </span>
+              <div>
+                <strong>Resume your claim in progress?</strong>
+                <p>
+                  Last saved {formatRelativeTime(resumePromptSnapshot.updatedAt)}. Resuming restores the saved claim
+                  batch on this device; starting over discards it.
+                </p>
+                <div className="claim-modal-actions">
+                  <button
+                    className="claim-primary-button"
+                    type="button"
+                    onClick={() => {
+                      restoreResumeSnapshot(resumePromptSnapshot);
+                      setResumePromptSnapshot(null);
+                    }}
+                  >
+                    Resume
+                  </button>
+                  <button
+                    className="claim-secondary-button"
+                    type="button"
+                    onClick={() => {
+                      clearClaimFlowResumeSnapshot();
+                      setResumePromptSnapshot(null);
+                    }}
+                  >
+                    Start over
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
           {renderScreen(visibleScreen, goNext, goBack, setScreen, {
             deployment,
             deploymentLoading,
@@ -1536,8 +1932,11 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
             safeWallet,
             safeWalletError,
             connectSafeWallet,
+            confirmSafeWalletDestination: () => void confirmSafeWalletDestination(),
+            chooseDifferentSafeWallet,
             claimRows,
             claimIndexerTotal,
+            claimScanProgress,
             claimDiscoveryError,
             refreshClaimMatches: refreshClaimMatchesFromCurrentWallet,
             changeClaimsPage,
@@ -1547,12 +1946,15 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
             setSevenSlotOptIn,
             draft,
             draftError,
+            insufficientAdaDetails,
             helperState,
             helperStatus,
             helperError,
             checkHelper,
             proofArtifacts,
             proofError,
+            phraseChecksumFailed,
+            clearPhraseChecksumError,
             proofMethod,
             setProofMethod,
             browserProvingStatus,
@@ -1564,6 +1966,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
             build,
             buildError,
             submitError,
+            submitFailureKind,
             safeWalletSigningAvailable,
             safeWalletSigningSessionState,
             submitPhase,
@@ -1571,6 +1974,10 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
             progress,
             buildOrSubmitCurrentBatch,
             refreshSubmittedProgress,
+            checkSubmittedBatchStatus: () => void checkSubmittedBatchStatus(),
+            startNextBatch: () => void startNextBatch(),
+            startAnotherRecovery,
+            finishRecovery,
             goToCurrentBatch,
           })}
         </div>
@@ -1645,6 +2052,7 @@ function renderScreen(
           deployment={runtime.deployment}
           impactedWallet={runtime.impactedWallet}
           rows={runtime.claimRows}
+          scanProgress={runtime.claimScanProgress}
           indexerTotal={runtime.claimIndexerTotal}
           discoveryError={runtime.claimDiscoveryError}
           onRefresh={runtime.refreshClaimMatches}
@@ -1726,6 +2134,8 @@ function renderScreen(
           draft={runtime.draft}
           draftError={runtime.draftError}
           onNext={runtime.connectSafeWallet}
+          onConfirm={runtime.confirmSafeWalletDestination}
+          onChooseDifferentWallet={runtime.chooseDifferentSafeWallet}
           onBack={goBack}
         />
       );
@@ -1742,6 +2152,8 @@ function renderScreen(
           draft={runtime.draft}
           draftError={runtime.draftError}
           onNext={runtime.connectSafeWallet}
+          onConfirm={runtime.confirmSafeWalletDestination}
+          onChooseDifferentWallet={runtime.chooseDifferentSafeWallet}
           onBack={goBack}
         />
       );
@@ -1749,6 +2161,7 @@ function renderScreen(
       return (
         <SafeWallet
           insufficientAda
+          insufficientAdaDetails={runtime.insufficientAdaDetails}
           deployment={runtime.deployment}
           wallets={runtime.wallets}
           selectedWallet={runtime.selectedSafeWallet}
@@ -1758,6 +2171,8 @@ function renderScreen(
           draft={runtime.draft}
           draftError={runtime.draftError}
           onNext={runtime.connectSafeWallet}
+          onConfirm={runtime.confirmSafeWalletDestination}
+          onChooseDifferentWallet={runtime.chooseDifferentSafeWallet}
           onBack={goBack}
         />
       );
@@ -1769,8 +2184,11 @@ function renderScreen(
           safeWallet={runtime.safeWallet}
           helperState={runtime.helperState}
           helperError={runtime.helperError}
+          onCheckHelper={runtime.checkHelper}
           proofError={runtime.proofError}
           draftError={runtime.draftError}
+          phraseChecksumFailed={runtime.phraseChecksumFailed}
+          onPhraseEdited={runtime.clearPhraseChecksumError}
           proofArtifacts={runtime.proofArtifacts}
           proofMethod={runtime.proofMethod}
           onSelectProofMethod={runtime.setProofMethod}
@@ -1791,8 +2209,11 @@ function renderScreen(
           safeWallet={runtime.safeWallet}
           helperState={runtime.helperState}
           helperError={runtime.helperError}
+          onCheckHelper={runtime.checkHelper}
           proofError={runtime.proofError}
           draftError={runtime.draftError}
+          phraseChecksumFailed={runtime.phraseChecksumFailed}
+          onPhraseEdited={runtime.clearPhraseChecksumError}
           proofArtifacts={runtime.proofArtifacts}
           proofMethod={runtime.proofMethod}
           onSelectProofMethod={runtime.setProofMethod}
@@ -1813,8 +2234,11 @@ function renderScreen(
           safeWallet={runtime.safeWallet}
           helperState={runtime.helperState}
           helperError={runtime.helperError}
+          onCheckHelper={runtime.checkHelper}
           proofError={runtime.proofError}
           draftError={runtime.draftError}
+          phraseChecksumFailed={runtime.phraseChecksumFailed}
+          onPhraseEdited={runtime.clearPhraseChecksumError}
           proofArtifacts={runtime.proofArtifacts}
           proofMethod={runtime.proofMethod}
           onSelectProofMethod={runtime.setProofMethod}
@@ -1835,8 +2259,11 @@ function renderScreen(
           safeWallet={runtime.safeWallet}
           helperState={runtime.helperState}
           helperError={runtime.helperError}
+          onCheckHelper={runtime.checkHelper}
           proofError={runtime.proofError}
           draftError={runtime.draftError}
+          phraseChecksumFailed={runtime.phraseChecksumFailed}
+          onPhraseEdited={runtime.clearPhraseChecksumError}
           proofArtifacts={runtime.proofArtifacts}
           proofMethod={runtime.proofMethod}
           onSelectProofMethod={runtime.setProofMethod}
@@ -1857,8 +2284,11 @@ function renderScreen(
           safeWallet={runtime.safeWallet}
           helperState={runtime.helperState}
           helperError={runtime.helperError}
+          onCheckHelper={runtime.checkHelper}
           proofError={runtime.proofError}
           draftError={runtime.draftError}
+          phraseChecksumFailed={runtime.phraseChecksumFailed}
+          onPhraseEdited={runtime.clearPhraseChecksumError}
           proofArtifacts={runtime.proofArtifacts}
           proofMethod={runtime.proofMethod}
           onSelectProofMethod={runtime.setProofMethod}
@@ -1879,6 +2309,9 @@ function renderScreen(
           build={runtime.build}
           buildError={runtime.buildError}
           submitError={runtime.submitError}
+          submitFailureKind={runtime.submitFailureKind}
+          onCheckStatus={runtime.checkSubmittedBatchStatus}
+          onRescanClaims={() => setScreen("available-claims-page-1")}
           proofArtifacts={runtime.proofArtifacts}
           safeWallet={runtime.safeWallet}
           safeWalletSigningAvailable={runtime.safeWalletSigningAvailable}
@@ -1896,6 +2329,9 @@ function renderScreen(
           build={runtime.build}
           buildError={runtime.buildError}
           submitError={runtime.submitError}
+          submitFailureKind={runtime.submitFailureKind}
+          onCheckStatus={runtime.checkSubmittedBatchStatus}
+          onRescanClaims={() => setScreen("available-claims-page-1")}
           proofArtifacts={runtime.proofArtifacts}
           safeWallet={runtime.safeWallet}
           safeWalletSigningAvailable={runtime.safeWalletSigningAvailable}
@@ -1913,6 +2349,9 @@ function renderScreen(
           build={runtime.build}
           buildError={runtime.buildError}
           submitError={runtime.submitError}
+          submitFailureKind={runtime.submitFailureKind}
+          onCheckStatus={runtime.checkSubmittedBatchStatus}
+          onRescanClaims={() => setScreen("available-claims-page-1")}
           proofArtifacts={runtime.proofArtifacts}
           safeWallet={runtime.safeWallet}
           safeWalletSigningAvailable={runtime.safeWalletSigningAvailable}
@@ -1929,6 +2368,9 @@ function renderScreen(
           submittedClaims={runtime.submittedClaims}
           progress={runtime.progress}
           safeWallet={runtime.safeWallet}
+          submitError={runtime.submitError}
+          remainingClaims={runtime.claimRows.length}
+          onStartNextBatch={runtime.startNextBatch}
           explorerNetwork={runtime.deployment?.available ? runtime.deployment.deployment.network : undefined}
           onNext={runtime.refreshSubmittedProgress}
           onBack={goBack}
@@ -1940,9 +2382,11 @@ function renderScreen(
           submittedClaims={runtime.submittedClaims}
           progress={runtime.progress}
           safeWallet={runtime.safeWallet}
+          submitError={runtime.submitError}
+          remainingClaims={runtime.claimRows.length}
           explorerNetwork={runtime.deployment?.available ? runtime.deployment.deployment.network : undefined}
-          onNext={goNext}
-          onBack={goBack}
+          onNext={runtime.finishRecovery}
+          onBack={runtime.startAnotherRecovery}
         />
       );
     default:
@@ -1956,7 +2400,7 @@ function ClaimTopNav() {
       <nav className="claim-primary-nav" aria-label="Main">
         <a href="/reclaim" className="claim-nav-link">
           <LockKeyhole size={24} aria-hidden="true" />
-          Lock Funds
+          Lock funds
         </a>
         <a href="/claim" className="claim-nav-link active" aria-current="page">
           <Coins size={25} aria-hidden="true" />
@@ -1964,14 +2408,15 @@ function ClaimTopNav() {
         </a>
       </nav>
       <div className="claim-top-actions">
-        <button className="claim-ghost-action" type="button">
+        <a
+          className="claim-ghost-action"
+          href="https://github.com/Anastasia-Labs/proof-tool/tree/main/docs"
+          target="_blank"
+          rel="noreferrer"
+        >
           <HelpCircle size={22} aria-hidden="true" />
           Help
-        </button>
-        <button className="claim-ghost-action" type="button">
-          <Settings size={23} aria-hidden="true" />
-          Settings
-        </button>
+        </a>
       </div>
     </header>
   );
@@ -1986,7 +2431,7 @@ function ClaimSidebar({ activeStep, screen }: { activeStep: number; screen: Clai
         </div>
         <div>
           <strong>ReclaimGlobal</strong>
-          <span>Cardano Recovery</span>
+          <span>Cardano ownership recovery</span>
         </div>
       </div>
 
@@ -1999,8 +2444,7 @@ function ClaimSidebar({ activeStep, screen }: { activeStep: number; screen: Clai
 
       <div className="claim-assurance">
         <ShieldCheck size={31} aria-hidden="true" />
-        <p>Your recovery is secured by ReclaimGlobal.</p>
-        <p>We never access your funds.</p>
+        <p>Secured by an on-chain smart contract — no one, including us, can move funds without the owner&apos;s proof.</p>
       </div>
     </aside>
   );
@@ -2042,25 +2486,33 @@ function DeploymentReview({
 }) {
   const sourceRepoUrl = "https://github.com/Anastasia-Labs/proof-tool";
   const sourceRepoLabel = "github.com/Anastasia-Labs/proof-tool";
+  const fixtureMode = process.env.NEXT_PUBLIC_CLAIM_UI_FIXTURE === "1";
   const liveDeployment = deployment?.available ? deployment.deployment : null;
-  const sourceCommit = liveDeployment?.sourceCommit ?? "4f3c9a1e2b6c8d0f91a4b7c3e0d29a6f48bd12c0";
-  const deploymentLabel = liveDeployment?.id ?? "Pinned";
-  const networkLabel = liveDeployment?.network ?? "Cardano mainnet";
-  const baseScript = liveDeployment?.reclaimBaseScriptHash ?? "script1q9k9r0v6t2m313u4z8h8y2d0k5f4x7w8e5p2c3h6tx";
-  const globalScript = liveDeployment?.reclaimGlobalScriptHash ?? "script1p7c2a5j9u8x316v0m4n9w5e2k3d7z6t1y8f4p5m4da";
+  // C19: placeholder cryptographic values are fixture-only. In live mode with
+  // no loaded deployment, render "—" so nothing fabricated looks verifiable.
+  const sourceCommit = liveDeployment?.sourceCommit ?? (fixtureMode ? "4f3c9a1e2b6c8d0f91a4b7c3e0d29a6f48bd12c0" : "");
+  const deploymentLabel = liveDeployment?.id ?? (fixtureMode ? "Pinned" : "—");
+  const networkLabel = liveDeployment?.network ?? (fixtureMode ? "Cardano mainnet" : "—");
+  const baseScript = liveDeployment?.reclaimBaseScriptHash ?? (fixtureMode ? "script1q9k9r0v6t2m313u4z8h8y2d0k5f4x7w8e5p2c3h6tx" : "—");
+  const globalScript = liveDeployment?.reclaimGlobalScriptHash ?? (fixtureMode ? "script1p7c2a5j9u8x316v0m4n9w5e2k3d7z6t1y8f4p5m4da" : "—");
   const paramsUtxo = liveDeployment?.paramsUtxo
     ? `${liveDeployment.paramsUtxo.tx_hash}#${liveDeployment.paramsUtxo.output_index}`
-    : "7b9f2c1d6e8a3b4f7c9d0a1e5b6c3d2a9f1b8c7a#0";
+    : fixtureMode
+      ? "7b9f2c1d6e8a3b4f7c9d0a1e5b6c3d2a9f1b8c7a#0"
+      : "—";
   const paramsDatum = liveDeployment?.paramsUtxo?.datum_reclaim_base_script_hash
     ? `reclaimBaseHash: ${liveDeployment.paramsUtxo.datum_reclaim_base_script_hash}`
-    : "reclaimBaseHash: script1q9k9r0v6t2m313u4z8h8y2d0k5f4x7w8e5p2c3h6tx";
+    : fixtureMode
+      ? "reclaimBaseHash: script1q9k9r0v6t2m313u4z8h8y2d0k5f4x7w8e5p2c3h6tx"
+      : "—";
+  const deploymentValuesReady = Boolean(liveDeployment) || fixtureMode;
   const deploymentKnownUnavailable = Boolean(unavailable || deployment?.available === false);
   return (
     <ClaimScreenFrame
-      title="Review deployment"
-      subtitle="Confirm the deployed contracts and recovery parameters before connecting a wallet."
-      backLabel="Back"
-      nextLabel={deploymentKnownUnavailable ? "Retry deployment" : "I reviewed deployment"}
+      title="Verify this recovery service"
+      subtitle={`This page is pinned to a specific deployment of the ReclaimGlobal contracts on ${networkLabel === "—" ? "the configured network" : networkLabel}. If you were given a deployment ID or commit hash, compare it here before continuing.`}
+      // C8: step 1 has no previous screen, so the Back button is hidden.
+      nextLabel={deploymentKnownUnavailable ? "Retry deployment" : "Continue"}
       onBack={onBack}
       onNext={onNext}
       nextDisabled={Boolean(loading)}
@@ -2083,23 +2535,34 @@ function DeploymentReview({
         <MetricStripItem icon={ShieldCheck} label="Claim flow" value="Single validator" />
       </div>
 
-      <Panel icon={Code2} title="Smart contracts">
-        <ReviewRow label="mkReclaimBase" value={baseScript} />
-        <ReviewRow label="mkReclaimGlobal" value={globalScript} />
-      </Panel>
+      <details className="claim-technical-details">
+        <summary>Technical details</summary>
+        <Panel icon={Code2} title="Smart contracts">
+          <ReviewRow label="mkReclaimBase" value={baseScript} noCopy={!deploymentValuesReady} />
+          <ReviewRow label="mkReclaimGlobal" value={globalScript} noCopy={!deploymentValuesReady} />
+        </Panel>
 
-      <Panel icon={SlidersHorizontal} title="Recovery parameters">
-        <ReviewRow label="Params UTxO" value={paramsUtxo} />
-        <ReviewRow label="Parsed datum" value={paramsDatum} detail="The datum binds this deployment to the ReclaimBase script." />
-      </Panel>
+        <Panel icon={SlidersHorizontal} title="Recovery parameters">
+          <ReviewRow label="Params UTxO" value={paramsUtxo} noCopy={!deploymentValuesReady} />
+          <ReviewRow label="Parsed datum" value={paramsDatum} detail="The datum binds this deployment to the ReclaimBase script." noCopy={!deploymentValuesReady} />
+        </Panel>
+      </details>
 
       <Panel icon={Github} title="Pinned source">
-        <ReviewRow label="Git commit" value={sourceCommit} />
-        <a className="claim-external-link" href={`${sourceRepoUrl}/commit/${sourceCommit}`}>
-          <ExternalLink size={17} aria-hidden="true" />
-          View commit on GitHub
-          <span>{sourceRepoLabel}/commit/{abbreviateMiddle(sourceCommit, 12)}</span>
-        </a>
+        <ReviewRow label="Git commit" value={sourceCommit || "—"} noCopy={!sourceCommit} />
+        {sourceCommit ? (
+          <a className="claim-external-link" href={`${sourceRepoUrl}/commit/${sourceCommit}`}>
+            <ExternalLink size={17} aria-hidden="true" />
+            View commit on GitHub
+            <span>{sourceRepoLabel}/commit/{abbreviateMiddle(sourceCommit, 12)}</span>
+          </a>
+        ) : (
+          <span className="claim-external-link" aria-disabled="true">
+            <ExternalLink size={17} aria-hidden="true" />
+            View commit on GitHub
+            <span>Unavailable until the deployment manifest loads</span>
+          </span>
+        )}
       </Panel>
     </ClaimScreenFrame>
   );
@@ -2131,9 +2594,9 @@ function ImpactedWallet({
   return (
     <ClaimScreenFrame
       title="Connect impacted wallet"
-      subtitle="Connect the wallet that held credentials affected by the SecondFi incident."
+      subtitle={`Connect the wallet that held the accounts affected by the ${INCIDENT_NAME} incident.`}
       backLabel="Back"
-      nextLabel={wrongNetwork ? "Choose another wallet" : "Connect impacted wallet"}
+      nextLabel={wrongNetwork ? "Try again" : "Connect impacted wallet"}
       nextIcon={Wallet}
       onBack={onBack}
       onNext={onNext}
@@ -2141,14 +2604,14 @@ function ImpactedWallet({
     >
       <div className="claim-two-column">
         <div className="claim-stack">
-          <Notice icon={Wallet} title="SecondFi is in maintenance mode.">
-            If you used SecondFi, import that wallet's recovery phrase into Lace or another CIP-30 wallet first, then
-            connect it here.
+          <Notice icon={Wallet} title={`${INCIDENT_NAME} is in maintenance mode.`}>
+            If you used {INCIDENT_NAME}, import that wallet&apos;s recovery phrase into Lace or another Cardano browser
+            wallet first, then connect it here.
           </Notice>
           <Notice tone={wrongNetwork ? "bad" : "info"} icon={wrongNetwork ? CircleAlert : HelpCircle} title={wrongNetwork ? "Wrong network" : undefined}>
             {wrongNetwork
-              ? `This wallet is not on ${expectedNetwork}. Switch network before scanning claims.`
-              : "This step only reads public wallet addresses and claimable wallet credential hashes. You will not sign a transaction with the impacted wallet."}
+              ? `This wallet is not on ${expectedNetwork}. Switch the network inside your wallet, or select a different wallet, then try again.`
+              : "This step only reads public wallet addresses and wallet keys (a public fingerprint of a key in your wallet — it cannot be used to spend funds). You will not sign a transaction with the impacted wallet."}
           </Notice>
           {error ? (
             <Notice tone="bad" icon={CircleAlert} title="Impacted wallet discovery stopped">
@@ -2157,8 +2620,8 @@ function ImpactedWallet({
           ) : null}
           {impactedWallet ? (
             <Notice tone="ok" icon={Check} title="Impacted wallet connected">
-              Found {impactedWallet.credentials.length} claimable wallet credential hash{impactedWallet.credentials.length === 1 ? "" : "es"} from{" "}
-              {impactedWallet.addresses.length} public wallet address{impactedWallet.addresses.length === 1 ? "" : "es"}.
+              Found {impactedWallet.credentials.length} wallet key{impactedWallet.credentials.length === 1 ? "" : "s"} with claimable funds across{" "}
+              {impactedWallet.addresses.length} public address{impactedWallet.addresses.length === 1 ? "" : "es"}.
             </Notice>
           ) : null}
           <WalletChooser layout="list" wallets={wallets} selectedWallet={selectedWallet} onSelectWallet={onSelectWallet} />
@@ -2166,11 +2629,11 @@ function ImpactedWallet({
         <InfoPanel
           title="What happens next"
           items={[
-            { icon: Search, title: "Find matching credentials", body: "We'll look for credentials derived from this wallet that have available funds." },
-            { icon: Coins, title: "Scan ReclaimBase UTxOs", body: "We'll scan the ReclaimBase contract for funds tied to those credentials." },
-            { icon: CalendarDays, title: "Show claimable funds", body: "You'll see the total funds available to reclaim before continuing." },
+            { icon: Search, title: "Find matching wallet keys", body: "We'll look for wallet keys from this wallet that have available funds." },
+            { icon: Coins, title: "Scan locked funds", body: "We'll scan the ReclaimBase contract for funds tied to those wallet keys." },
+            { icon: CalendarDays, title: "Show claimable funds", body: "You'll see the total funds available to claim before continuing." },
           ]}
-          footer="Your seed phrase and private keys never leave your device."
+          footer="Your recovery phrase and private keys never leave your device."
         />
       </div>
     </ClaimScreenFrame>
@@ -2184,6 +2647,7 @@ function AvailableClaims({
   deployment,
   impactedWallet,
   rows: realRows,
+  scanProgress,
   indexerTotal,
   discoveryError,
   onRefresh,
@@ -2201,6 +2665,7 @@ function AvailableClaims({
   deployment?: ClaimDeploymentResponse | null;
   impactedWallet?: ImpactedWalletSummary | null;
   rows?: ClaimRow[];
+  scanProgress?: number;
   indexerTotal?: number;
   discoveryError?: string;
   onRefresh?: () => void;
@@ -2213,22 +2678,47 @@ function AvailableClaims({
   onSevenSlotOptInChange?: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const fixtureMode = process.env.NEXT_PUBLIC_CLAIM_UI_FIXTURE === "1";
-  const allRows = realRows ?? (fixtureMode ? claimFixtureData().allClaims : []);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [assetFilter, setAssetFilter] = useState("All");
+  const [currentPage, setCurrentPage] = useState<number>(page);
+  useEffect(() => {
+    setCurrentPage(page);
+  }, [page]);
+  // C43: an empty live row array must not defeat the fixture rows on fixture
+  // screens — treat it as absent while no impacted wallet is connected. The
+  // scanning/empty fixture states intentionally keep their empty row set.
+  const effectiveRealRows =
+    fixtureMode && !impactedWallet && !empty && !loading && (realRows?.length ?? 0) === 0 ? undefined : realRows;
+  const allRows = effectiveRealRows ?? (fixtureMode ? claimFixtureData().allClaims : []);
   const pageSize = 10;
-  const hasSecondPage = allRows.length > pageSize;
-  const effectivePage = page === 2 && hasSecondPage ? 2 : 1;
-  const rows = effectivePage === 1 ? allRows.slice(0, pageSize) : allRows.slice(pageSize, pageSize * 2);
+  const filteredRows = filterClaimRows(allRows, searchQuery, assetFilter);
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const effectivePage = Math.min(Math.max(currentPage, 1), pageCount);
+  const rows = filteredRows.slice((effectivePage - 1) * pageSize, effectivePage * pageSize);
+  const changePage = (nextPage: number) => {
+    const clamped = Math.min(Math.max(nextPage, 1), pageCount);
+    setCurrentPage(clamped);
+    // Keep the fixture screen enum in sync for the first two pages; deeper
+    // pages are handled entirely by the internal page state.
+    if (clamped === 1 || clamped === 2) {
+      onPageChange(clamped as 1 | 2);
+    }
+  };
   const totalLovelace = sumLovelace(allRows);
   const totalAssets = allRows.reduce((total, row) => total + (row.assetCount ?? (row.summary.length > 0 ? row.summary.length : 0)), 0);
   const credentialCount = new Set(allRows.map((row) => row.credential)).size;
-  const batchSize = sevenSlotOptIn ? CLAIM_HARD_BATCH_CAP : (deployment?.available ? deployment.deployment.batching?.default_utxo_count ?? 4 : 4);
+  const batchSize = sevenSlotOptIn
+    ? CLAIM_HARD_BATCH_CAP
+    : deployment?.available
+      ? deployment.deployment.batching?.default_utxo_count ?? 4
+      : 4;
   const estimatedBatches = allRows.length > 0 ? Math.ceil(allRows.length / batchSize) : 0;
-  const walletLabel = impactedWallet ? abbreviateMiddle(impactedWallet.addresses[0] ?? impactedWallet.walletName, 14) : "Connect wallet";
+  const walletLabel = impactedWallet ? abbreviateMiddle(impactedWallet.addresses[0] ?? impactedWallet.walletName, 14) : "Not connected";
   const visibleEmpty = Boolean(empty || (allRows.length === 0 && !loading));
   return (
     <ClaimScreenFrame
       title="Available claims"
-      subtitle="These funds are locked at ReclaimBase with datum matching credentials from your impacted wallet."
+      subtitle="These funds were locked for you by rescuers and match wallet keys from your impacted wallet."
       backLabel="Back"
       nextLabel="Continue to safe wallet"
       nextIcon={ShieldCheck}
@@ -2239,19 +2729,19 @@ function AvailableClaims({
       <SummaryTiles
         tiles={[
           { icon: Wallet, label: "Impacted wallet", value: walletLabel, status: impactedWallet ? "Connected" : fixtureMode ? "Fixture" : "Required" },
-          { icon: Coins, label: "Total claimable", value: `${formatLovelace(totalLovelace)} ADA`, detail: `${totalAssets} token bundle${totalAssets === 1 ? "" : "s"}` },
+          { icon: Coins, label: "Total claimable", value: `${formatLovelace(totalLovelace)} ADA`, detail: `${totalAssets} token${totalAssets === 1 ? "" : "s"}` },
           {
             icon: KeyRound,
             label: "Matching UTxOs",
             value: String(allRows.length),
-            detail: `Across ${credentialCount} credential${credentialCount === 1 ? "" : "s"}`,
+            detail: `Across ${credentialCount} wallet key${credentialCount === 1 ? "" : "s"}`,
           },
           { icon: CalendarDays, label: "Estimated batches", value: String(estimatedBatches), detail: `${batchSize} UTxOs per batch` },
         ]}
       />
 
       <div className="claim-content-with-aside">
-        <Panel title="Funds you can reclaim" className="claim-table-panel">
+        <Panel title="Funds you can claim" className="claim-table-panel">
           {sevenSlotOptInAvailable ? (
             <div className="claim-notice info">
               <span className="claim-icon-circle">
@@ -2260,13 +2750,12 @@ function AvailableClaims({
               <div>
                 <strong>Optional seven-UTxO batch</strong>
                 <p>
-                  <label className="claim-toggle">
+                  <label>
                     <input
                       type="checkbox"
-                      aria-label="Use seven UTxOs for the next batch"
                       checked={Boolean(sevenSlotOptIn)}
                       onChange={(event) => onSevenSlotOptInChange?.(event.target.checked)}
-                    />
+                    />{" "}
                     Use seven UTxOs for the next batch
                   </label>{" "}
                   This is optional; duplicate credentials do not prevent drafting. Execution units are measured before the transaction can proceed.
@@ -2277,35 +2766,67 @@ function AvailableClaims({
           <div className="claim-table-tools">
             <label className="claim-search">
               <Search size={18} aria-hidden="true" />
-              <input placeholder="Search tx, output, or credential" />
+              <input
+                placeholder="Search tx, output, or credential"
+                aria-label="Search claims by tx, output, or credential"
+                value={searchQuery}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  setCurrentPage(1);
+                }}
+              />
             </label>
-            <Segmented options={["All", "ADA", "Tokens"]} />
+            <Segmented
+              options={["All", "ADA", "Tokens"]}
+              value={assetFilter}
+              onChange={(option) => {
+                setAssetFilter(option);
+                setCurrentPage(1);
+              }}
+              label="Filter claims by asset type"
+            />
             <button className="claim-secondary-button" type="button" onClick={onRefresh} disabled={!onRefresh || loading}>
               <RefreshCw size={18} aria-hidden="true" />
               Refresh
             </button>
           </div>
           {loading ? (
-            <TableEmpty icon={RefreshCw} title="Scanning ReclaimBase" body="Checking public UTxOs against your local impacted credentials." />
+            <TableEmpty
+              icon={RefreshCw}
+              spin
+              title="Scanning locked funds"
+              body={`Checking on-chain records against your wallet keys.${scanProgress ? ` Scanned ${scanProgress} UTxOs…` : ""}`}
+            />
           ) : discoveryError ? (
-            <TableEmpty icon={CircleAlert} title="Claim scan unavailable" body={discoveryError} />
+            <div className="claim-table-empty">
+              <CircleAlert size={36} aria-hidden="true" />
+              <strong>We couldn&apos;t check for claims</strong>
+              <p>Your funds are not affected — this was a lookup problem. Try again in a moment.</p>
+              <p>{discoveryError}</p>
+              <button className="claim-secondary-button" type="button" onClick={onRefresh} disabled={!onRefresh}>
+                <RefreshCw size={18} aria-hidden="true" />
+                Retry
+              </button>
+            </div>
           ) : visibleEmpty ? (
             <TableEmpty
               icon={Search}
               title="No matching funds found"
-              body={`No unclaimed ReclaimBase UTxOs matched this wallet's claimable wallet credential hashes${indexerTotal ? ` across ${indexerTotal} indexed UTxOs` : ""}.`}
+              body={`We didn't find any locked funds matching this wallet${indexerTotal ? ` across ${indexerTotal} indexed UTxOs` : ""}. Try another wallet that held the affected accounts, or refresh later — rescuers may still be locking funds.`}
             />
+          ) : filteredRows.length === 0 ? (
+            <TableEmpty icon={Search} title="No claims match your search" body="Adjust the search or the All/ADA/Tokens filter to see matching UTxOs." />
           ) : (
-            <ClaimsTable rows={rows} page={effectivePage} totalRows={allRows.length} onPageChange={onPageChange} onViewAsset={onViewAsset} />
+            <ClaimsTable rows={rows} page={effectivePage} pageSize={pageSize} totalRows={filteredRows.length} onPageChange={changePage} onViewAsset={onViewAsset} />
           )}
         </Panel>
         <InfoPanel
           title="Why these match"
           compact
           items={[
-            { icon: Check, title: "Credential in datum", body: "Each UTxO's datum includes a claimable credential hash." },
-            { icon: Check, title: "Credential belongs to impacted wallet", body: "The credential matches keys derived from your impacted wallet." },
-            { icon: Check, title: "Unclaimed at ReclaimBase", body: "The funds are still locked and have not been claimed yet." },
+            { icon: Check, title: "Your wallet key is listed", body: "Each locked fund records the wallet key it belongs to." },
+            { icon: Check, title: "The key comes from your impacted wallet", body: "The wallet key matches keys derived from your impacted wallet." },
+            { icon: Check, title: "Still unclaimed", body: "The funds are still locked and have not been claimed yet." },
           ]}
           footer="Learn more about the matching process"
         />
@@ -2317,6 +2838,7 @@ function AvailableClaims({
 function SafeWallet({
   overlap,
   insufficientAda,
+  insufficientAdaDetails,
   deployment,
   wallets,
   selectedWallet,
@@ -2326,10 +2848,13 @@ function SafeWallet({
   draft,
   draftError,
   onNext,
+  onConfirm,
+  onChooseDifferentWallet,
   onBack,
 }: {
   overlap?: boolean;
   insufficientAda?: boolean;
+  insufficientAdaDetails?: InsufficientAdaDetails | null;
   deployment?: ClaimDeploymentResponse | null;
   wallets?: WalletEntry[];
   selectedWallet?: string;
@@ -2339,30 +2864,41 @@ function SafeWallet({
   draft?: ClaimDraftResponse | null;
   draftError?: string;
   onNext: () => void;
+  onConfirm?: () => void;
+  onChooseDifferentWallet?: () => void;
   onBack: () => void;
 }) {
   const fixtureMode = process.env.NEXT_PUBLIC_CLAIM_UI_FIXTURE === "1";
   const hasWallets = fixtureMode || wallets === undefined || wallets.length > 0;
   const expectedNetwork = deployment?.available ? deployment.deployment.network : "the configured network";
+  // C32: prefer the backend-provided amounts; the fixture demonstrates the
+  // real layout with example amounts. Older payloads without details keep the
+  // qualitative copy.
+  const effectiveInsufficientAdaDetails =
+    insufficientAdaDetails ??
+    (fixtureMode && insufficientAda ? { availableLovelace: "2450000", requiredLovelace: "5000000" } : null);
+  // Confirmation beat (C17): connecting populates the destination panel and
+  // keeps the user here; an explicit confirm advances to proof creation.
+  const connected = Boolean(safeWallet);
   return (
     <ClaimScreenFrame
       title="Connect safe wallet"
       subtitle="Connect a wallet you know is safe. Claimed funds will be sent to this wallet."
       backLabel="Back"
-      nextLabel={safeWallet && draft ? "Refresh claim draft" : overlap ? "Choose another wallet" : "Connect safe wallet"}
+      nextLabel={connected ? "Confirm destination and continue" : overlap ? "Choose another wallet" : "Connect safe wallet"}
       nextIcon={ShieldCheck}
       onBack={onBack}
-      onNext={onNext}
+      onNext={connected && onConfirm ? onConfirm : onNext}
       nextDisabled={!hasWallets}
     >
       <div className="claim-two-column">
         <div className="claim-stack">
           <Notice icon={ShieldCheck} title="Use a clean destination">
-            Do not connect the impacted wallet here. Choose a wallet whose seed phrase and devices were not exposed
-            during the SecondFi incident.
+            Do not connect the impacted wallet here. Choose a wallet whose recovery phrase and devices were not exposed
+            during the {INCIDENT_NAME} incident.
           </Notice>
           <Notice icon={HelpCircle} title="Why this comes before proofs">
-            Reclaim proofs are destination-bound, so we need the safe wallet address before proofs are created.
+            Claim proofs are destination-bound, so we need the safe wallet address before proofs are created.
           </Notice>
           {error ? (
             <Notice tone="bad" icon={CircleAlert} title="Safe wallet blocked">
@@ -2378,22 +2914,37 @@ function SafeWallet({
         </div>
         <Panel icon={Wallet} title="Funds will arrive here" className={overlap || insufficientAda ? "claim-panel-alert" : undefined}>
           {overlap ? (
-            <Notice tone="bad" icon={CircleAlert} title="Shared wallet credential">
-              This safe wallet shares a claimable wallet credential hash with the impacted wallet. Choose a different destination.
+            <Notice tone="bad" icon={CircleAlert} title="Shared wallet key">
+              This safe wallet shares a wallet key with the impacted wallet. Choose a different destination.
             </Notice>
           ) : null}
           {insufficientAda ? (
             <Notice tone="bad" icon={CircleAlert} title="More ADA needed">
-              The safe wallet needs more ADA for fees, collateral, and min-ADA. Recovered funds will not be reduced for fees.
+              {effectiveInsufficientAdaDetails
+                ? `Your safe wallet has ${formatLovelace(effectiveInsufficientAdaDetails.availableLovelace)} ADA — at least ${formatLovelace(effectiveInsufficientAdaDetails.requiredLovelace)} ADA is needed for fees, collateral, and min-ADA. Recovered funds will not be reduced for fees.`
+                : "The safe wallet needs more ADA for fees, collateral, and min-ADA. Recovered funds will not be reduced for fees."}
             </Notice>
           ) : null}
           {safeWallet ? (
             <Notice tone="ok" icon={Check} title="Safe wallet connected">
-              Connected on {expectedNetwork} with {safeWallet.credentials.length} claimable wallet credential hash{safeWallet.credentials.length === 1 ? "" : "es"}.
+              Connected on {expectedNetwork} with {safeWallet.credentials.length} wallet key{safeWallet.credentials.length === 1 ? "" : "s"}.
+              {" "}Check the address below, then confirm the destination to continue.
             </Notice>
           ) : null}
+          {safeWallet && onChooseDifferentWallet ? (
+            <button className="claim-secondary-button" type="button" onClick={onChooseDifferentWallet}>
+              <Wallet size={18} aria-hidden="true" />
+              Choose a different wallet
+            </button>
+          ) : null}
           <ReviewRow label="Safe wallet" value={safeWallet?.walletName ?? "Not connected yet"} noCopy />
-          <ReviewRow label="Receive address" value={safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 32) : "Connect wallet to preview"} noCopy />
+          <ReviewRow
+            label="Receive address"
+            value={safeWallet ? safeWallet.changeAddress : "Connect wallet to preview"}
+            breakValue={Boolean(safeWallet)}
+            noCopy={!safeWallet}
+            detail={safeWallet ? "Confirm this matches the receive address shown in your safe wallet." : undefined}
+          />
           <ReviewRow label="Fees paid by" value="Safe wallet" icon={ShieldCheck} noCopy />
           <ReviewRow label="Impacted wallet signature" value="Not required" noCopy />
           {draft ? (
@@ -2403,7 +2954,7 @@ function SafeWallet({
             </>
           ) : null}
           <Notice icon={Lock} title={undefined}>
-            This address will be embedded in your reclaim proofs to ensure funds can only be sent here.
+            This address will be embedded in your claim proofs to ensure funds can only be sent here.
           </Notice>
         </Panel>
       </div>
@@ -2417,8 +2968,11 @@ function CreateProofs({
   safeWallet,
   helperState,
   helperError,
+  onCheckHelper,
   proofError,
   draftError,
+  phraseChecksumFailed,
+  onPhraseEdited,
   proofArtifacts,
   proofMethod,
   onSelectProofMethod,
@@ -2435,8 +2989,11 @@ function CreateProofs({
   safeWallet?: SafeWalletSummary | null;
   helperState?: ClaimHelperState;
   helperError?: string;
+  onCheckHelper?: () => void;
   proofError?: string;
   draftError?: string;
+  phraseChecksumFailed?: boolean;
+  onPhraseEdited?: () => void;
   proofArtifacts?: Record<string, unknown>[];
   proofMethod: LocalProofMethod | null;
   onSelectProofMethod: (method: LocalProofMethod | null) => void;
@@ -2457,6 +3014,45 @@ function CreateProofs({
   const [pasteStatus, setPasteStatus] = useState<RecoveryPhrasePasteStatus | null>(null);
   const [pastePending, setPastePending] = useState(false);
   const [pendingRecoveryPhraseWords, setPendingRecoveryPhraseWords] = useState<string[] | null>(null);
+  // C28: per-word validation against the real BIP-39 English wordlist
+  // (re-exported by @proof-zk-recovery/proof-tool-client), so typos like
+  // "recieve" are flagged as the user types. The full-phrase checksum is
+  // additionally validated at generate time (and again in the derivation
+  // worker) before any proving starts. Only word statuses are kept in React
+  // state — never the words themselves.
+  const [wordStatuses, setWordStatuses] = useState<RecoveryWordStatus[]>([]);
+  const recomputeWordStatuses = useCallback(() => {
+    setWordStatuses(recoveryWordInputs().map((input) => recoveryWordStatus(input.value)));
+    // Any grid change invalidates a previous checksum failure notice.
+    onPhraseEdited?.();
+  }, [onPhraseEdited]);
+  useEffect(() => {
+    recomputeWordStatuses();
+  }, [mode, recoveryPhraseWordCount, recomputeWordStatuses]);
+  const invalidWordNumbers = wordStatuses.flatMap((status, index) => (status === "invalid" ? [index + 1] : []));
+  const phraseComplete =
+    wordStatuses.length === recoveryPhraseWordCount && wordStatuses.every((status) => status === "valid");
+
+  // C27: clipboard hygiene after a successful paste — best-effort overwrite of
+  // the clipboard so the phrase does not linger there.
+  const finalizeRecoveryPhrasePaste = useCallback(async (wordCount: number) => {
+    let cleared = false;
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function") {
+        await navigator.clipboard.writeText("");
+        cleared = true;
+      }
+    } catch {
+      cleared = false;
+    }
+    setPasteStatus({
+      tone: "ok",
+      message: cleared
+        ? `Pasted ${wordCount} words. We cleared your clipboard.`
+        : `Pasted ${wordCount} words. Clear your clipboard now — copy anything else to overwrite it.`,
+    });
+  }, []);
+
   const applyRecoveryPhraseWords = useCallback((words: string[]) => {
     const wordCount = recoveryPhraseWordCountFromLength(words.length);
     if (!wordCount) {
@@ -2477,24 +3073,20 @@ function CreateProofs({
     }
 
     writeRecoveryPhraseWords(words);
-    setPasteStatus({
-      tone: "ok",
-      message: `Pasted ${words.length} recovery words into this device only.`,
-    });
+    recomputeWordStatuses();
+    void finalizeRecoveryPhrasePaste(words.length);
     return true;
-  }, [recoveryPhraseWordCount]);
+  }, [finalizeRecoveryPhrasePaste, recomputeWordStatuses, recoveryPhraseWordCount]);
 
   useEffect(() => {
     if (!pendingRecoveryPhraseWords || pendingRecoveryPhraseWords.length !== recoveryPhraseWordCount) {
       return;
     }
     writeRecoveryPhraseWords(pendingRecoveryPhraseWords);
-    setPasteStatus({
-      tone: "ok",
-      message: `Pasted ${pendingRecoveryPhraseWords.length} recovery words into this device only.`,
-    });
+    recomputeWordStatuses();
+    void finalizeRecoveryPhrasePaste(pendingRecoveryPhraseWords.length);
     setPendingRecoveryPhraseWords(null);
-  }, [pendingRecoveryPhraseWords, recoveryPhraseWordCount]);
+  }, [finalizeRecoveryPhrasePaste, pendingRecoveryPhraseWords, recomputeWordStatuses, recoveryPhraseWordCount]);
 
   const pasteRecoveryPhrase = useCallback(async () => {
     setPendingRecoveryPhraseWords(null);
@@ -2569,11 +3161,16 @@ function CreateProofs({
       "Browser proving is not enabled for this build yet. Choose Proof Helper Desktop to generate proofs now.";
   const proofsNeeded = draft?.orderedInputs.length ?? (fixtureMode ? 18 : 0);
   const generated = proofArtifacts?.length ?? 0;
-  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Connect safe wallet";
-  const proofBlocked =
+  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Not connected";
+  const proofSetupBlocked =
     methodMissing ||
     (browserSelected && !browserReady) ||
     (!fixtureMode && (!draft || !safeWallet || (!browserSelected && helperBad) || draft.buildSupported === false));
+  // C28: the recovery phrase grid must be complete (and shape-valid) before
+  // Generate/Retry is enabled — including after a failure cleared the grid.
+  // An incomplete grid is a normal state, so it disables the button without
+  // turning the setup notice red.
+  const proofBlocked = proofSetupBlocked || !phraseComplete;
   const activeError = proofError || (browserSelected ? "" : helperError) || draftError;
   const methodValue = browserSelected ? "Prove in browser" : proofMethod === "desktop" && helperReady ? "Proof Helper Desktop" : "Not selected";
   const methodStatus = methodMissing
@@ -2635,7 +3232,7 @@ function CreateProofs({
   return (
     <ClaimScreenFrame
       title="Create proofs"
-      subtitle="Generate local proofs for the claimable wallet credential hashes in this batch."
+      subtitle="Generate local proofs for the wallet keys in this batch."
       backLabel="Back"
       nextLabel={failed ? "Retry proofs" : "Generate proofs"}
       nextIcon={KeyRound}
@@ -2655,26 +3252,44 @@ function CreateProofs({
             actionLabel: "Choose method",
             onAction: () => setProofMethodDialogOpen(true),
           },
-          { icon: ShieldCheck, label: "Safe wallet", value: safeWalletLabel },
-          { icon: FileText, label: "Proofs needed", value: String(proofsNeeded) },
-          { icon: KeyRound, label: "Generated", value: `${generated} of ${proofsNeeded}` },
+          { icon: ShieldCheck, label: "Safe wallet", value: safeWalletLabel, status: safeWallet ? "Connected" : undefined },
+          ...(proofsNeeded > 0
+            ? [
+                { icon: FileText, label: "Proofs needed", value: String(proofsNeeded) },
+                { icon: KeyRound, label: "Generated", value: `${generated} of ${proofsNeeded}` },
+              ]
+            : []),
         ]}
       />
-      <Notice tone={proofBlocked || failed ? "bad" : "info"} icon={proofBlocked || failed ? CircleAlert : Lock} title={!browserSelected && helperBad ? "Proof Helper is not connected" : failed ? "Proof generation stopped" : blockedReason ? "Proof generation blocked" : undefined}>
-        {activeError
-          ? activeError
+      <Notice tone={proofSetupBlocked || failed ? "bad" : "info"} icon={proofSetupBlocked || failed ? CircleAlert : Lock} title={!browserSelected && helperBad ? "Proof Helper is not connected" : failed ? "Proof generation stopped" : blockedReason ? "Proof generation blocked" : undefined}>
+        {failed
+          ? `${
+              activeError ||
+              (browserSelected
+                ? "Browser proving reported an error. Your recovery phrase was not uploaded. Proof Helper Desktop is still available."
+                : "The helper reported an error. Your recovery phrase was not uploaded.")
+            } For your security your recovery phrase was cleared — re-enter it before retrying.`
+          : activeError
+            ? activeError
           : blockedReason
             ? blockedReason
           : !browserSelected && helperBad
             ? "Choose Proof Helper Desktop to install or open the desktop app before entering the recovery phrase."
-          : failed
-            ? browserSelected
-              ? "Browser proving reported an error. Your recovery phrase was not uploaded. Proof Helper Desktop is still available."
-              : "The local helper reported an error. Your recovery phrase was not uploaded."
             : browserSelected
               ? "Proofs will be generated in this browser. Expect about 2 minutes per proof on a fast machine; your recovery phrase stays on this device."
-              : "Choose a local proof method before entering the recovery phrase. Your recovery phrase stays on this device."}
+              : "Your recovery phrase stays on this device."}
       </Notice>
+      {onCheckHelper && !browserSelected && (helperBad || helperChecking) ? (
+        <button
+          className="claim-secondary-button"
+          type="button"
+          onClick={onCheckHelper}
+          disabled={helperChecking}
+        >
+          <RefreshCw size={18} aria-hidden="true" className={helperChecking ? "spin" : undefined} />
+          {helperChecking ? "Checking helper..." : "Check helper again"}
+        </button>
+      ) : null}
       {proofMethodDialogOpen ? (
         <LocalProofMethodDialog
           selectedMethod={proofMethod}
@@ -2700,10 +3315,10 @@ function CreateProofs({
       <div className="claim-content-with-aside">
         <Panel title="Impacted wallet recovery phrase" className="claim-phrase-panel">
           <div className="claim-panel-toolbar claim-phrase-settings">
-            <span>Use the phrase for the impacted wallet, not the safe wallet.</span>
+            <span>Enter the recovery phrase (seed phrase) for the impacted wallet, not the safe wallet.</span>
             <div className="claim-phrase-actions">
-              <div className="claim-phrase-length" aria-label="Seed phrase length">
-                <span>Seed phrase</span>
+              <div className="claim-phrase-length" aria-label="Recovery phrase length">
+                <span>Recovery phrase</span>
                 <div className="claim-segmented claim-phrase-segmented">
                   {recoveryPhraseWordCounts.map((wordCount) => (
                     <button
@@ -2751,10 +3366,27 @@ function CreateProofs({
                 placeholder={`${index + 1}  word ${index + 1}`}
                 type={showRecoveryWords ? "text" : "password"}
                 autoComplete="off"
+                className={wordStatuses[index] === "invalid" ? "invalid" : undefined}
+                aria-invalid={wordStatuses[index] === "invalid" || undefined}
                 onPaste={pasteRecoveryPhraseFromField}
+                onChange={recomputeWordStatuses}
+                onBlur={recomputeWordStatuses}
               />
             ))}
           </div>
+          {invalidWordNumbers.length > 0 ? (
+            <small className="claim-status-line claim-phrase-status bad" role="status">
+              Word{invalidWordNumbers.length === 1 ? "" : "s"} {invalidWordNumbers.join(", ")}{" "}
+              {invalidWordNumbers.length === 1 ? "is" : "are"} not a recovery word — check the spelling against the
+              standard recovery word list.
+            </small>
+          ) : null}
+          {phraseChecksumFailed && invalidWordNumbers.length === 0 ? (
+            <small className="claim-status-line claim-phrase-status bad" role="alert">
+              These words are valid, but the phrase checksum doesn&apos;t match — double-check word order and spelling.
+            </small>
+          ) : null}
+          <p className="claim-muted">These words are never saved. Leaving this step clears them.</p>
         </Panel>
         <Panel title="Proof plan">
           <ProofPlan draft={draft} safeWallet={safeWallet} />
@@ -2783,14 +3415,33 @@ function CreateProofsGenerating({
 }) {
   const fixtureMode = process.env.NEXT_PUBLIC_CLAIM_UI_FIXTURE === "1";
   const total = draft?.orderedInputs.length ?? (fixtureMode ? 18 : 0);
-  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Connect safe wallet";
+  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Not connected";
   const queueRows = draft ? proofGenerationRows(draft) : fixtureMode ? claimFixtureData().proofQueue : [];
   const browserMode = proofMethod === "browser";
   const current = proofProgress?.current ?? 0;
   const completed = current > 0 ? current - 1 : 0;
   const stageLabel = proofProgress ? formatProofStage(proofProgress.stage) : "Starting";
   const stagePercent = proofProgress?.frac !== undefined ? Math.round(clampFraction(proofProgress.frac) * 100) : null;
-  const engineLabel = browserMode ? "Proving in this browser" : "Proof Helper is running locally.";
+  const engineLabel = browserMode ? "Proving in this browser" : "The helper is running locally.";
+  // Overall ETA (C35): the browser path is estimated at ~2 minutes per proof.
+  const remainingMinutes =
+    browserMode && total > 0
+      ? Math.max(1, Math.ceil((total - completed - (stagePercent ?? 0) / 100) * 2))
+      : null;
+  // Elapsed counter for the helper path (C35): the helper does not stream
+  // per-proof progress yet, so at least show that time is passing.
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  useEffect(() => {
+    if (browserMode) {
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [browserMode]);
+  const ringPercentKnown = browserMode && stagePercent !== null;
   return (
     <ClaimScreenFrame
       title="Create proofs"
@@ -2799,11 +3450,12 @@ function CreateProofsGenerating({
           ? "Proof generation is running in this browser. Keep this tab open."
           : "Proof generation is running locally. Keep this tab and the Proof Helper open."
       }
-      backLabel={browserMode ? "Cancel" : "Pause"}
+      backLabel={browserMode ? "Cancel" : "Back"}
       nextLabel="Generating proofs"
       nextIcon={RefreshCw}
       onBack={browserMode && onCancelProving ? onCancelProving : onBack}
       onNext={onNext}
+      nextDisabled
     >
       <SummaryTiles
         tiles={[
@@ -2813,14 +3465,17 @@ function CreateProofsGenerating({
             value: "Generating",
             status: "Running",
           },
-          { icon: ShieldCheck, label: "Safe wallet", value: safeWalletLabel, status: "Connected" },
-          {
-            icon: KeyRound,
-            label: "Proofs generated",
-            value: `${completed} of ${total}`,
-            detail: browserMode ? "Running in browser" : "Running locally",
-          },
-          { icon: Clock3, label: "Remaining", value: `${Math.max(total - completed, 0)} proofs`, detail: "To generate" },
+          { icon: ShieldCheck, label: "Safe wallet", value: safeWalletLabel, status: safeWallet ? "Connected" : undefined },
+          ...(total > 0
+            ? [
+                {
+                  icon: KeyRound,
+                  label: "Proofs",
+                  value: `${completed} of ${total}`,
+                  detail: browserMode ? "Running in browser" : "Running locally",
+                },
+              ]
+            : []),
         ]}
       />
       <div className="claim-content-with-aside">
@@ -2828,10 +3483,12 @@ function CreateProofsGenerating({
           <Panel title="Generating destination-bound proofs">
             <div className="claim-progress-card">
               <div
-                className={`claim-progress-ring${browserMode && stagePercent !== null ? "" : " indeterminate"}`}
-                aria-label="Proof generation in progress"
+                className={`claim-progress-ring${ringPercentKnown ? "" : " indeterminate"}`}
+                style={ringPercentKnown ? ({ "--claim-progress": `${stagePercent}%` } as React.CSSProperties) : undefined}
+                role="img"
+                aria-label={ringPercentKnown ? `Current proof ${stagePercent}% complete` : "Proof generation in progress"}
               >
-                <RefreshCw className="spin" size={34} aria-hidden="true" />
+                {ringPercentKnown ? <strong>{stagePercent}%</strong> : <RefreshCw className="spin" size={34} aria-hidden="true" />}
               </div>
               <div>
                 <h3>Generating {total} destination-bound proof{total === 1 ? "" : "s"}</h3>
@@ -2839,8 +3496,10 @@ function CreateProofsGenerating({
                 {browserMode ? (
                   <>
                     <p className="claim-muted" role="status" aria-live="polite">
-                      {current > 0 ? `Proof ${current} of ${total}` : "Preparing proof assets"} - {stageLabel}
+                      {current > 0 ? `Proof ${current} of ${total}` : "Preparing proof assets"} -{" "}
+                      <span title={proofProgress?.stage}>{stageLabel}</span>
                       {stagePercent !== null ? ` (${stagePercent}%)` : ""}
+                      {remainingMinutes !== null ? ` · ~${remainingMinutes} min remaining` : ""}
                     </p>
                     <p className="claim-muted">Keep this tab open - refreshing will restart proof generation.</p>
                     {onCancelProving ? (
@@ -2850,7 +3509,12 @@ function CreateProofsGenerating({
                     ) : null}
                   </>
                 ) : (
-                  <p className="claim-muted">Per-proof progress will appear here when the helper exposes a streaming status channel.</p>
+                  <>
+                    <p className="claim-muted" role="status" aria-live="polite">
+                      Running for {formatElapsedTime(elapsedSeconds)}
+                    </p>
+                    <p className="claim-muted">Per-proof progress will appear here when the helper exposes a streaming status channel.</p>
+                  </>
                 )}
                 <div className="claim-chip-row">
                   <span>Local only</span>
@@ -2863,7 +3527,7 @@ function CreateProofsGenerating({
           <Panel title="Proof queue">
             {queueRows.length > 0 ? (
               <>
-                <ProofQueue rows={queueRows} />
+                <ProofQueue rows={queueRows} totalCount={total} />
                 <p className="claim-table-note">
                   {total} total claim{total === 1 ? "" : "s"} - {browserMode ? "proving in this browser" : "helper request in progress"}
                 </p>
@@ -2878,12 +3542,16 @@ function CreateProofsGenerating({
           items={[
             browserMode
               ? { icon: PlaySquare, title: "Keep this tab open", body: "Browser proving runs here; closing or refreshing the tab restarts it." }
-              : { icon: PlaySquare, title: "Keep the helper running", body: "The local helper must stay open until all proofs are generated." },
+              : { icon: PlaySquare, title: "Keep the helper running", body: "The helper must stay open until all proofs are generated." },
             { icon: RefreshCw, title: "Do not refresh this page", body: "Refreshing may interrupt the proof generation process." },
-            { icon: ShieldCheck, title: "Seed phrase stays local", body: "Your seed phrase never leaves your device and is never shared." },
+            { icon: ShieldCheck, title: "Recovery phrase stays local", body: "Your recovery phrase never leaves your device and is never shared." },
             browserMode
               ? { icon: PauseCircle, title: "You can cancel if needed", body: "Cancel to stop proving and return to the previous step." }
-              : { icon: PauseCircle, title: "You can pause if needed", body: "Pause proof generation and resume from here." },
+              : {
+                  icon: PauseCircle,
+                  title: "Leaving does not pause the helper",
+                  body: "Leaving this screen does not stop the helper — proofs continue in the background. You can return to this step to see the result.",
+                },
             { icon: Shield, title: "Proofs are destination-bound", body: "They can only be used to reclaim funds to your connected safe wallet." },
           ]}
         />
@@ -2892,25 +3560,33 @@ function CreateProofsGenerating({
   );
 }
 
+// C25: map internal prover stage ids to user language. Callers keep the raw
+// stage string available in a title attribute for support conversations.
 function formatProofStage(stage: string): string {
   const labels: Record<string, string> = {
-    parse: "Parsing request",
-    "decode-inputs": "Decoding inputs",
-    "open-keys": "Opening proving key",
-    "open-ccs": "Opening constraint system",
-    "find-path": "Finding key path",
-    probe: "Probing",
-    prove: "Proving",
-    verify: "Verifying",
+    parse: "Preparing proving data",
+    "decode-inputs": "Preparing proving data",
+    "open-keys": "Preparing proving data",
+    "open-ccs": "Preparing proving data",
+    "find-path": "Locating your key",
+    probe: "Locating your key",
+    prove: "Generating proof",
+    verify: "Double-checking proof",
     done: "Done",
   };
   if (labels[stage]) {
     return labels[stage];
   }
   if (stage.startsWith("prove")) {
-    return "Proving";
+    return "Generating proof";
   }
-  return stage ? stage.charAt(0).toUpperCase() + stage.slice(1) : "Working";
+  return "Working";
+}
+
+function formatElapsedTime(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function clampFraction(value: number): number {
@@ -2935,10 +3611,11 @@ function CreateProofsComplete({
 }) {
   const fixtureMode = process.env.NEXT_PUBLIC_CLAIM_UI_FIXTURE === "1";
   const total = draft?.orderedInputs.length ?? proofArtifacts?.length ?? (fixtureMode ? 18 : 0);
-  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Connect safe wallet";
+  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Not connected";
   const batchSummary = draft ? draftBatchSummary(draft) : null;
   const transactionCount = batchSummary ? Math.ceil(batchSummary.utxoCount / Math.max(draft?.batchCap.default ?? draft?.batchCap.requested ?? 1, 1)) : 0;
   const fixtureFirstBatchValue = fixtureMode ? "3.42 ADA, 6 tokens" : "";
+  const totalBatches = transactionCount || (fixtureMode ? 5 : 0);
   return (
     <ClaimScreenFrame
       title="Proofs ready"
@@ -2952,9 +3629,16 @@ function CreateProofsComplete({
       <SummaryTiles
         tiles={[
           { icon: Monitor, label: "Local helper", value: "Complete", detail: "Your proofs were created locally on this device." },
-          { icon: ShieldCheck, label: "Safe wallet", value: safeWalletLabel, detail: "Destination for all recovered funds." },
-          { icon: KeyRound, label: "Proofs generated", value: `${proofArtifacts?.length ?? total} of ${total}`, detail: "All proofs are ready." },
-          { icon: ArrowRight, label: "Next step", value: "Claim batch 1", detail: "Review and submit your first transaction." },
+          { icon: ShieldCheck, label: "Safe wallet", value: safeWalletLabel, detail: safeWallet ? "Destination for all recovered funds." : undefined },
+          ...(total > 0
+            ? [{ icon: KeyRound, label: "Proofs generated", value: `${proofArtifacts?.length ?? total} of ${total}`, detail: "All proofs are ready." }]
+            : []),
+          {
+            icon: ArrowRight,
+            label: "Next step",
+            value: totalBatches > 0 ? `Batch 1 of ${totalBatches}` : "Next claim batch",
+            detail: "Review and submit your first transaction.",
+          },
         ]}
       />
       <Notice icon={Check} title="Ready to claim">
@@ -3002,6 +3686,9 @@ function CurrentBatch({
   build,
   buildError,
   submitError,
+  submitFailureKind,
+  onCheckStatus,
+  onRescanClaims,
   proofArtifacts,
   safeWallet,
   safeWalletSigningAvailable,
@@ -3016,6 +3703,9 @@ function CurrentBatch({
   build?: ClaimBuildResponse | null;
   buildError?: string;
   submitError?: string;
+  submitFailureKind?: ClaimSubmitFailureKind | null;
+  onCheckStatus?: () => void;
+  onRescanClaims?: () => void;
   proofArtifacts?: Record<string, unknown>[];
   safeWallet?: SafeWalletSummary | null;
   safeWalletSigningAvailable?: boolean;
@@ -3028,7 +3718,7 @@ function CurrentBatch({
   const fixtureRows = fixtureMode ? claimFixtureData().batchRows : [];
   const rows = draft?.orderedInputs ?? fixtureRows;
   const summary = draft ? draftBatchSummary(draft) : summarizeClaimRows(fixtureRows);
-  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Connect safe wallet";
+  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Not connected";
   const needsSignerReconnect = Boolean(build && !fixtureMode && !safeWalletSigningAvailable);
   const busy = isSubmitBusy(submitPhase);
   const nextLabel = submitButtonLabel({
@@ -3036,15 +3726,21 @@ function CurrentBatch({
     buildReady: Boolean(build),
     needsSignerReconnect,
     submitPhase,
+    submitFailureKind,
   });
-  const proofCount = proofArtifacts?.length ?? (fixtureMode ? rows.length : 0);
+  const postSignFailure = Boolean(rejected && submitFailureKind === "post-sign-submit");
+  const proofCount = proofArtifacts?.length || (fixtureMode && !draft ? rows.length : 0);
   const hasRealDraft = Boolean(draft);
+  // Two-phase CTA made explicit (C18): the subtitle explains the stages and a
+  // step indicator near the action bar says which stage the button performs.
+  const nextHint = rejected || busy ? undefined : build ? "Step 2 of 2 — your safe wallet will ask you to approve" : "Step 1 of 2 — nothing is signed yet";
   return (
     <ClaimScreenFrame
       title="Claim funds"
-      subtitle="You're ready to claim the next batch of funds. Review the batch details below and continue."
+      subtitle="Claiming happens in two stages: first build the transaction and review it, then sign and submit it with your safe wallet."
       backLabel="Go back"
       nextLabel={nextLabel}
+      nextHint={nextHint}
       nextIcon={Wallet}
       onBack={onBack}
       onNext={onNext}
@@ -3067,9 +3763,24 @@ function CurrentBatch({
         </Notice>
       ) : null}
       {rejected ? (
-        <Notice tone="bad" icon={CircleAlert} title="Safe-wallet signature rejected">
-          {submitError || "The transaction was not submitted. Review the batch and ask the safe wallet to sign again."}
-        </Notice>
+        postSignFailure ? (
+          <>
+            <Notice tone="bad" icon={CircleAlert} title="Submission failed after signing">
+              {submitError ||
+                "Submission failed after signing — the transaction may or may not have reached the chain. Checking current status..."}
+            </Notice>
+            {onCheckStatus ? (
+              <button className="claim-secondary-button" type="button" onClick={onCheckStatus}>
+                <RefreshCw size={18} aria-hidden="true" />
+                Check on-chain status
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <Notice tone="bad" icon={CircleAlert} title="Safe-wallet signature rejected">
+            {submitError || "Signature declined in wallet. The transaction was not submitted. Review the batch and ask the safe wallet to sign again."}
+          </Notice>
+        )
       ) : null}
       {buildError ? (
         <Notice tone="bad" icon={CircleAlert} title="Claim build stopped">
@@ -3084,34 +3795,42 @@ function CurrentBatch({
       <SummaryTiles
         tiles={[
           { icon: Wallet, label: "Claim draft", value: hasRealDraft ? abbreviateMiddle(draft?.draftId ?? "", 18) : fixtureMode ? "Fixture" : "Missing", status: hasRealDraft || fixtureMode ? "Ready" : "Blocked" },
-          {
-            icon: Coins,
-            label: overview ? "Matching funds" : "Available Claims",
-            value: `${formatLovelace(summary.lovelace)} ADA`,
-            detail: `${summary.assetCount} token${summary.assetCount === 1 ? "" : "s"} - ${rows.length} UTxO${rows.length === 1 ? "" : "s"}`,
-            status: hasRealDraft || fixtureMode ? "Found" : "Blocked",
-          },
-          {
-            icon: KeyRound,
-            label: overview ? "Proof Helper" : "Create Proofs",
-            value: overview ? "Helper service" : "Proofs ready",
-            detail: overview ? "Connected" : `${proofCount} of ${rows.length}`,
-            status: "Complete",
-          },
+          ...(rows.length > 0
+            ? [
+                {
+                  icon: Coins,
+                  label: overview ? "Matching funds" : "Available claims",
+                  value: `${formatLovelace(summary.lovelace)} ADA`,
+                  detail: `${summary.assetCount} token${summary.assetCount === 1 ? "" : "s"} - ${rows.length} UTxO${rows.length === 1 ? "" : "s"}`,
+                  status: hasRealDraft || fixtureMode ? "Found" : "Blocked",
+                },
+                {
+                  icon: KeyRound,
+                  label: overview ? "Proof Helper" : "Create proofs",
+                  value: overview ? "Helper service" : proofCount >= rows.length ? "Proofs ready" : "Proofs pending",
+                  detail: overview ? "Connected" : `${proofCount} of ${rows.length}`,
+                  status: proofCount >= rows.length || overview ? "Complete" : undefined,
+                },
+              ]
+            : []),
           {
             icon: ShieldCheck,
             label: "Safe wallet",
             value: safeWalletLabel,
-            status: safeWalletSigningStatusLabel(safeWalletSigningSessionState, safeWalletSigningAvailable),
+            status: safeWallet ? safeWalletSigningStatusLabel(safeWalletSigningSessionState, safeWalletSigningAvailable) : undefined,
             statusTone: safeWalletSigningAvailable ? "ok" : needsSignerReconnect ? "warn" : undefined,
           },
-          {
-            icon: RefreshCw,
-            label: "Next claim batch",
-            value: `${rows.length} UTxO${rows.length === 1 ? "" : "s"} ready`,
-            detail: `${formatLovelace(summary.lovelace)} ADA - ${summary.assetCount} token${summary.assetCount === 1 ? "" : "s"}`,
-            emphasis: true,
-          },
+          ...(rows.length > 0
+            ? [
+                {
+                  icon: RefreshCw,
+                  label: "Next claim batch",
+                  value: `${rows.length} UTxO${rows.length === 1 ? "" : "s"} ready`,
+                  detail: `${formatLovelace(summary.lovelace)} ADA - ${summary.assetCount} token${summary.assetCount === 1 ? "" : "s"}`,
+                  emphasis: true,
+                },
+              ]
+            : []),
         ]}
       />
       <Panel>
@@ -3127,10 +3846,11 @@ function CurrentBatch({
       <Panel title="Next claim batch" className="claim-table-panel">
         <div className="claim-panel-toolbar">
           <span className="claim-soft-badge">{rows.length} UTxOs ready</span>
-          <button className="claim-secondary-button" type="button" disabled title="Return to available claims to rescan from the indexer.">
-            <RefreshCw size={18} aria-hidden="true" />
-            Rescan unavailable
-          </button>
+          {onRescanClaims ? (
+            <button className="claim-table-action" type="button" onClick={onRescanClaims}>
+              Need to rescan? Go back to Available claims.
+            </button>
+          ) : null}
         </div>
         <BatchTable draft={draft} />
       </Panel>
@@ -3155,8 +3875,22 @@ function CurrentBatch({
         <Assurance icon={KeyRound} title="No signature needed from impacted wallet" body="Claims are authorized by ReclaimGlobal." />
         <div className="claim-review-mini">
           <strong>Review</strong>
-          <ReviewRow label="Safe wallet (destination)" value={safeWalletLabel} />
-          <ReviewRow label="Estimated fee (paid by safe wallet)" value={build?.review ? "Included in build review" : "Build review required"} noCopy />
+          <ReviewRow
+            label="Safe wallet (destination)"
+            value={safeWallet ? safeWallet.changeAddress : "Not connected"}
+            breakValue={Boolean(safeWallet)}
+            noCopy={!safeWallet}
+            detail={safeWallet ? "Confirm this matches the receive address shown in your safe wallet before signing." : undefined}
+          />
+          {/* C16: the build response does not include a fee amount, so the row
+              states honestly where the fee will be shown instead of implying a
+              number exists somewhere in the review. */}
+          <ReviewRow
+            label="Estimated fee (paid by safe wallet)"
+            value="Shown in your wallet before you approve signing"
+            detail="Paid from your safe wallet, not from recovered funds."
+            noCopy
+          />
           <details>
             <summary>Technical details</summary>
             <p>DestinationAddressV1 and proof order are recomputed by the backend before signing.</p>
@@ -3172,6 +3906,9 @@ function ClaimReview({
   submittedClaims,
   progress,
   safeWallet,
+  submitError,
+  remainingClaims = 0,
+  onStartNextBatch,
   explorerNetwork,
   onNext,
   onBack,
@@ -3180,19 +3917,25 @@ function ClaimReview({
   submittedClaims?: SubmittedClaimTx[];
   progress?: ClaimProgressResponse | null;
   safeWallet?: SafeWalletSummary | null;
+  submitError?: string;
+  remainingClaims?: number;
+  onStartNextBatch?: () => void;
   explorerNetwork?: ReclaimNetwork;
   onNext: () => void;
   onBack: () => void;
 }) {
   const fixtureMode = process.env.NEXT_PUBLIC_CLAIM_UI_FIXTURE === "1";
   const fixtureTransactions = fixtureMode ? claimFixtureData().transactions : [];
-  const rows =
+  const [summaryCopyState, setSummaryCopyState] = useState<"idle" | "copied">("idle");
+  const rows: TransactionRow[] =
     submittedClaims && submittedClaims.length > 0
       ? submittedClaims.map((tx, index) => ({
           batch: index + 1,
           txHash: tx.txHash,
           displayHash: abbreviateMiddle(tx.txHash, 14),
           value: tx.valueSummary ? formatValueSummary(tx.valueSummary) : `${tx.selectedOutrefs.length} UTxO${tx.selectedOutrefs.length === 1 ? "" : "s"}`,
+          ada: tx.valueSummary ? formatLovelace(tx.valueSummary.lovelace) : undefined,
+          tokens: tx.valueSummary ? String(tx.valueSummary.assetCount) : undefined,
           status: pending ? ("Pending" as const) : ("Confirmed" as const),
         }))
       : fixtureMode
@@ -3200,36 +3943,111 @@ function ClaimReview({
           ? fixtureTransactions.map((tx, index) => (index === fixtureTransactions.length - 1 ? { ...tx, status: "Pending" as const } : tx))
           : fixtureTransactions
         : [];
+  const downloadReceiptCsv = () => {
+    if (typeof document === "undefined" || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
+      return;
+    }
+    const header = ["batch", "tx_hash", "explorer_url", "recovered_ada", "tokens", "status"];
+    const lines = [
+      header.join(","),
+      ...rows.map((row) =>
+        [String(row.batch), row.txHash, cexplorerTxUrl(row.txHash, explorerNetwork), row.ada ?? "", row.tokens ?? "", row.status]
+          .map(csvField)
+          .join(","),
+      ),
+    ];
+    const blob = new Blob([lines.join("\r\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "claim-recovery-receipt.csv";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+  const copyReceiptSummary = async () => {
+    if (typeof navigator === "undefined" || typeof navigator.clipboard?.writeText !== "function") {
+      return;
+    }
+    const summaryForCopy = summarizeSubmittedClaims(submittedClaims ?? []);
+    const text = [
+      "Claim recovery summary",
+      safeWallet ? `Funds sent to safe wallet: ${safeWallet.changeAddress}` : null,
+      ...rows.map((row) => `Batch ${row.batch}: ${row.value} - ${row.status} - ${cexplorerTxUrl(row.txHash, explorerNetwork)}`),
+      summaryForCopy ? `Total recovered: ${formatValueSummary(summaryForCopy)}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      return;
+    }
+    setSummaryCopyState("copied");
+  };
   const recoveredSummary = summarizeSubmittedClaims(submittedClaims ?? []);
   const claimedCount = progress?.outrefs.filter((entry) => entry.state === "spent_or_unknown" || entry.state === "confirmed_spent").length;
   const totalCount = progress?.outrefs.length || submittedClaims?.reduce((total, tx) => total + tx.selectedOutrefs.length, 0) || (fixtureMode ? 18 : 0);
-  const remainingCount = progress?.nextBatch.count ?? (fixtureMode && pending ? 2 : 0);
-  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Connect safe wallet";
+  const remainingCount = remainingClaims > 0 ? remainingClaims : progress?.nextBatch.count ?? (fixtureMode && pending ? 2 : 0);
+  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Not connected";
   const recoveredTile = recoveredSummary
     ? { value: `${formatLovelace(recoveredSummary.lovelace)} ADA`, detail: `${recoveredSummary.assetCount} token${recoveredSummary.assetCount === 1 ? "" : "s"}` }
     : fixtureMode
       ? { value: pending ? "13.42 ADA" : "15.87 ADA", detail: pending ? "21 tokens confirmed" : "23 tokens" }
-      : { value: `${totalCount} UTxO${totalCount === 1 ? "" : "s"}`, detail: "Submitted batch value unavailable" };
+      : null;
   return (
     <ClaimScreenFrame
       title="Claim review"
       subtitle={pending ? "Your latest claim transaction is submitted and waiting for confirmation." : "Review the funds recovered to your safe wallet and the on-chain transactions that claimed them."}
-      backLabel="Start another recovery"
+      backLabel={pending ? undefined : "Start another recovery"}
       nextLabel={pending ? "Refresh status" : "Done"}
       nextIcon={pending ? RefreshCw : CheckCircle2}
       onBack={onBack}
       onNext={onNext}
     >
+      {submitError ? (
+        <Notice tone="bad" icon={CircleAlert} title="Status refresh failed">
+          {submitError}
+        </Notice>
+      ) : null}
       <Notice icon={pending ? RefreshCw : Check} title={pending ? "Claim submitted" : "Recovery complete"}>
-        {pending ? "The selected batch is pending. Confirmed spends will be removed from remaining funds." : "All available claims for the impacted wallet have been submitted."}
+        {pending
+          ? "The selected batch is pending. Confirmed spends will be removed from remaining funds. Checks automatically every 20 seconds."
+          : "All available claims for the impacted wallet have been submitted."}
       </Notice>
+      {pending && remainingClaims > 0 && onStartNextBatch ? (
+        <div className="claim-notice info" role="status">
+          <span className="claim-icon-circle">
+            <KeyRound size={28} aria-hidden="true" />
+          </span>
+          <div>
+            <strong>
+              {remainingClaims} claim{remainingClaims === 1 ? "" : "s"} still waiting
+            </strong>
+            <p>You&apos;ll create new proofs for the next batch — your recovery phrase will be needed again.</p>
+            <div className="claim-modal-actions">
+              <button className="claim-primary-button" type="button" onClick={onStartNextBatch}>
+                Start next batch ({remainingClaims} claim{remainingClaims === 1 ? "" : "s"} remaining)
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <SummaryTiles
         tiles={[
-          { icon: Coins, label: "Recovered", value: recoveredTile.value, detail: recoveredTile.detail },
-          { icon: Coins, label: "Claimed UTxOs", value: `${claimedCount ?? (fixtureMode && pending ? 16 : totalCount)} of ${totalCount}` },
+          ...(recoveredTile ? [{ icon: Coins, label: "Recovered", value: recoveredTile.value, detail: recoveredTile.detail }] : []),
+          ...(totalCount > 0
+            ? [{ icon: Coins, label: "Claimed UTxOs", value: `${claimedCount ?? (fixtureMode && pending ? 16 : totalCount)} of ${totalCount}` }]
+            : []),
           { icon: FileText, label: "Claim transactions", value: String(rows.length) },
           { icon: CheckCircle2, label: "Remaining claims", value: String(remainingCount) },
-          { icon: ShieldCheck, label: "Funds sent to safe wallet", value: safeWalletLabel, status: "Destination verified" },
+          {
+            icon: ShieldCheck,
+            label: "Funds sent to safe wallet",
+            value: safeWalletLabel,
+            status: safeWallet ? "Destination verified" : undefined,
+          },
         ]}
       />
       <div className="claim-content-with-aside">
@@ -3247,17 +4065,13 @@ function ClaimReview({
         <Panel title="Receipt" className="claim-receipt-panel">
           <FileText size={56} aria-hidden="true" />
           <p>Download or share a summary of your recovery and transactions.</p>
-          <button className="claim-secondary-button wide" type="button">
+          <button className="claim-secondary-button wide" type="button" onClick={downloadReceiptCsv} disabled={rows.length === 0}>
             <Download size={18} aria-hidden="true" />
             Download CSV
           </button>
-          <button className="claim-secondary-button wide" type="button">
-            <Copy size={18} aria-hidden="true" />
-            Copy summary
-          </button>
-          <button className="claim-secondary-button wide" type="button">
-            <ExternalLink size={18} aria-hidden="true" />
-            Open safe wallet
+          <button className="claim-secondary-button wide" type="button" onClick={() => void copyReceiptSummary()} disabled={rows.length === 0}>
+            {summaryCopyState === "copied" ? <Check size={18} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}
+            {summaryCopyState === "copied" ? "Copied" : "Copy summary"}
           </button>
         </Panel>
       </div>
@@ -3271,6 +4085,7 @@ function ClaimScreenFrame({
   children,
   backLabel,
   nextLabel,
+  nextHint,
   nextIcon: NextIcon = ArrowRight,
   onBack,
   onNext,
@@ -3279,8 +4094,9 @@ function ClaimScreenFrame({
   title: string;
   subtitle: string;
   children: React.ReactNode;
-  backLabel: string;
+  backLabel?: string;
   nextLabel: string;
+  nextHint?: string;
   nextIcon?: LucideIcon;
   onBack: () => void;
   onNext: () => void;
@@ -3289,19 +4105,26 @@ function ClaimScreenFrame({
   return (
     <>
       <header className="claim-page-heading">
-        <h1>{title}</h1>
+        <h1 tabIndex={-1}>{title}</h1>
         <p>{subtitle}</p>
       </header>
       <div className="claim-page-body">{children}</div>
       <footer className="claim-action-bar">
-        <button className="claim-secondary-button" type="button" onClick={onBack}>
-          <ArrowLeft size={21} aria-hidden="true" />
-          {backLabel}
-        </button>
-        <button className="claim-primary-button" type="button" onClick={onNext} disabled={nextDisabled}>
-          <NextIcon size={24} aria-hidden="true" />
-          {nextLabel}
-        </button>
+        {backLabel ? (
+          <button className="claim-secondary-button" type="button" onClick={onBack}>
+            <ArrowLeft size={21} aria-hidden="true" />
+            {backLabel}
+          </button>
+        ) : (
+          <span aria-hidden="true" />
+        )}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+          {nextHint ? <small className="claim-muted">{nextHint}</small> : null}
+          <button className="claim-primary-button" type="button" onClick={onNext} disabled={nextDisabled}>
+            <NextIcon size={24} aria-hidden="true" />
+            {nextLabel}
+          </button>
+        </div>
       </footer>
     </>
   );
@@ -3326,11 +4149,13 @@ function submitButtonLabel({
   buildReady,
   needsSignerReconnect,
   submitPhase,
+  submitFailureKind,
 }: {
   rejected?: boolean;
   buildReady: boolean;
   needsSignerReconnect: boolean;
   submitPhase?: ClaimSubmitPhase;
+  submitFailureKind?: ClaimSubmitFailureKind | null;
 }): string {
   switch (submitPhase) {
     case "reconnecting":
@@ -3343,10 +4168,10 @@ function submitButtonLabel({
       return "Refreshing status";
     default:
       if (rejected) {
-        return "Retry signature";
+        return submitFailureKind === "post-sign-submit" ? "Re-sign claim (may double-submit)" : "Retry signature";
       }
       if (!buildReady) {
-        return "Build claim review";
+        return "Build transaction for review";
       }
       return needsSignerReconnect ? "Reconnect and submit claim" : "Sign and submit claim";
   }
@@ -3424,6 +4249,60 @@ function SummaryTileView({ tile }: { tile: SummaryTile }) {
   );
 }
 
+// Shared dialog focus management (C36): moves initial focus into the dialog,
+// traps Tab/Shift+Tab, closes on Escape, and restores focus to the opener
+// when the dialog unmounts.
+function useDialogFocus<T extends HTMLElement>(onClose: () => void) {
+  const dialogRef = useRef<T | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) {
+      return;
+    }
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey) {
+        if (active === first || active === dialog) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else if (active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.addEventListener("keydown", handleKeyDown);
+    return () => {
+      dialog.removeEventListener("keydown", handleKeyDown);
+      opener?.focus();
+    };
+  }, []);
+  return dialogRef;
+}
+
 function LocalProofMethodDialog({
   selectedMethod,
   browserProvingStatus,
@@ -3444,10 +4323,13 @@ function LocalProofMethodDialog({
   const browserReady = browserProvingStatus === "ready";
   const browserChecking = browserProvingStatus === "checking";
   const browserContinueBlocked = browserSelected && !browserReady;
+  const dialogRef = useDialogFocus<HTMLDivElement>(onClose);
 
   return (
     <div className="claim-modal-backdrop" role="presentation" onMouseDown={onClose}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="claim-proof-method-dialog"
         role="dialog"
         aria-modal="true"
@@ -3547,7 +4429,7 @@ function LocalProofMethodDialog({
         <footer className="claim-proof-method-footer">
           <p>
             <Lock size={17} aria-hidden="true" />
-            Seed phrase stays local and is read only after you choose a method.
+            Your recovery phrase stays local and is read only after you choose a method.
           </p>
           <div className="claim-modal-actions">
             <button className="claim-secondary-button" type="button" onClick={onClose}>
@@ -3571,6 +4453,7 @@ function LocalProofMethodDialog({
 function ProofHelperInstallDialog({ onClose }: { onClose: () => void }) {
   const startCommand = windowsProofHelperStartCommand();
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+  const dialogRef = useDialogFocus<HTMLDivElement>(onClose);
   const copyStartCommand = async () => {
     if (typeof navigator === "undefined" || typeof navigator.clipboard?.writeText !== "function") {
       return;
@@ -3582,6 +4465,8 @@ function ProofHelperInstallDialog({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="install-dialog"
         role="dialog"
         aria-modal="true"
@@ -3677,10 +4562,12 @@ function Notice({
   icon: LucideIcon;
   title?: string;
   children: React.ReactNode;
-  tone?: "info" | "bad" | "ok";
+  tone?: "info" | "bad" | "ok" | "warn";
 }) {
+  // A11y (C37): errors are announced assertively, warnings politely.
+  const role = tone === "bad" ? "alert" : tone === "warn" ? "status" : undefined;
   return (
-    <div className={`claim-notice ${tone}`}>
+    <div className={`claim-notice ${tone}`} role={role}>
       <span className="claim-icon-circle">
         <Icon size={28} aria-hidden="true" />
       </span>
@@ -3749,22 +4636,69 @@ function MetricText({ label, value, detail }: { label: string; value: string; de
   );
 }
 
-function ReviewRow({ label, value, detail, icon: Icon, noCopy }: { label: string; value: string; detail?: string; icon?: LucideIcon; noCopy?: boolean }) {
+function ReviewRow({
+  label,
+  value,
+  detail,
+  icon: Icon,
+  noCopy,
+  copyValue,
+  breakValue,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  icon?: LucideIcon;
+  noCopy?: boolean;
+  copyValue?: string;
+  breakValue?: boolean;
+}) {
   return (
     <div className="claim-review-row">
       <span>{label}</span>
-      <code>{value}</code>
+      <code style={breakValue ? { overflowWrap: "anywhere", wordBreak: "break-all", whiteSpace: "normal" } : undefined}>{value}</code>
       {Icon ? <Icon size={18} aria-hidden="true" /> : null}
-      {!noCopy ? <CopyButton label={`Copy ${label}`} /> : null}
+      {!noCopy ? <CopyButton label={`Copy ${label}`} value={copyValue ?? value} /> : null}
       {detail ? <small>{detail}</small> : null}
     </div>
   );
 }
 
-function CopyButton({ label }: { label: string }) {
+function CopyButton({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (resetTimerRef.current) {
+        clearTimeout(resetTimerRef.current);
+      }
+    },
+    [],
+  );
+  const copyToClipboard = async () => {
+    if (typeof navigator === "undefined" || typeof navigator.clipboard?.writeText !== "function") {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      return;
+    }
+    setCopied(true);
+    if (resetTimerRef.current) {
+      clearTimeout(resetTimerRef.current);
+    }
+    resetTimerRef.current = setTimeout(() => setCopied(false), 2000);
+  };
   return (
-    <button className="claim-copy-button" type="button" aria-label={label}>
-      <Copy size={15} aria-hidden="true" />
+    <button
+      className="claim-copy-button"
+      type="button"
+      aria-label={copied ? `${label} — copied` : label}
+      title={copied ? "Copied" : label}
+      onClick={() => void copyToClipboard()}
+    >
+      {copied ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
     </button>
   );
 }
@@ -3789,7 +4723,7 @@ function WalletChooser({
     ? wallets.map(([id, provider], index) => ({
         id,
         name: provider.name || id,
-        detail: index === 0 ? "Detected CIP-30 wallet extension." : "Available CIP-30 wallet extension.",
+        detail: index === 0 ? "Detected browser wallet extension." : "Available browser wallet extension.",
         recommended: index === 0,
       }))
     : fixtureWallets.map((wallet) => ({
@@ -3798,14 +4732,15 @@ function WalletChooser({
       }));
   return (
     <section className={`claim-wallet-chooser ${layout}`}>
-      <h2>Choose a CIP-30 wallet</h2>
+      <h2>Choose a Cardano browser wallet</h2>
+      <p>Works with CIP-30 wallets such as Lace, Eternl, and Yoroi.</p>
       {layout === "grid" ? <p>Use a different wallet than the impacted wallet.</p> : null}
       <div>
         {walletOptions.length === 0 ? (
-          <button className="claim-wallet-option" type="button" disabled>
+          <button className="claim-wallet-option claim-wallet-empty" type="button" disabled>
             <span className="claim-wallet-logo">?</span>
             <strong>No wallet found</strong>
-            {layout === "list" ? <span>Install or unlock a CIP-30 wallet, then refresh this page.</span> : null}
+            <span>Install or unlock a Cardano browser wallet, then refresh this page.</span>
           </button>
         ) : null}
         {walletOptions.map((wallet) => (
@@ -3830,11 +4765,28 @@ function WalletChooser({
   );
 }
 
-function Segmented({ options }: { options: string[] }) {
+function Segmented({
+  options,
+  value,
+  onChange,
+  label = "Filter",
+}: {
+  options: string[];
+  value: string;
+  onChange: (option: string) => void;
+  label?: string;
+}) {
   return (
-    <div className="claim-segmented" role="tablist" aria-label="Filter">
-      {options.map((option, index) => (
-        <button key={option} className={index === 0 ? "active" : ""} type="button" role="tab" aria-selected={index === 0}>
+    <div className="claim-segmented" role="radiogroup" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option}
+          className={option === value ? "active" : ""}
+          type="button"
+          role="radio"
+          aria-checked={option === value}
+          onClick={() => onChange(option)}
+        >
           {option}
         </button>
       ))}
@@ -3845,20 +4797,21 @@ function Segmented({ options }: { options: string[] }) {
 function ClaimsTable({
   rows,
   page,
+  pageSize,
   totalRows,
   onPageChange,
   onViewAsset,
 }: {
   rows: ClaimRow[];
-  page: 1 | 2;
+  page: number;
+  pageSize: number;
   totalRows: number;
-  onPageChange: (page: 1 | 2) => void;
+  onPageChange: (page: number) => void;
   onViewAsset: (row: ClaimRow) => void;
 }) {
-  const pageSize = 10;
-  const firstRow = totalRows === 0 ? 0 : page === 1 ? 1 : pageSize + 1;
-  const lastRow = page === 1 ? Math.min(pageSize, totalRows) : Math.min(pageSize * 2, totalRows);
-  const hasSecondPage = totalRows > pageSize;
+  const pageCount = Math.max(1, Math.ceil(totalRows / pageSize));
+  const firstRow = totalRows === 0 ? 0 : (page - 1) * pageSize + 1;
+  const lastRow = Math.min(page * pageSize, totalRows);
   return (
     <>
       <div className="claim-table-wrap">
@@ -3869,7 +4822,7 @@ function ClaimsTable({
               <th>Output #</th>
               <th>Credential</th>
               <th>ADA</th>
-              <th>Assets</th>
+              <th>Tokens</th>
               <th aria-label="Actions" />
             </tr>
           </thead>
@@ -3879,10 +4832,16 @@ function ClaimsTable({
                 <td>{row.tx}</td>
                 <td>{row.output}</td>
                 <td>
-                  {row.credential} <CopyButton label={`Copy credential ${row.id}`} />
+                  {row.credential} <CopyButton label={`Copy credential ${row.id}`} value={row.paymentCredential ?? row.credential} />
                 </td>
                 <td>{row.ada}</td>
-                <td>{row.assets}</td>
+                <td>
+                  {row.assetCount != null
+                    ? row.assetCount > 0
+                      ? `${row.assetCount} token${row.assetCount === 1 ? "" : "s"}`
+                      : "—"
+                    : row.assets}
+                </td>
                 <td>
                   <button className="claim-table-action" type="button" onClick={() => onViewAsset(row)}>
                     View
@@ -3898,21 +4857,55 @@ function ClaimsTable({
           <HelpCircle size={16} aria-hidden="true" /> Use View to inspect every asset and quantity inside a UTxO.
         </span>
         <span>Showing {firstRow}-{lastRow} of {totalRows} UTxOs</span>
-        <div className="claim-pagination">
-          <button disabled={page === 1} type="button" onClick={() => onPageChange(1)}>Previous</button>
-          <button className={page === 1 ? "active" : ""} type="button" onClick={() => onPageChange(1)}>1</button>
-          <button className={page === 2 ? "active" : ""} type="button" disabled={!hasSecondPage} onClick={() => onPageChange(2)}>2</button>
-          <button disabled={page === 2 || !hasSecondPage} type="button" onClick={() => onPageChange(2)}>Next</button>
-        </div>
+        <nav className="claim-pagination" aria-label="Claims pages">
+          <button disabled={page <= 1} type="button" onClick={() => onPageChange(page - 1)}>Previous</button>
+          {paginationItems(page, pageCount).map((item, index) =>
+            item === "ellipsis" ? (
+              <span key={`ellipsis-${index}`} aria-hidden="true">…</span>
+            ) : (
+              <button
+                key={item}
+                className={page === item ? "active" : ""}
+                type="button"
+                aria-current={page === item ? "page" : undefined}
+                onClick={() => onPageChange(item)}
+              >
+                {item}
+              </button>
+            ),
+          )}
+          <button disabled={page >= pageCount} type="button" onClick={() => onPageChange(page + 1)}>Next</button>
+        </nav>
       </div>
     </>
   );
 }
 
-function TableEmpty({ icon: Icon, title, body }: { icon: LucideIcon; title: string; body: string }) {
+// Windowed page-number list: all pages when 7 or fewer, otherwise the first,
+// last, and current page with neighbors, separated by ellipses.
+function paginationItems(page: number, pageCount: number): Array<number | "ellipsis"> {
+  if (pageCount <= 7) {
+    return Array.from({ length: pageCount }, (_, index) => index + 1);
+  }
+  const anchors = [...new Set([1, page - 1, page, page + 1, pageCount])]
+    .filter((candidate) => candidate >= 1 && candidate <= pageCount)
+    .sort((left, right) => left - right);
+  const items: Array<number | "ellipsis"> = [];
+  let previous = 0;
+  for (const candidate of anchors) {
+    if (previous > 0 && candidate - previous > 1) {
+      items.push("ellipsis");
+    }
+    items.push(candidate);
+    previous = candidate;
+  }
+  return items;
+}
+
+function TableEmpty({ icon: Icon, title, body, spin }: { icon: LucideIcon; title: string; body: string; spin?: boolean }) {
   return (
     <div className="claim-table-empty">
-      <Icon size={36} aria-hidden="true" />
+      <Icon size={36} aria-hidden="true" className={spin ? "spin" : undefined} />
       <strong>{title}</strong>
       <p>{body}</p>
     </div>
@@ -3923,9 +4916,40 @@ function AssetModal({ row, onClose }: { row: ClaimRow; onClose: () => void }) {
   const outRefId = row.outRefId ?? `${row.tx}#${row.output}`;
   const credential = row.paymentCredential ?? row.credential;
   const assetDetails = claimAssetRows(row.value);
+  const [assetSearch, setAssetSearch] = useState("");
+  const [txCopyState, setTxCopyState] = useState<"idle" | "copied">("idle");
+  const dialogRef = useDialogFocus<HTMLElement>(onClose);
+  const searchNeedle = assetSearch.trim().toLowerCase();
+  const visibleAssets = searchNeedle
+    ? assetDetails.filter(
+        (asset) =>
+          asset.policyId.toLowerCase().includes(searchNeedle) ||
+          asset.assetName.toLowerCase().includes(searchNeedle) ||
+          asset.unit.toLowerCase().includes(searchNeedle),
+      )
+    : assetDetails;
+  const copyTxReference = async () => {
+    if (typeof navigator === "undefined" || typeof navigator.clipboard?.writeText !== "function") {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(outRefId);
+    } catch {
+      return;
+    }
+    setTxCopyState("copied");
+  };
   return (
-    <div className="claim-modal-backdrop" role="presentation">
-      <section className="claim-asset-modal" role="dialog" aria-modal="true" aria-labelledby="asset-modal-title">
+    <div className="claim-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        ref={dialogRef}
+        tabIndex={-1}
+        className="claim-asset-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="asset-modal-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <header className="claim-modal-header">
           <div>
             <h2 id="asset-modal-title">UTxO assets</h2>
@@ -3945,12 +4969,16 @@ function AssetModal({ row, onClose }: { row: ClaimRow; onClose: () => void }) {
         <div className="claim-table-tools">
           <label className="claim-search">
             <Search size={18} aria-hidden="true" />
-            <input placeholder="Search policy id or asset name" />
+            <input
+              placeholder="Search policy id or asset name"
+              aria-label="Search assets by policy id or asset name"
+              value={assetSearch}
+              onChange={(event) => setAssetSearch(event.target.value)}
+            />
           </label>
-          <Segmented options={["All", "Tokens", "NFTs"]} />
-          <button className="claim-secondary-button" type="button">
-            <Copy size={18} aria-hidden="true" />
-            Copy tx reference
+          <button className="claim-secondary-button" type="button" onClick={() => void copyTxReference()}>
+            {txCopyState === "copied" ? <Check size={18} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}
+            {txCopyState === "copied" ? "Copied" : "Copy tx reference"}
           </button>
         </div>
         <div className="claim-asset-table-wrap">
@@ -3963,11 +4991,11 @@ function AssetModal({ row, onClose }: { row: ClaimRow; onClose: () => void }) {
               </tr>
             </thead>
             <tbody>
-              {assetDetails.length > 0 ? (
-                assetDetails.map((asset) => (
+              {visibleAssets.length > 0 ? (
+                visibleAssets.map((asset) => (
                   <tr key={asset.unit}>
                     <td>
-                      {abbreviateMiddle(asset.policyId, 18)} <CopyButton label={`Copy policy ${asset.policyId}`} />
+                      {abbreviateMiddle(asset.policyId, 18)} <CopyButton label={`Copy policy ${asset.policyId}`} value={asset.policyId} />
                     </td>
                     <td>{asset.assetName}</td>
                     <td>{asset.quantity}</td>
@@ -3975,19 +5003,22 @@ function AssetModal({ row, onClose }: { row: ClaimRow; onClose: () => void }) {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={3}>No native assets in this UTxO.</td>
+                  <td colSpan={3}>{assetDetails.length === 0 ? "No native assets in this UTxO." : "No assets match this search."}</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
         <footer className="claim-modal-footer">
-          <span>{assetDetails.length > 0 ? `Showing 1-${assetDetails.length} of ${assetDetails.length} assets` : "Showing 0 assets"}</span>
-          <span>{assetDetails.length > 12 ? "Scroll to view more assets" : "All assets shown"}</span>
+          <span>
+            {visibleAssets.length > 0
+              ? `Showing 1-${visibleAssets.length} of ${assetDetails.length} asset${assetDetails.length === 1 ? "" : "s"}`
+              : "Showing 0 assets"}
+          </span>
+          <span>{visibleAssets.length > 12 ? "Scroll to view more assets" : "All matching assets shown"}</span>
         </footer>
         <div className="claim-modal-actions">
-          <button className="claim-secondary-button" type="button" onClick={onClose}>Close</button>
-          <button className="claim-primary-button" type="button" onClick={onClose}>Done reviewing</button>
+          <button className="claim-primary-button" type="button" onClick={onClose}>Done</button>
         </div>
       </section>
     </div>
@@ -3997,7 +5028,7 @@ function AssetModal({ row, onClose }: { row: ClaimRow; onClose: () => void }) {
 function ProofPlan({ draft, safeWallet }: { draft?: ClaimDraftResponse | null; safeWallet?: SafeWalletSummary | null }) {
   const fixtureMode = process.env.NEXT_PUBLIC_CLAIM_UI_FIXTURE === "1";
   const proofCount = draft?.orderedInputs.length ?? (fixtureMode ? 18 : 0);
-  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Connect safe wallet";
+  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Not connected";
   const batchSize = draft?.batchCap.requested ?? (fixtureMode ? 4 : 0);
   const transactionCount = proofCount > 0 ? Math.ceil(proofCount / Math.max(batchSize, 1)) : 0;
   return (
@@ -4010,7 +5041,8 @@ function ProofPlan({ draft, safeWallet }: { draft?: ClaimDraftResponse | null; s
   );
 }
 
-function ProofQueue({ rows }: { rows: ProofRow[] }) {
+function ProofQueue({ rows, totalCount }: { rows: ProofRow[]; totalCount?: number }) {
+  const hiddenCount = totalCount !== undefined ? Math.max(totalCount - rows.length, 0) : 0;
   return (
     <table className="claim-table">
       <thead>
@@ -4027,9 +5059,25 @@ function ProofQueue({ rows }: { rows: ProofRow[] }) {
             <td>{row.claim}</td>
             <td>{row.value}</td>
             <td><span className={`claim-badge ${row.status}`}>{row.proof}</span></td>
-            <td>{row.status === "ready" ? <CheckCircle2 size={20} /> : row.status === "generating" ? <RefreshCw className="spin" size={20} /> : <span className="claim-waiting-dot" />}</td>
+            <td>
+              {row.status === "ready" ? (
+                <CheckCircle2 size={20} aria-hidden="true" />
+              ) : row.status === "generating" ? (
+                <RefreshCw className="spin" size={20} aria-hidden="true" />
+              ) : (
+                <span className="claim-waiting-dot" aria-hidden="true" />
+              )}
+              <span className="visually-hidden">
+                {row.status === "ready" ? "Generated" : row.status === "generating" ? "Generating" : "Waiting"}
+              </span>
+            </td>
           </tr>
         ))}
+        {hiddenCount > 0 ? (
+          <tr>
+            <td colSpan={4}>…and {hiddenCount} more claim{hiddenCount === 1 ? "" : "s"}</td>
+          </tr>
+        ) : null}
       </tbody>
     </table>
   );
@@ -4037,7 +5085,7 @@ function ProofQueue({ rows }: { rows: ProofRow[] }) {
 
 function BatchProofTable({ draft, safeWallet }: { draft?: ClaimDraftResponse | null; safeWallet?: SafeWalletSummary | null }) {
   const rows = draft?.orderedInputs ?? [];
-  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Connect safe wallet";
+  const safeWalletLabel = safeWallet ? abbreviateMiddle(safeWallet.changeAddress, 18) : "Not connected";
   if (rows.length === 0) {
     return <TableEmpty icon={FileText} title="No active draft" body="Connect a safe wallet to create the next claim draft." />;
   }
@@ -4056,7 +5104,10 @@ function BatchProofTable({ draft, safeWallet }: { draft?: ClaimDraftResponse | n
           <tr key={input.outRefId}>
             <td>{abbreviateMiddle(input.outRefId, 18)}</td>
             <td>{index + 1}</td>
-            <td>{safeWalletLabel} <CopyButton label={`Copy claim ${index + 1} destination`} /></td>
+            <td>
+              {safeWalletLabel}{" "}
+              {safeWallet ? <CopyButton label={`Copy claim ${index + 1} destination`} value={safeWallet.changeAddress} /> : null}
+            </td>
             <td><span className="claim-badge ready">Ready</span></td>
           </tr>
         ))}
@@ -4096,16 +5147,19 @@ function BatchTable({ draft }: { draft?: ClaimDraftResponse | null }) {
           </tr>
         </thead>
         <tbody>
-          {batchRows.map((row, index) => (
+          {batchRows.map((row, index) => {
+            const rowAssetCount = row.assetCount ?? row.summary.length;
+            return (
             <tr key={row.id}>
               <td>{index + 1}</td>
-              <td>{row.tx} <CopyButton label={`Copy tx reference ${row.id}`} /></td>
+              <td>{row.tx} <CopyButton label={`Copy tx reference ${row.id}`} value={row.outRefId ?? `${row.tx}#${row.output}`} /></td>
               <td>{row.ada.replace(" ADA", "")}</td>
-              <td>{row.summary.length || "No"}</td>
-              <td><AssetDots labels={row.summary} /></td>
+              <td>{rowAssetCount > 0 ? rowAssetCount : "—"}</td>
+              <td><AssetDots labels={row.summary} assetCount={rowAssetCount} /></td>
               <td><span className="claim-badge ready">Ready</span></td>
             </tr>
-          ))}
+            );
+          })}
           <tr>
             <td><strong>Total</strong></td>
             <td />
@@ -4139,10 +5193,10 @@ function BatchTable({ draft }: { draft?: ClaimDraftResponse | null }) {
           return (
           <tr key={input.outRefId}>
             <td>{index + 1}</td>
-            <td>{abbreviateMiddle(input.outRefId, 18)} <CopyButton label={`Copy tx reference ${index + 1}`} /></td>
+            <td>{abbreviateMiddle(input.outRefId, 18)} <CopyButton label={`Copy tx reference ${index + 1}`} value={input.outRefId} /></td>
             <td>{formatLovelace(lovelace)}</td>
-            <td>{assetCount || "No"}</td>
-            <td><AssetDots labels={labels} /></td>
+            <td>{assetCount || "—"}</td>
+            <td><AssetDots labels={labels} assetCount={assetCount} /></td>
             <td><span className="claim-badge ready">Ready</span></td>
           </tr>
           );
@@ -4160,16 +5214,20 @@ function BatchTable({ draft }: { draft?: ClaimDraftResponse | null }) {
   );
 }
 
-function AssetDots({ labels }: { labels: string[] }) {
+function AssetDots({ labels, assetCount }: { labels: string[]; assetCount?: number }) {
   if (labels.length === 0) {
     return <span>No tokens</span>;
   }
+  const shown = labels.slice(0, 2);
+  // Prefer the true asset count from the row: `labels` is often pre-sliced by
+  // callers, so labels.length alone under-reports the remainder (C46).
+  const remainder = Math.max((assetCount ?? labels.length) - shown.length, 0);
   return (
     <span className="claim-asset-dots">
-      {labels.slice(0, 2).map((label) => (
+      {shown.map((label) => (
         <span key={label}>{label.slice(0, 1)}</span>
       ))}
-      {labels.length > 1 ? `+ ${labels.length} more` : "+ 1 more"}
+      {remainder > 0 ? `+ ${remainder} more` : null}
     </span>
   );
 }
@@ -4253,20 +5311,28 @@ async function fetchClaimDeployment(): Promise<ClaimDeploymentResponse> {
   return fetchJSON<ClaimDeploymentResponse>("/claim-api/deployment");
 }
 
-async function fetchAllReclaimUtxos(): Promise<IndexedReclaimUtxo[]> {
+async function fetchAllReclaimUtxos(
+  options: { signal?: AbortSignal; onProgress?: (scannedUtxos: number) => void } = {},
+): Promise<IndexedReclaimUtxo[]> {
   const utxos: IndexedReclaimUtxo[] = [];
   let cursor: string | null = null;
   const seenCursors = new Set<string>();
   for (let page = 0; page < 100; page += 1) {
+    if (options.signal?.aborted) {
+      throw new Error("Reclaim UTxO scan was cancelled.");
+    }
     const params = new URLSearchParams({ limit: "100" });
     if (cursor) {
       params.set("cursor", cursor);
     }
-    const response = await fetchJSON<ReclaimUtxosResponse>(`/claim-api/reclaim-utxos?${params.toString()}`);
+    const response = await fetchJSON<ReclaimUtxosResponse>(`/claim-api/reclaim-utxos?${params.toString()}`, {
+      signal: options.signal,
+    });
     if (!response.available) {
       throw new Error(response.reason || "Reclaim UTxO index is unavailable.");
     }
     utxos.push(...response.utxos);
+    options.onProgress?.(utxos.length);
     if (!response.page.nextCursor) {
       return utxos;
     }
@@ -4279,6 +5345,21 @@ async function fetchAllReclaimUtxos(): Promise<IndexedReclaimUtxo[]> {
   throw new Error("Reclaim UTxO index pagination exceeded the client safety limit.");
 }
 
+// Error thrown by fetchJSON that preserves the backend error code (and any
+// structured details payload) so callers can branch on machine-readable
+// failures (e.g. insufficient safe-wallet ADA) without string-matching alone.
+class ClaimApiError extends Error {
+  code?: string;
+  details?: Record<string, unknown>;
+
+  constructor(message: string, code?: string, details?: Record<string, unknown>) {
+    super(message);
+    this.name = "ClaimApiError";
+    this.code = code;
+    this.details = details;
+  }
+}
+
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   let payload: unknown = null;
@@ -4288,10 +5369,53 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
     payload = null;
   }
   if (!response.ok) {
-    const error = payload as Partial<ReclaimApiError> & { reason?: string };
-    throw new Error(error.error || error.reason || "Request failed.");
+    const error = payload as Partial<ReclaimApiError> & { reason?: string; code?: string; details?: unknown };
+    const details =
+      error.details && typeof error.details === "object" && !Array.isArray(error.details)
+        ? (error.details as Record<string, unknown>)
+        : undefined;
+    throw new ClaimApiError(
+      error.error || error.reason || "Request failed.",
+      typeof error.code === "string" ? error.code : undefined,
+      details,
+    );
   }
   return payload as T;
+}
+
+// C32: backend draft failures caused by an underfunded safe wallet route to
+// the purpose-built insufficient-ada screen. Prefer the machine-readable code;
+// fall back to case-insensitive message matching.
+function isInsufficientSafeWalletFundsError(error: unknown, sanitizedMessage: string): boolean {
+  if (error instanceof ClaimApiError && error.code === "safe_wallet_lovelace_unavailable") {
+    return true;
+  }
+  return /insufficient|not enough|enough ada|min[\s-]?ada|collateral/iu.test(sanitizedMessage);
+}
+
+// C32: pulls the structured available/required lovelace amounts from the
+// backend error payload when present; older payloads without details fall
+// back to qualitative copy.
+function insufficientAdaDetailsFromError(error: unknown): InsufficientAdaDetails | null {
+  if (!(error instanceof ClaimApiError) || !error.details) {
+    return null;
+  }
+  const { availableLovelace, requiredLovelace } = error.details;
+  if (typeof availableLovelace === "string" && typeof requiredLovelace === "string") {
+    return { availableLovelace, requiredLovelace };
+  }
+  return null;
+}
+
+// C33: translate CIP-30 numeric network ids into user-facing network names.
+function networkIdName(networkId: number): string {
+  if (networkId === 1) {
+    return "Mainnet";
+  }
+  if (networkId === 0) {
+    return "Preprod";
+  }
+  return `network id ${networkId}`;
 }
 
 async function postJSON<T>(url: string, body: unknown, headers?: Record<string, string>): Promise<T> {
@@ -4315,13 +5439,12 @@ export function selectClaimBatchRows(
     return [];
   }
   const pending = new Set(pendingOutrefs);
-  const statementBoundV2 = deployment.deployment.reclaimGlobalProofSlotEncoding === STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING;
-  // V2's seven-UTxO capacity is opt-in only; the UI must never select it just
-  // because a deployment advertises that hard maximum.
+  const statementBoundV2 = deployment.deployment.reclaimGlobalProofSlotEncoding === "full-proof-plus-public-input-digest-v2";
   const defaultCap = statementBoundV2
     ? CLAIM_DEFAULT_BATCH_CAP
     : (deployment.deployment.batching?.default_utxo_count ?? CLAIM_LEGACY_DEFAULT_BATCH_CAP);
-  const configuredHardCap = deployment.deployment.batching?.hard_max_utxo_count ?? (statementBoundV2 ? CLAIM_HARD_BATCH_CAP : CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP);
+  const configuredHardCap = deployment.deployment.batching?.hard_max_utxo_count ??
+    (statementBoundV2 ? CLAIM_HARD_BATCH_CAP : CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP);
   const hardCap = Math.min(
     configuredHardCap,
     statementBoundV2 ? CLAIM_HARD_BATCH_CAP : CLAIM_LEGACY_HARD_BATCH_CAP,
@@ -4337,7 +5460,7 @@ export function selectClaimBatchRows(
 }
 
 function supportsExplicitSevenSlotBatch(deployment: ClaimDeploymentResponse | null | undefined): boolean {
-  if (!deployment?.available || deployment.deployment.reclaimGlobalProofSlotEncoding !== STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING) {
+  if (!deployment?.available || deployment.deployment.reclaimGlobalProofSlotEncoding !== "full-proof-plus-public-input-digest-v2") {
     return false;
   }
   const batching = deployment.deployment.batching;
@@ -4417,6 +5540,19 @@ function recoveryPhraseWordCountFromLength(length: number): RecoveryPhraseWordCo
   return recoveryPhraseWordCounts.find((wordCount) => wordCount === length) ?? null;
 }
 
+type RecoveryWordStatus = "empty" | "invalid" | "valid";
+
+// C28: real BIP-39 English wordlist membership (case/whitespace tolerant) via
+// the client package, so typos like "recieve" are flagged per word. The
+// full-phrase checksum is validated separately at generate time.
+function recoveryWordStatus(value: string): RecoveryWordStatus {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "empty";
+  }
+  return isValidRecoveryWord(trimmed) ? "valid" : "invalid";
+}
+
 function recoveryWordInputs(): HTMLInputElement[] {
   return Array.from(document.querySelectorAll<HTMLInputElement>("[data-claim-recovery-word='true']"));
 }
@@ -4447,6 +5583,17 @@ async function readClipboardTextWithTimeout(readText: () => Promise<string>): Pr
       clearTimeout(timeoutId);
     }
   }
+}
+
+// C28: reads the words from the same DOM inputs readAndClearRecoveryPhrase
+// uses and validates them (word count, wordlist, BIP-39 checksum) WITHOUT
+// clearing the grid. Only the boolean verdict escapes; the words stay local
+// to this function.
+function recoveryPhraseInputsPassValidation(): boolean {
+  const words = recoveryWordInputs()
+    .map((input) => input.value.trim())
+    .filter(Boolean);
+  return validateRecoveryPhrase(words).ok;
 }
 
 function readAndClearRecoveryPhrase(): string {
@@ -4563,6 +5710,60 @@ function writeClaimFlowResumeSnapshot(snapshot: ClaimFlowResumeSnapshot): void {
   } catch {
     // Local resume is best-effort; proof generation must not depend on browser storage.
   }
+}
+
+function clearClaimFlowResumeSnapshot(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(claimFlowResumeStorageKey);
+  } catch {
+    // Local resume is best-effort; clearing must never block the flow.
+  }
+}
+
+function formatRelativeTime(timestamp: number): string {
+  const elapsedMinutes = Math.round(Math.max(Date.now() - timestamp, 0) / 60_000);
+  if (elapsedMinutes < 1) {
+    return "moments ago";
+  }
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes} minute${elapsedMinutes === 1 ? "" : "s"} ago`;
+  }
+  const elapsedHours = Math.round(elapsedMinutes / 60);
+  return `${elapsedHours} hour${elapsedHours === 1 ? "" : "s"} ago`;
+}
+
+function filterClaimRows(rows: ClaimRow[], query: string, assetFilter: string): ClaimRow[] {
+  const needle = query.trim().toLowerCase();
+  return rows.filter((row) => {
+    const assetCount = row.assetCount ?? row.summary.length;
+    if (assetFilter === "ADA" && assetCount > 0) {
+      return false;
+    }
+    if (assetFilter === "Tokens" && assetCount === 0) {
+      return false;
+    }
+    if (!needle) {
+      return true;
+    }
+    const haystack = [
+      row.tx,
+      `${row.tx}#${row.output}`,
+      row.outRefId ?? "",
+      row.outRef?.txHash ?? "",
+      row.credential,
+      row.paymentCredential ?? "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(needle);
+  });
+}
+
+function csvField(value: string): string {
+  return /[",\n\r]/u.test(value) ? `"${value.replace(/"/gu, '""')}"` : value;
 }
 
 function readClaimFlowResumeSnapshot(): ClaimFlowResumeSnapshot | null {
@@ -4730,7 +5931,7 @@ async function readImpactedWalletSummary(
     }
   }
   if (credentials.size === 0) {
-    throw new Error("Connected wallet did not expose any claimable wallet credential hashes.");
+    throw new Error("Connected wallet did not expose any wallet keys.");
   }
 
   return {
@@ -4776,7 +5977,7 @@ function extractCip30ClaimableKeyHashes(rawAddress: string, expectedNetworkId: 0
     return [bytesToHex(bytes.slice(1, 29))];
   }
 
-  throw new Error("Wallet address does not contain a claimable wallet credential hash.");
+  throw new Error("Wallet address does not contain a claimable wallet key.");
 }
 
 function cip30AddressBytes(rawAddress: string): Uint8Array {

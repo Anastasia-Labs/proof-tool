@@ -76,4 +76,6 @@ experiments/wasm-prover/web/*
 /docs/sibling-circuit-onchain-optimization-review.md
 /docs/single-claim-optimization-execplan.md
 /docs/circuit-v2-constraint-ledger.md
+/docs/coin-level-witness-k20-proposal.md
+/docs/ux-review-landing-and-claim-flow.md
 /contracts/ownership-verifier/testdata/*-review.md

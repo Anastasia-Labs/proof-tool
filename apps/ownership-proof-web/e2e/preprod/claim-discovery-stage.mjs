@@ -6,6 +6,7 @@ import {
   NATIVE_RECLAIM_COUNT_ENV,
 } from "./funding-stage.mjs";
 import { approveWalletConnection, selectClaimRole } from "./wallet-driver.mjs";
+import { EXISTING_NATIVE_RECLAIM_COUNT_ENV } from "./live-config.mjs";
 
 export const CLAIM_DISCOVERY_STAGE_NAME = "discover-matching-claims";
 export const CLAIM_DISCOVERY_WAIT_MS_ENV = "RECLAIM_E2E_CLAIM_DISCOVERY_WAIT_MS";
@@ -34,7 +35,10 @@ export async function runClaimDiscoveryStage(options = {}) {
   const sleep = options.sleep ?? defaultSleep;
   const compromisedRole = env[COMPROMISED_WALLET_ROLE_ENV]?.trim() || DEFAULT_COMPROMISED_WALLET_ROLE;
   const expectedMinimumMatchingUtxos =
-    options.expectedMinimumMatchingUtxos ?? parseExpectedMinimum(env[NATIVE_RECLAIM_COUNT_ENV]?.trim() || String(DEFAULT_NATIVE_RECLAIM_COUNT)) + 1;
+    options.expectedMinimumMatchingUtxos ??
+    parseExpectedMinimum(env[NATIVE_RECLAIM_COUNT_ENV]?.trim() || String(DEFAULT_NATIVE_RECLAIM_COUNT)) +
+      parseExistingMinimum(env[EXISTING_NATIVE_RECLAIM_COUNT_ENV]?.trim() || "0") +
+      1;
   const discoveryWaitMs = parseClaimDiscoveryWaitMs(env);
   const beforeState = walletHarness.roleState?.(compromisedRole);
   if (!beforeState) {
@@ -143,6 +147,16 @@ async function readCurrentMatchingUtxoCount(page) {
     throw new PreprodClaimDiscoveryStageError("matching_utxo_count_missing", "Claim discovery UI did not expose a matching UTxO count.");
   }
   return Number(match[1]);
+}
+
+function parseExistingMinimum(value) {
+  if (!/^(?:0|[1-9][0-9]*)$/u.test(value)) {
+    throw new PreprodClaimDiscoveryStageError(
+      "existing_native_reclaim_count_invalid",
+      `${EXISTING_NATIVE_RECLAIM_COUNT_ENV} must be a non-negative integer.`,
+    );
+  }
+  return Number(value);
 }
 
 function parseExpectedMinimum(value) {

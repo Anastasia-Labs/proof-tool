@@ -409,7 +409,10 @@ describe("claim draft server helpers", () => {
         safeWalletAddresses: [SAFE_ADDRESS],
         selectedOutrefs: [outRefToString(selected)],
       }),
-    ).rejects.toMatchObject({ code: "safe_wallet_lovelace_unavailable" });
+    ).rejects.toMatchObject({
+      code: "safe_wallet_lovelace_unavailable",
+      details: { availableLovelace: "4999999", requiredLovelace: "5000000" },
+    });
   });
 });
 

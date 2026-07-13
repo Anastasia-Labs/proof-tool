@@ -167,7 +167,7 @@ pnpm --dir apps/ownership-proof-web e2e:preprod:stage2g:v2:compare
 The comparison builds complete unsigned direct-script transactions for both
 profiles and reports redacted script identities/sizes, transaction-byte counts,
 per-redeemer provider units, totals, deltas, and headroom. It cannot sign or
-submit and is still not Gate G2.
+submit and, by itself, is not on-chain acceptance evidence.
 
 The evaluator must report all safety fields false for signing, submission,
 funding, minting, stake registration, and deployment. Passing requires total
@@ -175,8 +175,8 @@ CPU at or below 90% and memory at or below 80%. The release-facing redacted
 record belongs under `contracts/ownership-verifier/bench/results/`; the raw
 local material and provider response remain ignored.
 
-This provider result is not Gate G2 and must not be described as an accepted
-claim. After deployment, G2 requires a real all-distinct-7 transaction:
+Under the original gate contract, this provider result was not Gate G2 and could
+not be described as an accepted claim. The originally requested closeout was:
 
 1. Fund seven ReclaimBase UTxOs whose pairwise-distinct payment credentials
    are derived from the same test root private key.
@@ -248,3 +248,56 @@ pnpm --dir apps/ownership-proof-web test
 
 Omitting `RECLAIM_E2E_SUBMIT_TRANSACTIONS=1` is also a useful fail-closed
 preflight check, but it is not live-flow completion evidence.
+
+## Optimized V2 Live Cutover Evidence (2026-07-12)
+
+The optimized destination circuit is active on the live Preprod web application
+at deployment
+`preprod:a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd:c513fd78ecb14a4119769986675d602dffa741b4`.
+The deployment transaction is
+`a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db`.
+The deployed coherence set pins:
+
+- circuit ID `root-ownership-destination-v2/bls12-381/groth16`;
+- bundle VK hash
+  `b1c03cf24376bcd6c743cb372169ff71f93b210e0d8d52b2c6831808f50ded80`;
+- Cardano/on-chain VK hash
+  `06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4`;
+- signed asset prefix `proof-assets/preprod-9fac96b-g3a/`;
+- proving key size 1,288,707,133 bytes, 77 chunks, and CCS size
+  129,221,468 bytes.
+
+The Stage 2g all-distinct-seven evaluator lane passed with V2 CPU
+`8,974,493,908`, memory `1,715,363`, and transaction size 7,966 bytes.
+The comparable V1 result was CPU `9,124,265,422`, memory `1,690,788`, and
+8,546 bytes. V2 therefore passed the selected 90% CPU ceiling; V1 did not.
+
+A real live-web V2 flow then funded, discovered, proved, built, signed,
+submitted, and confirmed ten matching ReclaimBase inputs. Provider-visible
+claim transactions were:
+
+- `920023f0120374e21893a4317ce00f378548d7a20b06bbb398bfb8558047c143`:
+  six V2 ReclaimBase inputs, eight safe-wallet outputs, seven redeemers;
+- `5790e8b2597d7f03aa3cc6fd4d6605c8c5f46fbf97ef994e7ffa12d8a1c06258`:
+  four V2 ReclaimBase inputs, six safe-wallet outputs, five redeemers.
+
+After confirmation, the live ReclaimBase inventory was empty, the exact proved
+outrefs reported `spent_or_unknown`, and the safe wallet held all five native
+tokens again. Its provider-visible aggregate changed from 7 UTxOs and
+10,174,916,815 lovelace before the claim to 17 UTxOs and 10,193,027,502
+lovelace after it, a net increase of 18,110,687 lovelace.
+
+Only after that on-chain confirmation, Cloudflare R2 deletion removed the old
+V1 `ownership.pk` plus `ownership.pk.part0000` through
+`ownership.pk.part0123` (125 objects, zero deletion errors). The old CCS was
+retained. The V2 prefix was re-listed afterward and still contained the full
+1,288,707,133-byte PK, all 77 chunks, and the 129,221,468-byte CCS.
+
+This establishes the requested live optimized-V2 prove/build/submit/on-chain
+path and the post-success R2 rotation. On 2026-07-13 the operator reviewed the
+remaining distinction and accepted G2 by exception using the passing
+all-distinct-seven Stage 2g evaluation plus the confirmed six-input and
+four-input live V2 claims. The exact accepted all-distinct-seven transaction was
+not run and is explicitly waived, not represented as existing evidence. The
+paired G2/G3 disposition is recorded in
+contracts/ownership-verifier/bench/results/g2-g3-operator-acceptance-2026-07-13.md.

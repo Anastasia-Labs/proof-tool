@@ -161,9 +161,15 @@ async function loadSafeWallet(
   const totalAssets = sumUtxoAssets(utxos);
   const totalLovelace = totalAssets.lovelace ?? 0n;
   if (utxos.length === 0 || totalLovelace < MIN_SAFE_WALLET_LOVELACE) {
+    // C32: carry the amounts so the UI can say how much ADA is available vs
+    // required instead of a purely qualitative message.
     throw new ClaimValidationError(
       "safe_wallet_lovelace_unavailable",
       "Safe wallet must have enough ADA to pay claim fees, collateral, and destination-output min-ADA.",
+      {
+        availableLovelace: totalLovelace.toString(),
+        requiredLovelace: MIN_SAFE_WALLET_LOVELACE.toString(),
+      },
     );
   }
 

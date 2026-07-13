@@ -104,7 +104,7 @@ describe("ClaimFlow", () => {
 
     render(<ClaimFlow createWorker={createWorkerSuccess()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "I reviewed deployment" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
     expect(await screen.findByRole("heading", { name: "Available claims" })).toBeInTheDocument();
     const optIn = screen.getByRole("checkbox", { name: "Use seven UTxOs for the next batch" });
@@ -166,7 +166,7 @@ describe("ClaimFlow", () => {
   it("pastes the clipboard phrase into the default 24-word proof inputs", async () => {
     vi.stubEnv("NEXT_PUBLIC_CLAIM_UI_FIXTURE", "1");
     window.history.replaceState(null, "", "/claim?fixtureState=create-proofs-ready");
-    const readText = installClipboard(recoveryPhrase24);
+    const { readText, writeText } = installClipboard(recoveryPhrase24);
 
     render(<ClaimFlow />);
 
@@ -180,7 +180,9 @@ describe("ClaimFlow", () => {
     await waitFor(() => expect(recoveryInputs[23].value).toBe("bronze"));
     expect(recoveryInputs.map((input) => input.value)).toEqual(recoveryPhrase24.split(" "));
     expect(readText).toHaveBeenCalledTimes(1);
-    expect(screen.getByText(/Pasted 24 recovery words into this device only/i)).toBeInTheDocument();
+    // C27: after a successful paste the clipboard is overwritten best-effort.
+    await waitFor(() => expect(screen.getByText(/Pasted 24 words\. We cleared your clipboard\./i)).toBeInTheDocument());
+    expect(writeText).toHaveBeenCalledWith("");
   });
 
   it("auto-switches the phrase length when the clipboard phrase has a supported word count", async () => {
@@ -200,7 +202,7 @@ describe("ClaimFlow", () => {
     const recoveryInputs = screen.getAllByLabelText(/Recovery word \d+/) as HTMLInputElement[];
     await waitFor(() => expect(recoveryInputs[23].value).toBe("bronze"));
     expect(recoveryInputs.map((input) => input.value)).toEqual(recoveryPhrase24.split(" "));
-    expect(screen.getByText(/Pasted 24 recovery words into this device only/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Pasted 24 words\. We cleared your clipboard\./i)).toBeInTheDocument());
   });
 
   it("fills all proof inputs when the browser sends a full phrase paste event to a word field", async () => {
@@ -223,7 +225,10 @@ describe("ClaimFlow", () => {
 
     await waitFor(() => expect(recoveryInputs[23].value).toBe("bronze"));
     expect(recoveryInputs.map((input) => input.value)).toEqual(recoveryPhrase24.split(" "));
-    expect(screen.getByText(/Pasted 24 recovery words into this device only/i)).toBeInTheDocument();
+    // No clipboard API is available here, so the user is told to clear it.
+    await waitFor(() =>
+      expect(screen.getByText(/Pasted 24 words\. Clear your clipboard now — copy anything else to overwrite it\./i)).toBeInTheDocument(),
+    );
   });
 
   it("lets the user choose 12, 15, or 24 recovery words", async () => {
@@ -330,7 +335,7 @@ describe("ClaimFlow", () => {
 
     render(<ClaimFlow />);
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Review deployment" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Verify this recovery service" })).toBeInTheDocument());
     expect(screen.getByRole("link", { name: /view commit on github/i })).toHaveAttribute(
       "href",
       `https://github.com/Anastasia-Labs/proof-tool/commit/${"f".repeat(40)}`,
@@ -344,9 +349,10 @@ describe("ClaimFlow", () => {
     render(<ClaimFlow />);
 
     const rail = screen.getByLabelText("Claim progress");
-    expect(rail).toHaveTextContent("1. Deployment");
-    expect(rail).toHaveTextContent("4. Safe Wallet");
-    expect(rail).toHaveTextContent("5. Create Proofs");
+    expect(rail).toHaveTextContent("1. Verify service");
+    expect(rail).toHaveTextContent("4. Safe wallet");
+    expect(rail).toHaveTextContent("5. Create proofs");
+    expect(rail).toHaveTextContent("6. Claim funds");
     expect(rail).not.toHaveTextContent("Proof Helper");
   });
 
@@ -368,7 +374,7 @@ describe("ClaimFlow", () => {
     render(<ClaimFlow />);
 
     expect(await screen.findByRole("dialog", { name: "UTxO assets" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Done reviewing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "UTxO assets" })).not.toBeInTheDocument());
   });
 
@@ -397,13 +403,13 @@ describe("ClaimFlow", () => {
 
     render(<ClaimFlow />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "I reviewed deployment" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     expect(await screen.findByRole("heading", { name: "Connect impacted wallet" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Connect impacted wallet" }));
 
     expect(await screen.findByRole("heading", { name: "Available claims" })).toBeInTheDocument();
     expect(screen.getAllByText("1.5 ADA").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("1 asset")).toBeInTheDocument();
+    expect(screen.getAllByText("1 token").length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("9 ADA")).not.toBeInTheDocument();
     expect(screen.queryByText("2 ADA")).not.toBeInTheDocument();
     expect(signTx).not.toHaveBeenCalled();
@@ -411,7 +417,12 @@ describe("ClaimFlow", () => {
     const indexCall = fetch.mock.calls.find(([url]) => String(url).startsWith("/claim-api/reclaim-utxos"));
     expect(indexCall).toBeDefined();
     expect(String(indexCall?.[0])).toBe("/claim-api/reclaim-utxos?limit=100");
-    expect(indexCall?.[1]).toBeUndefined();
+    // The scan is a plain public GET: only the cancellation signal (C11) may
+    // be present — no method, headers, or body that could carry credentials.
+    const indexInit = indexCall?.[1] as RequestInit | undefined;
+    expect(indexInit?.method).toBeUndefined();
+    expect(indexInit?.headers).toBeUndefined();
+    expect(indexInit?.body).toBeUndefined();
     expect(String(indexCall?.[0])).not.toContain(credential);
   });
 
@@ -439,7 +450,7 @@ describe("ClaimFlow", () => {
 
     render(<ClaimFlow />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "I reviewed deployment" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
     expect(await screen.findByRole("heading", { name: "Available claims" })).toBeInTheDocument();
 
@@ -473,7 +484,7 @@ describe("ClaimFlow", () => {
 
     render(<ClaimFlow />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "I reviewed deployment" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
     expect(await screen.findByText("Showing 1-10 of 11 UTxOs")).toBeInTheDocument();
 
@@ -507,7 +518,7 @@ describe("ClaimFlow", () => {
 
     render(<ClaimFlow />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "I reviewed deployment" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
     expect(await screen.findByText("Showing 1-1 of 1 UTxOs")).toBeInTheDocument();
 
@@ -517,7 +528,7 @@ describe("ClaimFlow", () => {
     expect(within(dialog).getByText("NFT")).toBeInTheDocument();
     expect(within(dialog).queryByText(/policy1v9/i)).not.toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Done reviewing" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "UTxO assets" })).not.toBeInTheDocument());
     expect(screen.getByText("Showing 1-1 of 1 UTxOs")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
@@ -550,7 +561,7 @@ describe("ClaimFlow", () => {
 
     render(<ClaimFlow />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "I reviewed deployment" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
 
     expect(await screen.findByRole("heading", { name: "Available claims" })).toBeInTheDocument();
@@ -585,7 +596,7 @@ describe("ClaimFlow", () => {
 
     render(<ClaimFlow />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "I reviewed deployment" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
 
     expect(await screen.findByRole("heading", { name: "Available claims" })).toBeInTheDocument();
@@ -616,7 +627,7 @@ describe("ClaimFlow", () => {
 
     render(<ClaimFlow />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "I reviewed deployment" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
 
     expect(await screen.findByText(/This wallet is not on Preprod/i)).toBeInTheDocument();
@@ -715,26 +726,24 @@ describe("ClaimFlow", () => {
 
     render(<ClaimFlow createWorker={createWorkerSuccess()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "I reviewed deployment" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
     expect(await screen.findByRole("heading", { name: "Available claims" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Continue to safe wallet" }));
     fireEvent.click(await findSafeWalletOption());
     fireEvent.click(screen.getByRole("button", { name: "Connect safe wallet" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm destination and continue" }));
 
     expect(await screen.findByRole("heading", { name: "Create proofs" })).toBeInTheDocument();
     await chooseDesktopProofMethod();
-    const recoveryInputs = screen.getAllByLabelText(/Recovery word \d+/) as HTMLInputElement[];
-    recoveryInputs.forEach((input, index) => {
-      fireEvent.change(input, { target: { value: `word${index + 1}` } });
-    });
+    const recoveryInputs = fillRecoveryPhraseInputs();
     fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
     expect(await screen.findByRole("heading", { name: "Proofs ready" })).toBeInTheDocument();
     expect(recoveryInputs.every((input) => input.value === "")).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Continue to current batch" }));
     expect(await screen.findByRole("heading", { name: "Claim funds" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Build claim review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Build transaction for review" }));
     expect(await screen.findByText("Review hash")).toBeInTheDocument();
     expect(safeSignTx).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Sign and submit claim" }));
@@ -787,7 +796,7 @@ describe("ClaimFlow", () => {
     render(<ClaimFlow createWorker={createWorkerSuccess()} />);
 
     expect(await screen.findByRole("heading", { name: "Create proofs" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Review deployment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Verify this recovery service" })).not.toBeInTheDocument();
     await waitFor(() => {
       const localHelperTile = screen.getByText("Local proof method").closest("section");
       expect(localHelperTile).not.toBeNull();
@@ -871,8 +880,8 @@ describe("ClaimFlow", () => {
     render(<ClaimFlow createWorker={createWorkerSuccess()} />);
 
     expect(await screen.findByRole("heading", { name: "Claim funds" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Build claim review" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "Build claim review" }));
+    expect(screen.getByRole("button", { name: "Build transaction for review" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Build transaction for review" }));
 
     expect(await screen.findByText("Review hash")).toBeInTheDocument();
     expect(screen.getByText(/Reconnect safe wallet to sign/i)).toBeInTheDocument();
@@ -913,7 +922,7 @@ describe("ClaimFlow", () => {
     expect(screen.getByText("Review hash")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Reconnect and submit claim" }));
 
-    expect(await screen.findByText(/Safe wallet is on network id 1/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Safe wallet is on Mainnet/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Claim funds" })).toBeInTheDocument();
     expect(screen.getByText("Review hash")).toBeInTheDocument();
     expect(safeEnable).toHaveBeenCalledTimes(1);
@@ -991,7 +1000,7 @@ describe("ClaimFlow", () => {
     await connectImpactedAndContinueToSafeWallet();
     fireEvent.click(await findSafeWalletOption());
     fireEvent.click(screen.getByRole("button", { name: "Connect safe wallet" }));
-    expect(await screen.findByText(/Safe wallet is on network id 1/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Safe wallet is on Mainnet/i)).toBeInTheDocument();
 
     cleanup();
     vi.restoreAllMocks();
@@ -1007,7 +1016,7 @@ describe("ClaimFlow", () => {
     await connectImpactedAndContinueToSafeWallet();
     fireEvent.click(await findSafeWalletOption());
     fireEvent.click(screen.getByRole("button", { name: "Connect safe wallet" }));
-    await waitFor(() => expect(screen.getAllByText(/shares a claimable wallet credential hash/i).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText(/shares a wallet key/i).length).toBeGreaterThan(0));
   });
 
   it("lets users retry safe wallet connection after an overlap block", async () => {
@@ -1041,6 +1050,9 @@ describe("ClaimFlow", () => {
 
     fireEvent.click(retry);
 
+    // C17: a successful reconnect stays on the safe-wallet screen for the
+    // explicit destination confirmation.
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm destination and continue" }));
     expect(await screen.findByRole("heading", { name: "Create proofs" })).toBeInTheDocument();
     expect(safeEnable).toHaveBeenCalledTimes(2);
   });
@@ -1061,7 +1073,7 @@ describe("ClaimFlow", () => {
     await connectImpactedAndContinueToSafeWallet();
     fireEvent.click(await findSafeWalletOption());
     fireEvent.click(screen.getByRole("button", { name: "Connect safe wallet" }));
-    await waitFor(() => expect(screen.getAllByText(/shares a claimable wallet credential hash/i).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText(/shares a wallet key/i).length).toBeGreaterThan(0));
   });
 
   it("blocks proof generation when the helper destination key hash does not match deployment", async () => {
@@ -1081,6 +1093,7 @@ describe("ClaimFlow", () => {
 
     await connectSafeWalletToProofs();
     await chooseDesktopProofMethod();
+    fillRecoveryPhraseInputs();
     fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
 
     expect(await screen.findByText(/destination key hash does not match/i)).toBeInTheDocument();
@@ -1104,15 +1117,627 @@ describe("ClaimFlow", () => {
 
     await connectSafeWalletToProofs();
     await chooseDesktopProofMethod();
+    fillRecoveryPhraseInputs();
     fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
 
     expect(await screen.findByText(/derivation path metadata/i)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Proofs ready" })).not.toBeInTheDocument();
   });
+
+  it("shows the full destination address in the pre-sign review and copies it to the clipboard", async () => {
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    writeResumeSnapshotForTest({ screen: "current-batch", draft });
+    vi.stubGlobal("fetch", claimFlowFetch({ draft }));
+    const writeText = installClipboardWrite();
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    expect(await screen.findByRole("heading", { name: "Claim funds" })).toBeInTheDocument();
+    expect(screen.getByText(safeWalletAddressBech32)).toBeInTheDocument();
+    expect(screen.getByText(/Confirm this matches the receive address shown in your safe wallet before signing/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Safe wallet (destination)" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(safeWalletAddressBech32));
+    expect(await screen.findByRole("button", { name: /Copy Safe wallet \(destination\) — copied/i })).toBeInTheDocument();
+  });
+
+  it("keeps Refresh status passive and starts the next batch only from the explicit CTA", async () => {
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    const build = claimBuild(draft);
+    const safeSignTx = vi.fn().mockResolvedValue("84a100");
+    const safeEnable = vi.fn().mockResolvedValue(
+      walletApi({
+        getChangeAddress: safeWalletAddressHex,
+        getUsedAddresses: [safeWalletAddressHex],
+        signTx: safeSignTx,
+      }),
+    );
+    Object.defineProperty(window, "cardano", {
+      configurable: true,
+      value: {
+        safe: {
+          name: "Safe",
+          enable: safeEnable,
+        },
+      },
+    });
+    writeResumeSnapshotForTest({ screen: "current-batch", draft, build });
+    const remainingUtxos = {
+      ...reclaimUtxos(),
+      utxos: [
+        ...reclaimUtxos().utxos,
+        indexedUtxo({
+          txHash: "e".repeat(64),
+          outputIndex: 0,
+          paymentCredential: credential,
+          value: { lovelace: "1250000" },
+        }),
+      ],
+    };
+    const fetch = claimFlowFetch({ draft, reclaimUtxosResponse: remainingUtxos });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    expect(await screen.findByRole("heading", { name: "Claim funds" })).toBeInTheDocument();
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url) === "/claim-api/deployment")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect and submit claim" }));
+
+    // One claim remains after the submitted batch settles: the flow must stay
+    // on the pending review instead of auto-creating a new draft.
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Claim review" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Claim submitted/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/your recovery phrase will be needed again/i)).toBeInTheDocument());
+    expect(fetch.mock.calls.filter(([url]) => String(url) === "/claim-api/draft")).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+
+    await waitFor(() =>
+      expect(fetch.mock.calls.filter(([url]) => String(url).startsWith("/claim-api/progress")).length).toBeGreaterThanOrEqual(2),
+    );
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Claim review" })).toBeInTheDocument());
+    expect(fetch.mock.calls.filter(([url]) => String(url) === "/claim-api/draft")).toHaveLength(0);
+    expect(screen.getByText(/your recovery phrase will be needed again/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Start next batch \(1 claim remaining\)/i }));
+
+    expect(await screen.findByRole("heading", { name: "Create proofs" })).toBeInTheDocument();
+    expect(fetch.mock.calls.filter(([url]) => String(url) === "/claim-api/draft")).toHaveLength(1);
+  });
+
+  it("offers resume from the stored snapshot on refresh without auto-applying it", async () => {
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    writeResumeSnapshotForTest({ screen: "current-batch", draft });
+    vi.stubGlobal("fetch", claimFlowFetch({ draft }));
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    expect(await screen.findByRole("heading", { name: "Verify this recovery service" })).toBeInTheDocument();
+    expect(await screen.findByText("Resume your claim in progress?")).toBeInTheDocument();
+    expect(screen.getByText(/Last saved/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+
+    expect(await screen.findByRole("heading", { name: "Claim funds" })).toBeInTheDocument();
+  });
+
+  it("clears the stored snapshot when starting over from the resume banner", async () => {
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    writeResumeSnapshotForTest({ screen: "current-batch", draft });
+    vi.stubGlobal("fetch", claimFlowFetch({ draft }));
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    expect(await screen.findByText("Resume your claim in progress?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+
+    await waitFor(() => expect(screen.queryByText("Resume your claim in progress?")).not.toBeInTheDocument());
+    expect(window.localStorage.getItem("proof-tool.claim-flow.resume.v1")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Verify this recovery service" })).toBeInTheDocument();
+  });
+
+  it("paginates claims beyond page 2 with numbered page buttons", async () => {
+    const enable = vi.fn().mockResolvedValue({
+      getNetworkId: vi.fn().mockResolvedValue(0),
+      getChangeAddress: vi.fn().mockResolvedValue(walletAddressHex),
+      getUsedAddresses: vi.fn().mockResolvedValue([usedWalletAddressHex]),
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(claimDeployment()), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(reclaimUtxosWithMatching(25)), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    Object.defineProperty(window, "cardano", {
+      configurable: true,
+      value: {
+        nami: {
+          name: "Nami",
+          enable,
+        },
+      },
+    });
+
+    render(<ClaimFlow />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
+    expect(await screen.findByText("Showing 1-10 of 25 UTxOs")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "3" }));
+    expect(await screen.findByText("Showing 21-25 of 25 UTxOs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(await screen.findByText("Showing 11-20 of 25 UTxOs")).toBeInTheDocument();
+  });
+
+  it("renders fixture claim rows and working search/filter on the available-claims fixture state", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CLAIM_UI_FIXTURE", "1");
+    window.history.replaceState(null, "", "/claim?fixtureState=available-claims-page-1");
+
+    render(<ClaimFlow />);
+
+    expect(await screen.findByRole("heading", { name: "Available claims" })).toBeInTheDocument();
+    expect(screen.getByText("Showing 1-10 of 18 UTxOs")).toBeInTheDocument();
+    expect(screen.getAllByText("b1e4c8d2...9af3").length).toBeGreaterThan(0);
+
+    const searchInput = screen.getByLabelText("Search claims by tx, output, or credential");
+    fireEvent.change(searchInput, { target: { value: "7f9a2d11" } });
+    expect(screen.getByText("Showing 1-2 of 2 UTxOs")).toBeInTheDocument();
+
+    fireEvent.change(searchInput, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("radio", { name: "ADA" }));
+    expect(screen.getByText("Showing 1-5 of 5 UTxOs")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Tokens" }));
+    expect(screen.getByText("Showing 1-10 of 13 UTxOs")).toBeInTheDocument();
+  });
+
+  it("does not render placeholder deployment values in live mode", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+
+    render(<ClaimFlow />);
+
+    expect(await screen.findByText(/Deployment unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/script1q9k9r0v6t2m313u4z8h8y2d0k5f4x7w8e5p2c3h6tx/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/4f3c9a1e2b6c8d0f91a4b7c3e0d29a6f48bd12c0/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /view commit on github/i })).not.toBeInTheDocument();
+  });
+
+  it("stays on the safe wallet screen after connect and advances only on explicit confirm", async () => {
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    vi.stubGlobal("fetch", claimFlowFetch());
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    await connectImpactedAndContinueToSafeWallet();
+    fireEvent.click(await findSafeWalletOption());
+    fireEvent.click(screen.getByRole("button", { name: "Connect safe wallet" }));
+
+    // Connect must not auto-advance: the populated destination panel gets an
+    // explicit confirmation beat (C17).
+    const confirm = await screen.findByRole("button", { name: "Confirm destination and continue" });
+    expect(screen.getByRole("heading", { name: "Connect safe wallet" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Create proofs" })).not.toBeInTheDocument();
+    expect(screen.getAllByText(safeWalletAddressBech32).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("button", { name: "Choose a different wallet" })).toBeInTheDocument();
+
+    fireEvent.click(confirm);
+
+    expect(await screen.findByRole("heading", { name: "Create proofs" })).toBeInTheDocument();
+  });
+
+  it("clears the connected safe wallet when choosing a different wallet", async () => {
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    vi.stubGlobal("fetch", claimFlowFetch());
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    await connectImpactedAndContinueToSafeWallet();
+    fireEvent.click(await findSafeWalletOption());
+    fireEvent.click(screen.getByRole("button", { name: "Connect safe wallet" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Choose a different wallet" }));
+
+    expect(await screen.findByRole("button", { name: "Connect safe wallet" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm destination and continue" })).not.toBeInTheDocument();
+  });
+
+  it("disables the generating button and ignores a second generate click while a run is active", async () => {
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    let resolveProve: (value: Response) => void = () => {};
+    const provePromise = new Promise<Response>((resolve) => {
+      resolveProve = resolve;
+    });
+    const base = claimFlowFetch({ draft });
+    const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url) === "http://127.0.0.1:49152/prove-destination") {
+        return provePromise;
+      }
+      return base(url, init);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    await connectSafeWalletToProofs();
+    await chooseDesktopProofMethod();
+    fillRecoveryPhraseInputs();
+    const generate = screen.getByRole("button", { name: "Generate proofs" });
+    fireEvent.click(generate);
+    fireEvent.click(generate);
+
+    // The status CTA is disabled while a run is active (C6) and the second
+    // click did not spawn a racing helper request.
+    expect(await screen.findByRole("button", { name: "Generating proofs" })).toBeDisabled();
+    expect(fetch.mock.calls.filter(([url]) => String(url).endsWith("/prove-destination"))).toHaveLength(1);
+
+    resolveProve(jsonResponse(destinationProofResponse(draft)));
+
+    expect(await screen.findByRole("heading", { name: "Proofs ready" })).toBeInTheDocument();
+  });
+
+  it("re-runs the helper status check from the Check helper again button", async () => {
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    let helperKeyReady = false;
+    const base = claimFlowFetch({ draft });
+    const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url) === "http://127.0.0.1:49152/status") {
+        return jsonResponse(helperStatus({ key_ready: helperKeyReady }));
+      }
+      return base(url, init);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    await connectSafeWalletToProofs();
+    await chooseDesktopProofMethod();
+    fillRecoveryPhraseInputs();
+
+    const checkAgain = await screen.findByRole("button", { name: "Check helper again" });
+    expect(screen.getByRole("button", { name: "Generate proofs" })).toBeDisabled();
+    const statusCallsBefore = fetch.mock.calls.filter(([url]) => String(url) === "http://127.0.0.1:49152/status").length;
+    expect(statusCallsBefore).toBeGreaterThanOrEqual(1);
+
+    helperKeyReady = true;
+    fireEvent.click(checkAgain);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Generate proofs" })).toBeEnabled());
+    expect(
+      fetch.mock.calls.filter(([url]) => String(url) === "http://127.0.0.1:49152/status").length,
+    ).toBeGreaterThan(statusCallsBefore);
+  });
+
+  it("presents an indexer failure as a lookup problem with a retry, not as no matching funds", async () => {
+    const enable = vi.fn().mockResolvedValue({
+      getNetworkId: vi.fn().mockResolvedValue(0),
+      getChangeAddress: vi.fn().mockResolvedValue(walletAddressHex),
+      getUsedAddresses: vi.fn().mockResolvedValue([usedWalletAddressHex]),
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(claimDeployment()))
+      .mockResolvedValueOnce(jsonResponse({ error: "indexer exploded" }, { status: 502 }))
+      .mockResolvedValueOnce(jsonResponse(reclaimUtxos()));
+    vi.stubGlobal("fetch", fetch);
+    Object.defineProperty(window, "cardano", {
+      configurable: true,
+      value: {
+        nami: {
+          name: "Nami",
+          enable,
+        },
+      },
+    });
+
+    render(<ClaimFlow />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
+
+    expect(await screen.findByText("We couldn't check for claims")).toBeInTheDocument();
+    expect(screen.getByText(/Your funds are not affected — this was a lookup problem/i)).toBeInTheDocument();
+    expect(screen.getByText(/indexer exploded/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No matching funds found/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByRole("heading", { name: "Available claims" })).toBeInTheDocument();
+    expect(screen.queryByText("We couldn't check for claims")).not.toBeInTheDocument();
+  });
+
+  it("keeps the genuinely-empty state distinct with a what-next hint", async () => {
+    const enable = vi.fn().mockResolvedValue({
+      getNetworkId: vi.fn().mockResolvedValue(0),
+      getChangeAddress: vi.fn().mockResolvedValue(walletAddressHex),
+      getUsedAddresses: vi.fn().mockResolvedValue([usedWalletAddressHex]),
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(claimDeployment()))
+      .mockResolvedValueOnce(jsonResponse(emptyReclaimUtxos()));
+    vi.stubGlobal("fetch", fetch);
+    Object.defineProperty(window, "cardano", {
+      configurable: true,
+      value: {
+        nami: {
+          name: "Nami",
+          enable,
+        },
+      },
+    });
+
+    render(<ClaimFlow />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
+
+    expect(await screen.findByText(/No matching funds found/i)).toBeInTheDocument();
+    expect(screen.getByText(/rescuers may still be locking funds/i)).toBeInTheDocument();
+    expect(screen.queryByText("We couldn't check for claims")).not.toBeInTheDocument();
+  });
+
+  it("routes insufficient safe-wallet funds draft errors to the insufficient-ada screen", async () => {
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    const base = claimFlowFetch();
+    const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url) === "/claim-api/draft") {
+        return jsonResponse(
+          {
+            error: "Safe wallet must have enough ADA to pay claim fees, collateral, and destination-output min-ADA.",
+            code: "safe_wallet_lovelace_unavailable",
+          },
+          { status: 400 },
+        );
+      }
+      return base(url, init);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<ClaimFlow />);
+
+    await connectImpactedAndContinueToSafeWallet();
+    fireEvent.click(await findSafeWalletOption());
+    fireEvent.click(screen.getByRole("button", { name: "Connect safe wallet" }));
+
+    expect(await screen.findByText("More ADA needed")).toBeInTheDocument();
+    expect(screen.getByText(/enough ADA to pay claim fees/i)).toBeInTheDocument();
+    // C32: without structured details (older payloads) the copy stays
+    // qualitative.
+    expect(screen.getByText(/The safe wallet needs more ADA for fees, collateral, and min-ADA/i)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Create proofs" })).not.toBeInTheDocument();
+  });
+
+  it("shows required vs available ADA when the draft error carries structured details", async () => {
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    const base = claimFlowFetch();
+    const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url) === "/claim-api/draft") {
+        return jsonResponse(
+          {
+            error: "Safe wallet must have enough ADA to pay claim fees, collateral, and destination-output min-ADA.",
+            code: "safe_wallet_lovelace_unavailable",
+            details: { availableLovelace: "2450000", requiredLovelace: "5000000" },
+          },
+          { status: 400 },
+        );
+      }
+      return base(url, init);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<ClaimFlow />);
+
+    await connectImpactedAndContinueToSafeWallet();
+    fireEvent.click(await findSafeWalletOption());
+    fireEvent.click(screen.getByRole("button", { name: "Connect safe wallet" }));
+
+    expect(await screen.findByText("More ADA needed")).toBeInTheDocument();
+    // C32: the notice renders the backend amounts via formatLovelace.
+    expect(
+      screen.getByText(/Your safe wallet has 2\.45 ADA — at least 5 ADA is needed for fees, collateral, and min-ADA/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Recovered funds will not be reduced for fees/i)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Create proofs" })).not.toBeInTheDocument();
+  });
+
+  it("demonstrates the insufficient-ada layout with example amounts in fixture mode", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CLAIM_UI_FIXTURE", "1");
+    window.history.replaceState(null, "", "/claim?fixtureState=insufficient-ada");
+
+    render(<ClaimFlow />);
+
+    expect(await screen.findByText("More ADA needed")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Your safe wallet has 2\.45 ADA — at least 5 ADA is needed for fees, collateral, and min-ADA/i),
+    ).toBeInTheDocument();
+  });
+
+  it("traps focus in the proof method dialog, closes on Escape, and restores focus to the opener", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CLAIM_UI_FIXTURE", "1");
+    window.history.replaceState(null, "", "/claim?fixtureState=create-proofs-ready");
+
+    render(<ClaimFlow />);
+
+    expect(await screen.findByRole("heading", { name: "Create proofs" })).toBeInTheDocument();
+    const opener = screen.getAllByRole("button", { name: "Choose method" })[0];
+    // Real browsers focus a button on mousedown; fireEvent does not.
+    opener.focus();
+    fireEvent.click(opener);
+
+    const methodDialog = await screen.findByRole("dialog", { name: "Choose how to create proofs" });
+    // C36: initial focus moves into the dialog.
+    expect(methodDialog).toHaveFocus();
+
+    fireEvent.keyDown(methodDialog, { key: "Escape" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose how to create proofs" })).not.toBeInTheDocument());
+    // C36: focus returns to the control that opened the dialog.
+    expect(opener).toHaveFocus();
+  });
+
+  it("closes the asset modal from the backdrop and Escape", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CLAIM_UI_FIXTURE", "1");
+    window.history.replaceState(null, "", "/claim?fixtureState=available-claims-asset-modal");
+
+    render(<ClaimFlow />);
+
+    const dialog = await screen.findByRole("dialog", { name: "UTxO assets" });
+    expect(dialog).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "UTxO assets" })).not.toBeInTheDocument());
+  });
+
+  it("announces bad notices with role=alert", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+
+    render(<ClaimFlow />);
+
+    expect(await screen.findByText(/Deployment unavailable/i)).toBeInTheDocument();
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts.some((alert) => /Deployment unavailable/i.test(alert.textContent ?? ""))).toBe(true);
+  });
+
+  it("blocks Generate until the recovery phrase grid is complete and wordlist-valid", async () => {
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    vi.stubGlobal("fetch", claimFlowFetch({ draft: claimDraft([`${"a".repeat(64)}#0`]) }));
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    await connectSafeWalletToProofs();
+    await chooseDesktopProofMethod();
+
+    // Empty grid: blocked.
+    expect(screen.getByRole("button", { name: "Generate proofs" })).toBeDisabled();
+
+    // A word that is not letters-only is flagged and keeps Generate blocked.
+    const recoveryInputs = screen.getAllByLabelText(/Recovery word \d+/) as HTMLInputElement[];
+    fireEvent.change(recoveryInputs[0], { target: { value: "word1" } });
+    expect(await screen.findByText(/not a recovery word/i)).toBeInTheDocument();
+    expect(recoveryInputs[0]).toHaveClass("invalid");
+    expect(screen.getByRole("button", { name: "Generate proofs" })).toBeDisabled();
+
+    // C28: a letters-only typo that is not in the BIP-39 wordlist is flagged
+    // too ("recieve" vs "receive") and keeps Generate blocked.
+    fireEvent.change(recoveryInputs[0], { target: { value: "recieve" } });
+    expect(await screen.findByText(/not a recovery word/i)).toBeInTheDocument();
+    expect(recoveryInputs[0]).toHaveClass("invalid");
+    expect(recoveryInputs[0]).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("button", { name: "Generate proofs" })).toBeDisabled();
+
+    fillRecoveryPhraseInputs();
+    expect(screen.queryByText(/not a recovery word/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate proofs" })).toBeEnabled();
+  });
+
+  it("blocks a wordlist-valid phrase with a bad checksum without clearing the grid or starting a run", async () => {
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    const fetch = claimFlowFetch({ draft });
+    vi.stubGlobal("fetch", fetch);
+    const workerFactory = vi.fn(createWorkerSuccess());
+
+    render(<ClaimFlow createWorker={workerFactory} />);
+
+    await connectSafeWalletToProofs();
+    await chooseDesktopProofMethod();
+
+    // All words are valid BIP-39 words, but 24x "abandon" fails the checksum.
+    const recoveryInputs = screen.getAllByLabelText(/Recovery word \d+/) as HTMLInputElement[];
+    recoveryInputs.forEach((input) => {
+      fireEvent.change(input, { target: { value: "abandon" } });
+    });
+    expect(screen.queryByText(/not a recovery word/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate proofs" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
+
+    // The checksum failure is explained inline, the inputs are NOT cleared,
+    // and no derivation or helper run was started.
+    expect(await screen.findByText(/phrase checksum doesn't match/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Create proofs" })).toBeInTheDocument();
+    expect(recoveryInputs.every((input) => input.value === "abandon")).toBe(true);
+    expect(workerFactory).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/prove-destination"))).toBe(false);
+
+    // Editing a word clears the checksum notice.
+    fireEvent.change(recoveryInputs[0], { target: { value: "gown" } });
+    await waitFor(() => expect(screen.queryByText(/phrase checksum doesn't match/i)).not.toBeInTheDocument());
+
+    // Correcting the phrase lets the run proceed (and only then clears words).
+    fillRecoveryPhraseInputs();
+    fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
+    expect(await screen.findByRole("heading", { name: "Proofs ready" })).toBeInTheDocument();
+    expect(recoveryInputs.every((input) => input.value === "")).toBe(true);
+  });
+
+  it("explains that the phrase was cleared after a proof failure and disables Retry until re-entry", async () => {
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    vi.stubGlobal("fetch", claimFlowFetch({ draft: claimDraft([`${"a".repeat(64)}#0`]) }));
+
+    render(<ClaimFlow createWorker={createWorkerFailure("invalid BIP-39 seed phrase")} />);
+
+    await connectSafeWalletToProofs();
+    await chooseDesktopProofMethod();
+    fillRecoveryPhraseInputs();
+    fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
+
+    expect(await screen.findByText(/Proof generation stopped/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/For your security your recovery phrase was cleared — re-enter it before retrying/i),
+    ).toBeInTheDocument();
+    // The cleared grid keeps Retry disabled until the phrase is re-entered.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry proofs" })).toBeDisabled());
+
+    fillRecoveryPhraseInputs();
+    expect(screen.getByRole("button", { name: "Retry proofs" })).toBeEnabled();
+  });
 });
 
 async function connectImpactedAndContinueToSafeWallet() {
-  fireEvent.click(await screen.findByRole("button", { name: "I reviewed deployment" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
   fireEvent.click(await screen.findByRole("button", { name: "Connect impacted wallet" }));
   expect(await screen.findByRole("heading", { name: "Available claims" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Continue to safe wallet" }));
@@ -1123,7 +1748,22 @@ async function connectSafeWalletToProofs() {
   await connectImpactedAndContinueToSafeWallet();
   fireEvent.click(await findSafeWalletOption());
   fireEvent.click(screen.getByRole("button", { name: "Connect safe wallet" }));
+  // C17: connecting stays on the safe-wallet screen; an explicit confirm
+  // advances to proof creation.
+  fireEvent.click(await screen.findByRole("button", { name: "Confirm destination and continue" }));
   expect(await screen.findByRole("heading", { name: "Create proofs" })).toBeInTheDocument();
+}
+
+// C28: Generate stays disabled until every recovery-word input passes the
+// BIP-39 wordlist check, and the click-time checksum validation must pass, so
+// flow tests fill the grid with a real checksum-valid phrase.
+function fillRecoveryPhraseInputs() {
+  const words = recoveryPhrase24.split(" ");
+  const recoveryInputs = screen.getAllByLabelText(/Recovery word \d+/) as HTMLInputElement[];
+  recoveryInputs.forEach((input, index) => {
+    fireEvent.change(input, { target: { value: words[index % words.length] } });
+  });
+  return recoveryInputs;
 }
 
 async function chooseDesktopProofMethod() {
@@ -1217,13 +1857,26 @@ function installWallets({
 
 function installClipboard(text: string) {
   const readText = vi.fn().mockResolvedValue(text);
+  const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(window.navigator, "clipboard", {
     configurable: true,
     value: {
       readText,
+      writeText,
     },
   });
-  return readText;
+  return { readText, writeText };
+}
+
+function installClipboardWrite() {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText,
+    },
+  });
+  return writeText;
 }
 
 function walletApi(
@@ -1254,6 +1907,7 @@ function claimFlowFetch(options: {
   draft?: ReturnType<typeof claimDraft>;
   helperStatus?: ReturnType<typeof helperStatus>;
   destinationProofResponse?: ReturnType<typeof destinationProofResponse>;
+  reclaimUtxosResponse?: ReturnType<typeof reclaimUtxos>;
 } = {}) {
   const selectedOutrefs = options.draft?.orderedInputs.map((input) => input.outRefId) ?? [`${"a".repeat(64)}#0`];
   const draft = options.draft ?? claimDraft(selectedOutrefs);
@@ -1263,7 +1917,7 @@ function claimFlowFetch(options: {
       return jsonResponse(claimDeployment());
     }
     if (urlText.startsWith("/claim-api/reclaim-utxos")) {
-      return jsonResponse(reclaimUtxos());
+      return jsonResponse(options.reclaimUtxosResponse ?? reclaimUtxos());
     }
     if (urlText === "/claim-api/draft") {
       return jsonResponse(draft);
@@ -1298,6 +1952,32 @@ function createWorkerSuccess() {
             id: request.id,
             type: "master-xprv",
             masterXPrv: new Uint8Array(96).fill(7).buffer,
+          },
+        } as MessageEvent);
+      },
+      terminate: vi.fn(),
+      addEventListener(_type: "message", nextListener: (event: MessageEvent) => void) {
+        listener = nextListener;
+      },
+      removeEventListener() {
+        listener = null;
+      },
+    };
+  };
+}
+
+function createWorkerFailure(message: string) {
+  return () => {
+    let listener: ((event: MessageEvent) => void) | null = null;
+    return {
+      postMessage(msg: unknown) {
+        const request = msg as { id: string };
+        listener?.({
+          data: {
+            id: request.id,
+            type: "error",
+            code: "invalid-seed-phrase",
+            message,
           },
         } as MessageEvent);
       },

@@ -36,7 +36,8 @@ describe("ADA-only preprod funding stage", () => {
       ["fill", "Payment key credential", compromisedCredential],
       ["fill", "ADA amount", "1.75"],
       ["click", "refresh assets"],
-      ["waitForLocatorText", "section[aria-labelledby=\"assets-section\"] .inventory-empty", "/^[0-9]+ UTxOs?, [0-9]+ assets?$/iu"],
+      ["waitForLabel", "Wallet inventory"],
+      ["inputValue", "Wallet inventory"],
       ["click", "build transaction"],
       ["waitForText", "Datum CBOR"],
       ["click", "sign and submit"],
@@ -142,30 +143,41 @@ describe("native-asset preprod funding stage", () => {
       page,
       walletHarness: fakeWalletHarness(),
       outputDir,
+      previousFundingTxHashes: ["ada-funding-hash"],
     });
 
     expect(result.ok).toBe(true);
     expect(page.calls).toEqual([
+      ["click", "lock another batch"],
       ["selectOption", "Cardano wallet", "reclaim_funder"],
       ["click", "connect wallet"],
       ["waitForText", "/CIP-30 wallet address/iu"],
       ["fill", "Payment key credential", compromisedCredential],
       ["fill", "ADA amount", "2.25"],
-      ["fillPlaceholder", "policyId + tokenName hex", nativeUnit],
-      ["fillRole", "textbox", "quantity", "3"],
       ["click", "refresh assets"],
-      ["waitForLocatorText", "section[aria-labelledby=\"assets-section\"] .inventory-empty", "/^[0-9]+ UTxOs?, [0-9]+ assets?$/iu"],
+      ["waitForLabel", "Wallet inventory"],
+      ["inputValue", "Wallet inventory"],
+      ["click", "token"],
+      ["fillPlaceholder", "Search policy ID or token name", nativeUnit],
+      ["click", "select"],
+      ["fillRole", "textbox", "amount to lock", "3"],
+      ["click", "add token"],
       ["click", "build transaction"],
       ["waitForText", "Datum CBOR"],
       ["click", "sign and submit"],
       ["waitForText", "Transaction submitted"],
       ["screenshot", path.join(outputDir, "screenshots", "fund-native-asset-reclaims-1.png")],
+      ["click", "lock another batch"],
       ["fill", "Payment key credential", compromisedCredential],
       ["fill", "ADA amount", "2.25"],
-      ["fillPlaceholder", "policyId + tokenName hex", nativeUnit],
-      ["fillRole", "textbox", "quantity", "3"],
       ["click", "refresh assets"],
-      ["waitForLocatorText", "section[aria-labelledby=\"assets-section\"] .inventory-empty", "/^[0-9]+ UTxOs?, [0-9]+ assets?$/iu"],
+      ["waitForLabel", "Wallet inventory"],
+      ["inputValue", "Wallet inventory"],
+      ["click", "token"],
+      ["fillPlaceholder", "Search policy ID or token name", nativeUnit],
+      ["click", "select"],
+      ["fillRole", "textbox", "amount to lock", "3"],
+      ["click", "add token"],
       ["click", "build transaction"],
       ["waitForText", "Datum CBOR"],
       ["click", "sign and submit"],
@@ -256,6 +268,7 @@ function fakeFundingPage(options = {}) {
   const state = {
     reviewedTxHashes: [...(options.reviewedTxHashes ?? [])],
     submittedTxHashes: [...(options.submittedTxHashes ?? [])],
+    txHashReads: 0,
   };
   return {
     calls,
@@ -263,6 +276,11 @@ function fakeFundingPage(options = {}) {
       return {
         selectOption: vi.fn(async (value) => calls.push(["selectOption", label, value])),
         fill: vi.fn(async (value) => calls.push(["fill", label, value])),
+        waitFor: vi.fn(async () => calls.push(["waitForLabel", label])),
+        inputValue: vi.fn(async () => {
+          calls.push(["inputValue", label]);
+          return options.inventorySummary ?? "1 UTxO, 0 assets";
+        }),
       };
     },
     getByPlaceholder(placeholder) {
@@ -302,18 +320,7 @@ function fakeFundingPage(options = {}) {
 }
 
 function fakeLocator(selector, calls, options, state) {
-  if (selector === 'section[aria-labelledby="assets-section"] .inventory-empty') {
-    return {
-      filter(options) {
-        return {
-          waitFor: vi.fn(async () =>
-            calls.push(["waitForLocatorText", selector, options?.hasText instanceof RegExp ? String(options.hasText) : String(options?.hasText ?? "")]),
-          ),
-        };
-      },
-    };
-  }
-  if (selector === ".result-band.bad") {
+  if (selector === ".claim-notice.bad") {
     return {
       waitFor: vi.fn(async () => {
         if (!options.submitFailure && !options.buildFailure) {
@@ -323,26 +330,25 @@ function fakeLocator(selector, calls, options, state) {
       }),
     };
   }
-  if (selector === ".result-band.bad span") {
+  if (selector === ".claim-notice.bad p") {
     return {
       last: () => ({
         textContent: async () => options.submitFailure ?? options.buildFailure,
       }),
     };
   }
-  if (selector === ".review-item") {
+  if (selector === ".claim-review-row") {
     return {
       filter: () => ({
         locator: () => ({
-          textContent: async () => state.reviewedTxHashes.shift() ?? "reviewed-body-hash",
+          textContent: async () => {
+            const reviewed = state.txHashReads % 2 === 0;
+            state.txHashReads += 1;
+            return reviewed
+              ? state.reviewedTxHashes.shift() ?? "reviewed-body-hash"
+              : state.submittedTxHashes.shift() ?? "submitted-funding-hash";
+          },
         }),
-      }),
-    };
-  }
-  if (selector === ".result-band.ok span") {
-    return {
-      last: () => ({
-        textContent: async () => state.submittedTxHashes.shift() ?? "submitted-funding-hash",
       }),
     };
   }

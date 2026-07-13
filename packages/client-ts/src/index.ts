@@ -3,6 +3,45 @@ import { wordlist } from "@scure/bip39/wordlists/english";
 
 const XPRV_LENGTH = 96;
 
+// The BIP-39 English wordlist, re-exported so UI surfaces can validate
+// recovery words without adding their own @scure/bip39 dependency.
+export const recoveryWordlistEnglish: readonly string[] = wordlist;
+
+const RECOVERY_PHRASE_WORD_COUNTS = new Set([12, 15, 18, 21, 24]);
+
+let recoveryWordSet: Set<string> | undefined;
+
+function recoveryWords(): Set<string> {
+  recoveryWordSet ??= new Set(wordlist);
+  return recoveryWordSet;
+}
+
+export function isValidRecoveryWord(word: string): boolean {
+  return recoveryWords().has(word.trim().toLowerCase());
+}
+
+export type RecoveryPhraseValidation = {
+  ok: boolean;
+  reason?: "length" | "word" | "checksum";
+};
+
+// Validates a full recovery phrase: word count, wordlist membership, and the
+// BIP-39 checksum. Pure and side-effect free: the words are only read, never
+// stored or logged.
+export function validateRecoveryPhrase(words: string[]): RecoveryPhraseValidation {
+  if (!RECOVERY_PHRASE_WORD_COUNTS.has(words.length)) {
+    return { ok: false, reason: "length" };
+  }
+  const normalized = words.map((word) => word.trim().toLowerCase());
+  if (!normalized.every((word) => recoveryWords().has(word))) {
+    return { ok: false, reason: "word" };
+  }
+  if (!validateMnemonic(normalized.join(" "), wordlist)) {
+    return { ok: false, reason: "checksum" };
+  }
+  return { ok: true };
+}
+
 export function normalizeSeedPhrase(seedPhrase: string): string {
   return seedPhrase.trim().split(/\s+/u).join(" ");
 }

@@ -13,12 +13,21 @@ export type DesktopHelperProveInput = {
 // validation stays with the caller (validateDestinationProofResponse), as
 // before.
 export async function proveDestinationViaHelper(input: DesktopHelperProveInput): Promise<DestinationProofResponse> {
-  return postJSON<DestinationProofResponse>(
+  const representativeByStatement = new Map<string, string>();
+  const uniqueRequests = input.draft.proofRequests.filter((request) => {
+    const key = proofRequestStatementKey(request);
+    if (representativeByStatement.has(key)) {
+      return false;
+    }
+    representativeByStatement.set(key, request.out_ref);
+    return true;
+  });
+  const response = await postJSON<DestinationProofResponse>(
     `${trimSlash(input.helperUrl)}/prove-destination`,
     {
       master_xprv_base64: bytesToBase64(input.masterXPrv),
       profile: input.draft.proofProfile,
-      requests: input.draft.proofRequests,
+      requests: uniqueRequests,
       search: {
         max_account: 9,
         max_index: 999,
@@ -29,6 +38,38 @@ export async function proveDestinationViaHelper(input: DesktopHelperProveInput):
       "X-Proof-Tool-Token": input.helperToken,
     },
   );
+  if (!Array.isArray(response.artifacts)) {
+    return response;
+  }
+  const artifactByOutRef = new Map(
+    response.artifacts.map((item) => [item.out_ref, item]),
+  );
+  const expandedArtifacts = input.draft.proofRequests.map((request) => {
+    const representativeOutRef = representativeByStatement.get(
+      proofRequestStatementKey(request),
+    );
+    const representative = representativeOutRef
+      ? artifactByOutRef.get(representativeOutRef)
+      : undefined;
+    return representative
+      ? { ...representative, out_ref: request.out_ref }
+      : undefined;
+  });
+  if (expandedArtifacts.some((item) => item === undefined)) {
+    return response;
+  }
+  return {
+    ...response,
+    artifacts: expandedArtifacts as NonNullable<DestinationProofResponse["artifacts"]>,
+  };
+}
+
+function proofRequestStatementKey(request: ClaimDraftResponse["proofRequests"][number]): string {
+  return [
+    request.target_credential,
+    request.destination_address_encoding,
+    request.destination_address,
+  ].join(":");
 }
 
 async function postJSON<T>(url: string, body: unknown, headers?: Record<string, string>): Promise<T> {

@@ -1,8 +1,12 @@
 "use client";
 
-import { Check, Coins, Copy, HelpCircle, LockKeyhole, Settings, ShieldCheck } from "lucide-react";
+import { Check, Coins, Copy, HelpCircle, LockKeyhole, ShieldCheck } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import React from "react";
+
+const ICON = { sm: 16, md: 20, lg: 24, xl: 32 } as const;
+
+const DOCS_URL = "https://github.com/Anastasia-Labs/proof-tool/tree/main/docs";
 
 export type ReclaimShellStepStatus = "pending" | "active" | "complete" | "attention";
 
@@ -36,7 +40,7 @@ export function ReclaimAppShell({
 }) {
   return (
     <main className="claim-shell" data-lock-funds-state={state}>
-      <ReclaimSidebar steps={steps} />
+      <ReclaimSidebar steps={steps} active={active} />
       <section className="claim-workspace">
         <ReclaimTopNav active={active} />
         <div className="claim-page">{children}</div>
@@ -50,38 +54,37 @@ export function ReclaimTopNav({ active }: { active: "lock" | "claim" }) {
     <header className="claim-topbar">
       <nav className="claim-primary-nav" aria-label="Main">
         <a href="/reclaim" className={`claim-nav-link ${active === "lock" ? "active" : ""}`} aria-current={active === "lock" ? "page" : undefined}>
-          <LockKeyhole size={24} aria-hidden="true" />
-          Lock Funds
+          <LockKeyhole size={ICON.lg} aria-hidden="true" />
+          Lock / Donate funds
         </a>
         <a href="/claim" className={`claim-nav-link ${active === "claim" ? "active" : ""}`} aria-current={active === "claim" ? "page" : undefined}>
-          <Coins size={25} aria-hidden="true" />
+          <Coins size={ICON.lg} aria-hidden="true" />
           Claim funds
         </a>
       </nav>
       <div className="claim-top-actions">
-        <button className="claim-ghost-action" type="button">
-          <HelpCircle size={22} aria-hidden="true" />
+        <a className="claim-ghost-action" href={DOCS_URL} target="_blank" rel="noreferrer">
+          <HelpCircle size={ICON.md} aria-hidden="true" />
           Help
-        </button>
-        <button className="claim-ghost-action" type="button">
-          <Settings size={23} aria-hidden="true" />
-          Settings
-        </button>
+        </a>
       </div>
     </header>
   );
 }
 
-function ReclaimSidebar({ steps }: { steps: ReclaimShellStep[] }) {
+function ReclaimSidebar({ steps, active }: { steps: ReclaimShellStep[]; active: "lock" | "claim" }) {
   return (
-    <aside className="claim-sidebar" aria-label="Lock funds progress">
+    <aside
+      className="claim-sidebar"
+      aria-label={active === "lock" ? "Lock / Donate funds progress" : "Claim funds progress"}
+    >
       <div className="claim-brand">
         <div className="claim-brand-mark" aria-hidden="true">
-          <ShieldCheck size={36} />
+          <ShieldCheck size={ICON.xl} />
         </div>
         <div>
           <strong>ReclaimGlobal</strong>
-          <span>Cardano Recovery</span>
+          <span>Cardano ownership recovery</span>
         </div>
       </div>
 
@@ -92,9 +95,8 @@ function ReclaimSidebar({ steps }: { steps: ReclaimShellStep[] }) {
       </ol>
 
       <div className="claim-assurance">
-        <ShieldCheck size={31} aria-hidden="true" />
-        <p>Your recovery is secured by ReclaimGlobal.</p>
-        <p>We never access your funds.</p>
+        <ShieldCheck size={ICON.lg} aria-hidden="true" />
+        <p>Secured by an on-chain smart contract — no one, including us, can move funds without the owner&rsquo;s proof.</p>
       </div>
     </aside>
   );
@@ -106,9 +108,9 @@ function ReclaimStep({ step }: { step: ReclaimShellStep }) {
     <li className={`claim-step ${step.status}`}>
       <div className="claim-step-line" aria-hidden="true" />
       <div className="claim-step-token" aria-hidden="true">
-        {step.status === "complete" ? <Check size={22} /> : step.id}
+        {step.status === "complete" ? <Check size={ICON.md} /> : step.id}
       </div>
-      <Icon className="claim-step-icon" size={31} aria-hidden="true" />
+      <Icon className="claim-step-icon" size={ICON.lg} aria-hidden="true" />
       <div>
         <strong>
           {step.id}. {step.label}
@@ -131,7 +133,7 @@ export function ReclaimPageHeading({ title, subtitle, icon: Icon }: { title: str
   return (
     <header className="claim-page-heading lock-hero-heading">
       <span className="lock-hero-icon" aria-hidden="true">
-        <Icon size={42} />
+        <Icon size={ICON.xl} />
       </span>
       <div>
         <h1>{title}</h1>
@@ -155,14 +157,14 @@ function ReclaimSummaryTileView({ tile }: { tile: ReclaimSummaryTile }) {
   const Icon = tile.icon;
   return (
     <section className={`claim-summary-tile ${tile.emphasis ? "emphasis" : ""}`}>
-      <Icon size={31} aria-hidden="true" />
+      <Icon size={ICON.lg} aria-hidden="true" />
       <div>
         <span>{tile.label}</span>
         <strong>{tile.value}</strong>
         {tile.detail ? <small>{tile.detail}</small> : null}
         {tile.status ? (
           <small className="claim-status-line">
-            <Check size={15} aria-hidden="true" />
+            <Check size={ICON.sm} aria-hidden="true" />
             {tile.status}
           </small>
         ) : null}
@@ -188,7 +190,7 @@ export function ReclaimPanel({
         <header className="claim-panel-header">
           {Icon ? (
             <span className="claim-icon-circle">
-              <Icon size={24} aria-hidden="true" />
+              <Icon size={ICON.lg} aria-hidden="true" />
             </span>
           ) : null}
           <h2>{title}</h2>
@@ -213,7 +215,7 @@ export function ReclaimNotice({
   return (
     <div className={`claim-notice ${tone}`}>
       <span className="claim-icon-circle">
-        <Icon size={28} aria-hidden="true" />
+        <Icon size={ICON.lg} aria-hidden="true" />
       </span>
       <div>
         {title ? <strong>{title}</strong> : null}
@@ -247,7 +249,7 @@ export function ReclaimReviewRow({
 export function ReclaimCopyButton({ label }: { label: string }) {
   return (
     <button className="claim-copy-button" type="button" aria-label={label}>
-      <Copy size={15} aria-hidden="true" />
+      <Copy size={ICON.sm} aria-hidden="true" />
     </button>
   );
 }

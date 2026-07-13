@@ -343,6 +343,13 @@ button:disabled {
   }
 }
 
+/* C41: honor reduced-motion for the shared spinner. */
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
 .result-band {
   border-left: 4px solid var(--line);
   padding: 12px 14px;
@@ -440,7 +447,11 @@ button:disabled {
 .platform-choice:hover,
 .platform-choice:focus-visible {
   border-color: var(--action);
-  outline: none;
+}
+
+.platform-choice:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .platform-choice strong,
@@ -791,6 +802,12 @@ button:disabled {
   letter-spacing: 0;
 }
 
+/* The heading receives programmatic focus on step changes for screen readers;
+   it is not an interactive target, so no visible ring. */
+.claim-page-heading h1:focus {
+  outline: none;
+}
+
 .claim-page-heading p {
   margin: 8px 0 0;
   color: var(--claim-muted);
@@ -906,24 +923,31 @@ button:disabled {
 .claim-tile-action:hover,
 .claim-tile-action:focus-visible {
   border-color: var(--claim-teal);
-  outline: none;
   color: var(--claim-teal);
 }
 
-.claim-status-line {
-  display: inline-flex !important;
+/* C50: scoped selectors (matching the tile/metric `small` rules they override)
+   instead of !important. */
+.claim-status-line,
+.claim-summary-tile small.claim-status-line,
+.claim-metric-text small.claim-status-line {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--claim-ok) !important;
+  color: var(--claim-ok);
   font-weight: 700;
 }
 
-.claim-status-line.warn {
-  color: #9a5a00 !important;
+.claim-status-line.warn,
+.claim-summary-tile small.claim-status-line.warn,
+.claim-metric-text small.claim-status-line.warn {
+  color: #9a5a00;
 }
 
-.claim-status-line.bad {
-  color: var(--claim-bad) !important;
+.claim-status-line.bad,
+.claim-summary-tile small.claim-status-line.bad,
+.claim-metric-text small.claim-status-line.bad {
+  color: var(--claim-bad);
 }
 
 .claim-helper-install-actions {
@@ -1158,9 +1182,28 @@ button:disabled {
   text-align: center;
 }
 
-.claim-wallet-option:first-child {
+/* C39: the selected ring follows the real selection state, not DOM order. */
+.claim-wallet-option[aria-pressed="true"] {
   border-color: var(--claim-teal);
   box-shadow: 0 0 0 1px rgba(0, 123, 120, 0.2) inset;
+}
+
+/* C48: the wallet-empty card stacks its title and remedy text so they cannot
+   overlap at narrow widths. */
+.claim-wallet-option.claim-wallet-empty {
+  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+}
+
+.claim-wallet-option.claim-wallet-empty .claim-wallet-logo {
+  grid-row: span 2;
+}
+
+.claim-wallet-option.claim-wallet-empty strong,
+.claim-wallet-option.claim-wallet-empty span:not(.claim-wallet-logo) {
+  grid-column: 2;
+  text-align: left;
+  justify-self: start;
 }
 
 .claim-wallet-logo {
@@ -1283,16 +1326,27 @@ button:disabled {
 }
 
 .claim-primary-button {
-  min-width: 360px;
+  min-width: min(360px, 100%);
   border: 1px solid var(--claim-teal);
   background: linear-gradient(180deg, #008d8a, #007774);
   color: white;
   box-shadow: 0 10px 20px rgba(0, 123, 120, 0.18);
 }
 
-.claim-primary-button:disabled,
+/* C40: disabled buttons keep readable contrast instead of fading out. */
+.claim-primary-button:disabled {
+  border-color: transparent;
+  background: #e5ecea;
+  color: #526078;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 .claim-secondary-button:disabled {
-  opacity: 0.55;
+  border-color: #dde4e2;
+  background: #f2f5f4;
+  color: #526078;
+  cursor: not-allowed;
 }
 
 .claim-secondary-button.wide {
@@ -1575,7 +1629,6 @@ button:disabled {
 .claim-proof-method-option:hover,
 .claim-proof-method-option:focus-visible {
   border-color: var(--claim-teal);
-  outline: none;
 }
 
 .claim-proof-method-radio {
@@ -1865,11 +1918,11 @@ button:disabled {
   border-radius: 999px;
   background:
     radial-gradient(closest-side, white 67%, transparent 68%),
-    conic-gradient(var(--claim-teal) var(--claim-progress), #e2f0ef 0);
+    conic-gradient(var(--claim-teal) var(--claim-progress, 0%), #e2f0ef 0);
 }
 
 .claim-progress-ring strong {
-  font-size: 38px;
+  font-size: 34px;
 }
 
 .claim-chip-row {
@@ -2586,6 +2639,149 @@ button:disabled {
   text-decoration: none;
 }
 
+/* C40: text alternative for icon-only indicators. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* C38: visible focus indicators across interactive claim controls. */
+.claim-primary-button:focus-visible,
+.claim-secondary-button:focus-visible,
+.claim-wallet-option:focus-visible,
+.claim-tile-action:focus-visible,
+.claim-proof-method-option:focus-visible,
+.claim-copy-button:focus-visible,
+.claim-icon-button:focus-visible,
+.claim-table-action:focus-visible,
+.claim-pagination button:focus-visible,
+.claim-search input:focus-visible,
+.claim-phrase-grid input:focus-visible,
+.claim-segmented button:focus-visible,
+.claim-toggle input:focus-visible,
+.claim-nav-link:focus-visible,
+.claim-ghost-action:focus-visible,
+.claim-external-link:focus-visible,
+.claim-tx-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* C20: collapsed technical rows on the verify-service screen. */
+.claim-technical-details {
+  border: 1px solid var(--claim-line);
+  border-radius: 8px;
+  background: white;
+  padding: 16px 20px;
+}
+
+.claim-technical-details summary {
+  cursor: pointer;
+  color: var(--claim-teal);
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.claim-technical-details > .claim-panel {
+  margin-top: 14px;
+}
+
+/* C28: invalid recovery-word marking. */
+.claim-phrase-grid input.invalid {
+  border-color: var(--claim-bad);
+  background: #fdf3f3;
+}
+
+/* C34: indeterminate progress ring — an animated conic sweep while no percent
+   is known. Reduced-motion users get a static partial ring. */
+.claim-progress-ring {
+  position: relative;
+}
+
+.claim-progress-ring.indeterminate {
+  background:
+    radial-gradient(closest-side, white 67%, transparent 68%),
+    conic-gradient(#e2f0ef 0 100%);
+}
+
+.claim-progress-ring.indeterminate::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background:
+    radial-gradient(closest-side, white 67%, transparent 68%),
+    conic-gradient(var(--claim-teal) 0 18%, transparent 18% 100%);
+  animation: claim-ring-sweep 1.4s linear infinite;
+}
+
+@keyframes claim-ring-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* C41: reduced-motion fallback — a static partial ring. */
+@media (prefers-reduced-motion: reduce) {
+  .claim-progress-ring.indeterminate,
+  .claim-progress-ring.indeterminate::after {
+    animation: none;
+  }
+}
+
+/* C44: review panel — labels keep a minimum width and long values wrap
+   instead of colliding or ellipsizing into a sliver column. */
+.claim-review-strip .claim-panel-body {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.claim-review-strip .claim-assurance-item:last-of-type {
+  border-right: 0;
+  padding-right: 0;
+}
+
+.claim-review-mini {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--claim-line);
+  padding-top: 14px;
+}
+
+.claim-review-mini .claim-review-row {
+  grid-template-columns: minmax(130px, 0.35fr) minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.claim-review-mini .claim-review-row code {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-overflow: clip;
+}
+
+/* C47: toolbar and action-bar overflow fixes. */
+.claim-table-tools {
+  flex-wrap: wrap;
+}
+
+.claim-table-tools .claim-search {
+  flex: 1 1 180px;
+  min-width: 180px;
+}
+
+@media (max-width: 1180px) {
+  .claim-action-bar {
+    flex-wrap: wrap;
+  }
+}
+
 @media (max-width: 1180px) {
   .claim-shell {
     grid-template-columns: 290px minmax(0, 1fr);
@@ -2624,16 +2820,91 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  /* C48: the sidebar collapses into a compact horizontal step strip so the
+     screen content appears within the first viewport. */
   .claim-sidebar {
     position: static;
     height: auto;
+    grid-template-rows: auto auto;
+    gap: 12px;
+    padding: 12px 14px;
+  }
+
+  .claim-brand {
+    min-height: 0;
+  }
+
+  .claim-step-list {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .claim-step {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 8px;
+    align-items: center;
+    min-height: 0;
+    padding: 6px 10px;
+  }
+
+  .claim-step-line,
+  .claim-step-icon,
+  .claim-step span {
+    display: none;
+  }
+
+  .claim-step:not(.active) strong {
+    display: none;
+  }
+
+  .claim-step-token {
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
+  }
+
+  .claim-step strong {
+    font-size: 15px;
+    white-space: nowrap;
+  }
+
+  .claim-assurance {
+    display: none;
   }
 
   .claim-workspace {
     grid-template-rows: auto 1fr;
   }
 
-  .claim-topbar,
+  /* C48: keep the topbar a compact horizontal row instead of stacked
+     full-width buttons. */
+  .claim-topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .claim-primary-nav {
+    justify-content: flex-start;
+    gap: 6px;
+    overflow-x: auto;
+  }
+
+  .claim-nav-link,
+  .claim-ghost-action {
+    min-width: 0;
+    min-height: 56px;
+    gap: 8px;
+    padding: 0 12px;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+
+  .claim-top-actions {
+    padding-right: 10px;
+  }
+
   .claim-card-grid.three,
   .claim-card-grid.four,
   .claim-summary-tiles.count-3,
@@ -2643,7 +2914,8 @@ button:disabled {
   .claim-review-strip .claim-panel-body,
   .claim-phrase-grid,
   .claim-progress-card,
-  .claim-table-footer {
+  .claim-table-footer,
+  .claim-wallet-chooser.grid > div {
     grid-template-columns: 1fr;
   }
 
@@ -2654,6 +2926,11 @@ button:disabled {
   .claim-panel-toolbar {
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+
+  .claim-primary-nav,
+  .claim-top-actions {
+    flex-wrap: nowrap;
   }
 
   .claim-phrase-settings,
@@ -2668,8 +2945,6 @@ button:disabled {
     grid-auto-columns: minmax(0, 1fr);
   }
 
-  .claim-nav-link,
-  .claim-ghost-action,
   .claim-primary-button {
     min-width: 0;
     width: 100%;
@@ -2834,19 +3109,6 @@ button:disabled {
   color: var(--landing-ink);
 }
 
-.landing-hero::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: -1px;
-  width: 112px;
-  height: 28px;
-  transform: translateX(-50%);
-  background: #fbfaf6;
-  clip-path: polygon(0 0, 35% 0, 50% 100%, 65% 0, 100% 0, 100% 100%, 0 100%);
-  z-index: 3;
-}
-
 .landing-hero-copy {
   position: relative;
   z-index: 2;
@@ -2857,31 +3119,35 @@ button:disabled {
   animation: landing-entrance 640ms ease-out both;
 }
 
-.landing-brand {
+.landing-header {
   margin: 0 0 clamp(8px, 1.5svh, 18px);
+}
+
+.landing-brand {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--landing-ink);
+  text-decoration: none;
+  width: fit-content;
+}
+
+.landing-brand strong {
   font-size: clamp(22px, 2vw, 31px);
   font-weight: 800;
   letter-spacing: 0;
+  line-height: 1.1;
 }
 
-.landing-pill {
-  width: fit-content;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 52px;
-  border: 1px solid rgba(21, 214, 189, 0.72);
-  border-radius: 8px;
-  background: rgba(12, 93, 84, 0.36);
-  color: #d8fff7;
-  padding: 0 18px;
-  font-size: clamp(16px, 1.5vw, 20px);
-  font-weight: 700;
-  box-shadow: inset 0 0 24px rgba(21, 214, 189, 0.08);
+.landing-brand span {
+  color: var(--landing-muted);
+  font-size: clamp(14px, 1.1vw, 17px);
+  font-weight: 600;
 }
 
-.landing-pill svg {
-  color: var(--landing-teal);
+.landing-brand:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
 
 .landing-title-block {
@@ -2892,10 +3158,10 @@ button:disabled {
 .landing-title-block h1 {
   margin: 0;
   max-width: 900px;
-  font-size: clamp(54px, 5vw, 78px);
-  line-height: 0.96;
+  font-size: clamp(44px, 4.2vw, 66px);
+  line-height: 1.02;
   letter-spacing: 0;
-  white-space: nowrap;
+  text-wrap: balance;
 }
 
 .landing-title-block p {
@@ -2918,7 +3184,7 @@ button:disabled {
   align-items: center;
   min-height: 84px;
   border-radius: 8px;
-  padding: 0 25px;
+  padding: 16px 25px;
   color: var(--landing-ink);
   text-decoration: none;
   transition:
@@ -2930,7 +3196,7 @@ button:disabled {
 
 .landing-action.primary {
   border: 1px solid rgba(21, 214, 189, 0.88);
-  background: linear-gradient(135deg, #008a7c 0%, #17cdb2 100%);
+  background: linear-gradient(135deg, #008a7c 0%, #00a88f 100%);
   box-shadow: 0 24px 70px rgba(0, 168, 143, 0.28);
 }
 
@@ -2943,17 +3209,53 @@ button:disabled {
   color: var(--landing-amber);
 }
 
-.landing-action span {
+.landing-action-copy {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.landing-action-label {
   min-width: 0;
   font-size: clamp(23px, 2vw, 32px);
   font-weight: 850;
   line-height: 1.05;
 }
 
-.landing-action:hover,
+.landing-action-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  border: 1px solid rgba(251, 248, 240, 0.55);
+  border-radius: 999px;
+  background: rgba(5, 15, 19, 0.45);
+  color: #eafffa;
+  padding: 3px 11px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.landing-action-copy small {
+  color: rgba(251, 248, 240, 0.85);
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.landing-action.secondary .landing-action-copy small {
+  color: rgba(251, 248, 240, 0.75);
+}
+
+.landing-action:hover {
+  transform: translateY(-2px);
+}
+
 .landing-action:focus-visible {
   transform: translateY(-2px);
-  outline: none;
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
 
 .landing-action.primary:hover,
@@ -2967,15 +3269,10 @@ button:disabled {
   background: rgba(16, 28, 34, 0.86);
 }
 
-.landing-action-note {
-  margin: 0;
-  padding-left: 28px;
-  color: var(--landing-amber);
-  font-size: 17px;
-  line-height: 1.3;
-}
-
 .landing-trust-row {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
@@ -2985,11 +3282,11 @@ button:disabled {
 
 .landing-trust-point {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: 48px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   min-height: 60px;
-  padding: 0 20px;
+  padding: 0 16px;
   border-right: 1px solid var(--landing-line);
 }
 
@@ -3004,8 +3301,8 @@ button:disabled {
 .landing-trust-icon {
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
+  width: 46px;
+  height: 46px;
   border: 1px solid rgba(21, 214, 189, 0.64);
   border-radius: 999px;
   color: #e7fff9;
@@ -3019,15 +3316,15 @@ button:disabled {
 
 .landing-trust-point strong {
   color: #fffdf7;
-  font-size: 19px;
-  line-height: 1.15;
+  font-size: 16px;
+  line-height: 1.2;
 }
 
 .landing-trust-point small {
   margin-top: 3px;
   color: var(--landing-muted);
-  font-size: 15px;
-  line-height: 1.25;
+  font-size: 14px;
+  line-height: 1.3;
 }
 
 .landing-hero-visual {
@@ -3056,6 +3353,65 @@ button:disabled {
   transform: scale(1.02);
   filter: saturate(1.06) contrast(1.02);
   animation: landing-visual-drift 12s ease-in-out infinite alternate;
+}
+
+.landing-how {
+  display: grid;
+  gap: clamp(20px, 3vw, 32px);
+  padding: clamp(40px, 6vw, 64px) clamp(24px, 8vw, 110px);
+  background: #fbfaf6;
+  border-bottom: 1px solid rgba(8, 17, 38, 0.08);
+}
+
+.landing-how h2 {
+  margin: 0;
+  font-size: clamp(28px, 3vw, 36px);
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
+.landing-how-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(18px, 3vw, 40px);
+}
+
+.landing-how-step {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.landing-how-num {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(0, 141, 120, 0.42);
+  border-radius: 999px;
+  background: rgba(0, 141, 120, 0.07);
+  color: #007a6c;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.landing-how-step strong {
+  display: block;
+  color: #0c1117;
+  font-size: 19px;
+  line-height: 1.2;
+}
+
+.landing-how-step small {
+  display: block;
+  margin-top: 4px;
+  color: #2f343b;
+  font-size: 16px;
+  line-height: 1.45;
 }
 
 .landing-support {
@@ -3175,10 +3531,14 @@ button:disabled {
   text-decoration: none;
 }
 
-.landing-inline-link:hover,
+.landing-inline-link:hover {
+  color: #005d52;
+}
+
 .landing-inline-link:focus-visible {
   color: #005d52;
-  outline: none;
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
 
 .landing-proof-band {
@@ -3200,6 +3560,40 @@ button:disabled {
 
 .landing-proof-band h2 {
   color: #0c1117;
+}
+
+.landing-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 30px;
+  padding: 26px clamp(24px, 8vw, 110px);
+  background: #071419;
+  color: rgba(251, 248, 240, 0.73);
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.landing-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #fbf8f0;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.landing-footer a:hover {
+  color: #15d6bd;
+}
+
+.landing-footer a:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.landing-footer-network {
+  margin-left: auto;
 }
 
 @keyframes landing-entrance {
@@ -3243,12 +3637,17 @@ button:disabled {
     opacity: 0.58;
   }
 
+  .landing-hero-visual::before {
+    background: rgba(5, 15, 19, 0.72);
+  }
+
   .landing-hero-copy {
     max-width: 760px;
   }
 
-  .landing-title-block h1 {
-    white-space: normal;
+  .landing-how-steps {
+    grid-template-columns: 1fr;
+    gap: 16px;
   }
 
   .landing-trust-row {
@@ -3275,25 +3674,21 @@ button:disabled {
     min-height: auto;
   }
 
-  .landing-hero::after {
-    width: 76px;
-    height: 20px;
-  }
-
   .landing-hero-copy {
     gap: 13px;
     padding: 22px 20px 24px;
   }
 
-  .landing-brand {
+  .landing-header {
     margin-bottom: 2px;
+  }
+
+  .landing-brand strong {
     font-size: 20px;
   }
 
-  .landing-pill {
-    min-height: 40px;
-    padding: 0 13px;
-    font-size: 15px;
+  .landing-brand span {
+    font-size: 13px;
   }
 
   .landing-title-block {
@@ -3301,7 +3696,7 @@ button:disabled {
   }
 
   .landing-title-block h1 {
-    font-size: clamp(44px, 13.5vw, 54px);
+    font-size: clamp(34px, 10vw, 44px);
   }
 
   .landing-title-block p {
@@ -3314,18 +3709,17 @@ button:disabled {
   }
 
   .landing-action {
-    grid-template-columns: 46px minmax(0, 1fr) 30px;
+    grid-template-columns: 40px minmax(0, 1fr) 26px;
     min-height: 62px;
-    padding: 0 15px;
+    padding: 13px 15px;
   }
 
-  .landing-action span {
+  .landing-action-label {
     font-size: 21px;
   }
 
-  .landing-action-note {
-    padding-left: 6px;
-    font-size: 15px;
+  .landing-action-copy small {
+    font-size: 13px;
   }
 
   .landing-trust-icon {
@@ -3346,9 +3740,21 @@ button:disabled {
     font-size: 13px;
   }
 
+  .landing-how,
   .landing-support,
   .landing-proof-band {
     padding: 40px 20px;
+  }
+
+  .landing-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 28px 20px;
+  }
+
+  .landing-footer-network {
+    margin-left: 0;
   }
 
   .landing-support-visual {

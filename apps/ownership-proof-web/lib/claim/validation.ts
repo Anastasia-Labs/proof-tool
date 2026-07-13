@@ -103,6 +103,9 @@ export class ClaimValidationError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    // Optional structured, user-safe context (e.g. required vs available
+    // lovelace) serialized alongside the code in API error responses.
+    readonly details?: Record<string, string>,
   ) {
     super(message);
     this.name = "ClaimValidationError";

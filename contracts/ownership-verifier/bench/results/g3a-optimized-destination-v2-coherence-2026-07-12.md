@@ -65,10 +65,13 @@ same-credential seven-slot regression also passes at 8,947,636,381 CPU /
 every slot. Repeated/duplicate batches are correctness regressions, not the
 capacity target.
 
-## Remaining live evidence
+## Operator disposition
 
-This is a deterministic local evaluator result, not an on-chain acceptance
-claim. Final G3 still requires the single coherent optimized-V2 Preprod
-deployment, an accepted real all-distinct-seven transaction from one root,
-recorded evaluator and on-chain ex-units, and investigation of any divergence
-above 5%.
+This remains a deterministic local evaluator result, not an on-chain acceptance
+claim. The coherent optimized-V2 Preprod deployment and real V2 six-input and
+four-input claims were subsequently confirmed. On 2026-07-13 the operator
+accepted G2 and G3 by explicit exception: the exact accepted all-distinct-seven
+transaction and its on-chain ex-unit receipt are waived, and the clean
+66,837 ms browser median is accepted despite exceeding the former 60-second
+gate. The missing evidence is not inferred. See
+g2-g3-operator-acceptance-2026-07-13.md for the evidence and variance record.
