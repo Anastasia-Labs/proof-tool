@@ -43,6 +43,9 @@ fi
 
 go mod vendor
 for patch in "${PATCHES[@]}"; do
-  git apply -p0 "$patch"
+  # Windows checkouts can materialize the patch files with CRLF endings while
+  # `go mod vendor` always writes LF targets; normalize before applying so the
+  # hunks match on every platform.
+  tr -d '\r' < "$patch" | git apply -p0
 done
 echo "OK: vendor/ created and reviewed patches applied"

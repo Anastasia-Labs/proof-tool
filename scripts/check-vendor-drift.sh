@@ -34,7 +34,9 @@ trap 'rm -rf "$SCRATCH"' EXIT
 go mod vendor -o "$SCRATCH/vendor"
 
 for patch in "${PATCHES[@]}"; do
-  (cd "$SCRATCH" && git apply -p0 "$OLDPWD/$patch")
+  # Same CRLF normalization as scripts/bootstrap-vendor.sh: Windows checkouts
+  # can materialize the patch files with CRLF while vendor targets are LF.
+  (cd "$SCRATCH" && tr -d '\r' < "$OLDPWD/$patch" | git apply -p0)
 done
 
 if ! diff -r "$SCRATCH/vendor" vendor; then
