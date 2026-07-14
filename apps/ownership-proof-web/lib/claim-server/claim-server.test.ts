@@ -479,6 +479,10 @@ describe("claim build and submit fail closed", () => {
       safeUtxos: [safeUtxo()],
       referenceScriptUtxos: referenceScriptUtxos(deployment),
     });
+    const getProtocolParameters = vi.spyOn(provider, "getProtocolParameters");
+    const getUtxos = vi.spyOn(provider, "getUtxos");
+    const getUtxosByOutRef = vi.spyOn(provider, "getUtxosByOutRef");
+    const evaluateTx = vi.spyOn(provider, "evaluateTx");
     const draft = await createClaimDraft(provider, deployment, {
       deploymentId: deployment.id,
       networkId: 0,
@@ -487,6 +491,10 @@ describe("claim build and submit fail closed", () => {
       selectedOutrefs: selected.map(outRefToString),
       maxUtxos: CLAIM_HARD_BATCH_CAP,
     });
+    getProtocolParameters.mockClear();
+    getUtxos.mockClear();
+    getUtxosByOutRef.mockClear();
+    evaluateTx.mockClear();
     const proofArtifacts = draft.orderedInputs.map((_, index) => {
       const artifact = proofArtifactForDraft(draft, index);
       artifact.artifact.cardano.proof_hex = "ab".repeat(336);
@@ -508,6 +516,61 @@ describe("claim build and submit fail closed", () => {
     expect(built.review.selectedOutrefs).toEqual(draft.orderedInputs.map((input) => input.outRefId));
     expect(built.review.proofDigests).toHaveLength(CLAIM_HARD_BATCH_CAP);
     expect(built.txCbor).not.toHaveLength(0);
+    expect(getProtocolParameters).toHaveBeenCalledTimes(1);
+    expect(getUtxos).toHaveBeenCalledTimes(1);
+    expect(getUtxosByOutRef).toHaveBeenCalledTimes(1);
+    expect(getUtxosByOutRef.mock.calls[0]?.[0]).toHaveLength(CLAIM_HARD_BATCH_CAP + 3);
+    expect(evaluateTx).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed when final provider evaluation differs from transaction completion", async () => {
+    vi.stubEnv("RECLAIM_REVIEW_TOKEN_SECRET", "v2-evaluation-change-test-secret");
+    const deployment = deploymentWithReferenceScripts({
+      ...STATEMENT_BOUND_V2_DEPLOYMENT,
+      reclaimGlobalRewardingCredential: RECLAIM_GLOBAL_SCRIPT,
+    });
+    const selected = [reclaimUtxo("01", 0, CREDENTIAL_1, 1)];
+    const provider = providerWith({
+      reclaimUtxos: selected,
+      selectedUtxos: selected,
+      safeUtxos: [safeUtxo()],
+      referenceScriptUtxos: referenceScriptUtxos(deployment),
+    });
+    const draft = await createClaimDraft(provider, deployment, {
+      deploymentId: deployment.id,
+      networkId: 0,
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      selectedOutrefs: selected.map(outRefToString),
+    });
+    const measured = await provider.evaluateTx("00", []);
+    const changed = measured.map((redeemer, index) =>
+      index === 0
+        ? {
+            ...redeemer,
+            ex_units: { ...redeemer.ex_units, steps: redeemer.ex_units.steps + 1 },
+          }
+        : redeemer,
+    );
+    vi.spyOn(provider, "evaluateTx")
+      .mockResolvedValueOnce(measured)
+      .mockResolvedValueOnce(changed);
+
+    await expect(
+      buildClaimTx(provider, deployment, {
+        deploymentId: deployment.id,
+        networkId: 0,
+        draftId: draft.draftId,
+        selectedOutrefs: draft.orderedInputs.map((input) => input.outRefId),
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        proofArtifacts: draft.orderedInputs.map((_, index) => {
+          const artifact = proofArtifactForDraft(draft, index);
+          artifact.artifact.cardano.proof_hex = "ab".repeat(336);
+          return artifact;
+        }),
+      }),
+    ).rejects.toMatchObject({ code: "claim_evaluation_changed" });
   });
 
   it("enforces V2's measured 90/80 margins while preserving legacy evaluation behavior", () => {

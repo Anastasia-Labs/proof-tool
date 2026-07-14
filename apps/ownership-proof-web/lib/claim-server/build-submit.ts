@@ -12,7 +12,13 @@ import {
   type Provider,
   type UTxO,
 } from "@lucid-evolution/lucid";
-import type { BuildTxWithRedeemer, EvalRedeemer } from "@lucid-evolution/core-types";
+import type {
+  BuildTxWithRedeemer,
+  EvalRedeemer,
+  EvaluationInput,
+  EvaluatorAdapter,
+  ProtocolParameters,
+} from "@lucid-evolution/core-types";
 import type { ReclaimDeployment, ReclaimReferenceScriptDeployment } from "../reclaim/types";
 import {
   DESTINATION_ADDRESS_V1_ENCODING,
@@ -102,6 +108,18 @@ type NormalizedProofArtifact = {
   publicInputDigestHex: string;
 };
 
+type ClaimBuildInputs = {
+  reclaimUtxos: UTxO[];
+  safeWalletUtxos: UTxO[];
+  paramsUtxo: UTxO;
+  referenceScriptUtxos: UTxO[];
+};
+
+type ClaimBuildSnapshot = {
+  provider: Provider;
+  protocol: ProtocolParameters;
+};
+
 export async function validateClaimBuildRequest(
   provider: Provider,
   deployment: ReclaimDeployment,
@@ -116,7 +134,9 @@ export async function buildClaimTx(
   deployment: ReclaimDeployment,
   request: ClaimBuildRequest,
 ): Promise<ClaimBuildResponse> {
-  const preflight = await prepareClaimBuildPreflight(provider, deployment, request);
+  validateClaimBuildRequestShape(deployment, request);
+  const snapshot = await loadClaimBuildSnapshot(provider, deployment, request);
+  const preflight = await prepareClaimBuildPreflight(snapshot.provider, deployment, request);
   if (!preflight.buildReady) {
     throw new UnsupportedClaimBuildError(preflight);
   }
@@ -124,7 +144,13 @@ export async function buildClaimTx(
   const raw = assertObject(request, "claim build request") as ClaimBuildRequest;
   const safeWalletChangeAddress = assertWalletAddress(raw.safeWalletChangeAddress, deployment.network);
   const safeWalletAddresses = assertWalletAddresses(raw.safeWalletAddresses, deployment.network);
-  const buildInputs = await loadClaimBuildInputs(provider, deployment, preflight, safeWalletChangeAddress, safeWalletAddresses);
+  const buildInputs = await loadClaimBuildInputs(
+    snapshot.provider,
+    deployment,
+    preflight,
+    safeWalletChangeAddress,
+    safeWalletAddresses,
+  );
   const orderedOutrefs = claimTransactionInputOrder(preflight.selectedOutrefs);
   const orderedReclaimUtxos = orderUtxosByOutRef(buildInputs.reclaimUtxos, orderedOutrefs);
   const orderedDestinationOutputs = orderByOutRef(preflight.destinationOutputs, orderedOutrefs, (output) => output.outRefId);
@@ -138,7 +164,14 @@ export async function buildClaimTx(
     destinationOutputStartIndex,
   });
 
-  const lucid = await Lucid(provider, deployment.network);
+  // Lucid completes to a fee/collateral fixed point and may evaluate the same
+  // scripts several times. Reuse the first provider measurement during that
+  // loop, then accept the build only if a fresh evaluation of the final CBOR
+  // exactly matches both the reused result and the embedded execution budgets.
+  const completionEvaluator = singleProviderEvaluation(provider);
+  const lucid = await Lucid(provider, deployment.network, {
+    presetProtocolParameters: snapshot.protocol,
+  });
   lucid.selectWallet.fromAddress(safeWalletChangeAddress, buildInputs.safeWalletUtxos);
 
   let tx = lucid
@@ -154,7 +187,8 @@ export async function buildClaimTx(
   const signBuilder = await tx.complete({
     canonical: true,
     changeAddress: safeWalletChangeAddress,
-    localUPLCEval: false,
+    localUPLCEval: true,
+    evaluator: completionEvaluator.adapter,
     presetWalletInputs: buildInputs.safeWalletUtxos,
   });
   const txCbor = signBuilder.toCBOR({ canonical: true });
@@ -164,7 +198,7 @@ export async function buildClaimTx(
     throw new ClaimValidationError("claim_build_tx_hash_mismatch", "Built claim transaction hash is inconsistent.");
   }
 
-  const protocol = await provider.getProtocolParameters();
+  const completionRedeemers = completionEvaluator.result();
   const evaluationRedeemers = await provider.evaluateTx(txCbor, dedupeUtxos([
     ...buildInputs.safeWalletUtxos,
     ...orderedReclaimUtxos,
@@ -177,7 +211,14 @@ export async function buildClaimTx(
       "Provider did not return measured execution units for the claim transaction.",
     );
   }
-  const evaluation = summarizeEvaluation(evaluationRedeemers, protocol);
+  assertSameEvaluation(
+    completionRedeemers,
+    evaluationRedeemers,
+    "claim_evaluation_changed",
+    "Final provider evaluation changed after transaction completion.",
+  );
+  assertTransactionEvaluationBudgets(txCbor, evaluationRedeemers);
+  const evaluation = summarizeEvaluation(evaluationRedeemers, snapshot.protocol);
   assertMeasuredEvaluationWithinDeploymentMargin(deployment, evaluation);
 
   const review = {
@@ -283,6 +324,83 @@ export function validateClaimBuildRequestShape(deployment: ReclaimDeployment, re
   }
   assertWalletAddress(raw.safeWalletChangeAddress, deployment.network);
   assertWalletAddresses(raw.safeWalletAddresses, deployment.network);
+}
+
+async function loadClaimBuildSnapshot(
+  provider: Provider,
+  deployment: ReclaimDeployment,
+  request: ClaimBuildRequest,
+): Promise<ClaimBuildSnapshot> {
+  const raw = request as ClaimBuildRequest;
+  const selectedOutrefs = assertOutRefList(raw.selectedOutrefs, "selectedOutrefs");
+  const changeAddress = assertWalletAddress(raw.safeWalletChangeAddress, deployment.network);
+  const walletAddresses = assertWalletAddresses(raw.safeWalletAddresses, deployment.network);
+  const queryAddresses = [...new Set([changeAddress, ...walletAddresses])];
+  const outrefs = dedupeOutRefs([
+    ...selectedOutrefs,
+    ...(deployment.paramsUtxo
+      ? [{ txHash: deployment.paramsUtxo.tx_hash, outputIndex: deployment.paramsUtxo.output_index }]
+      : []),
+    ...(deployment.referenceScripts
+      ? [
+          referenceScriptOutRef(deployment.referenceScripts.reclaimBase),
+          referenceScriptOutRef(deployment.referenceScripts.reclaimGlobal),
+        ]
+      : []),
+  ]);
+
+  if (typeof provider.getUtxosByOutRef !== "function") {
+    throw new ClaimValidationError(
+      "provider_outref_lookup_unavailable",
+      "Configured Cardano provider cannot query selected outrefs.",
+    );
+  }
+
+  const [protocol, loadedOutrefUtxos, walletUtxoGroups] = await Promise.all([
+    provider.getProtocolParameters(),
+    provider.getUtxosByOutRef(outrefs),
+    Promise.all(queryAddresses.map((address) => provider.getUtxos(address))),
+  ]);
+  const outrefUtxos = dedupeUtxos(loadedOutrefUtxos);
+  const walletUtxosByAddress = new Map(
+    queryAddresses.map((address, index) => [address, dedupeUtxos(walletUtxoGroups[index] ?? [])]),
+  );
+
+  // Keep all existing draft/params/reference-script validations, but make
+  // them read the same fresh request-local data instead of refetching each
+  // out-ref group as the build advances through its phases.
+  const snapshotProvider = new Proxy(provider, {
+    get(target, property) {
+      if (property === "getProtocolParameters") {
+        return async () => protocol;
+      }
+      if (property === "getUtxosByOutRef") {
+        return async (requestedOutrefs: ClaimOutRef[]) => {
+          const requested = new Set(requestedOutrefs.map(outRefToString));
+          return outrefUtxos.filter((utxo) => requested.has(outRefToString(utxo)));
+        };
+      }
+      if (property === "getUtxos") {
+        return async (address: string) => {
+          const utxos = walletUtxosByAddress.get(address);
+          if (!utxos) {
+            throw new ClaimValidationError(
+              "claim_snapshot_address_unavailable",
+              "Claim build requested an address outside its current chain snapshot.",
+            );
+          }
+          return [...utxos];
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as Provider;
+
+  return {
+    provider: snapshotProvider,
+    protocol,
+  };
 }
 
 export function validateClaimSubmitRequest(deployment: ReclaimDeployment, request: ClaimSubmitRequest): void {
@@ -555,12 +673,7 @@ async function loadClaimBuildInputs(
   preflight: ClaimBuildPreflight,
   safeWalletChangeAddress: string,
   safeWalletAddresses: string[],
-): Promise<{
-  reclaimUtxos: UTxO[];
-  safeWalletUtxos: UTxO[];
-  paramsUtxo: UTxO;
-  referenceScriptUtxos: UTxO[];
-}> {
+): Promise<ClaimBuildInputs> {
   const selectedOutrefs = preflight.selectedOutrefs.map((outRefIdValue) => assertOutRef(outRefIdValue, "selectedOutrefs"));
   const selectedIds = new Set(preflight.selectedOutrefs);
   const loadedSelected = await provider.getUtxosByOutRef(selectedOutrefs);
@@ -819,6 +932,14 @@ function dedupeUtxos(utxos: UTxO[]): UTxO[] {
   return deduped;
 }
 
+function dedupeOutRefs(outrefs: ClaimOutRef[]): ClaimOutRef[] {
+  const byId = new Map<string, ClaimOutRef>();
+  for (const outref of outrefs) {
+    byId.set(outRefToString(outref), outref);
+  }
+  return [...byId.values()];
+}
+
 function assetsFromStringMap(value: Record<string, string>): Assets {
   const assets: Assets = {};
   for (const [unit, rawAmount] of Object.entries(value)) {
@@ -828,6 +949,213 @@ function assetsFromStringMap(value: Record<string, string>): Assets {
     assets[unit] = BigInt(rawAmount);
   }
   return assets;
+}
+
+function singleProviderEvaluation(provider: Provider): {
+  adapter: EvaluatorAdapter;
+  result: () => EvalRedeemer[];
+} {
+  let pending: Promise<EvalRedeemer[]> | null = null;
+  let cached: EvalRedeemer[] | null = null;
+  const evaluate = async ({ tx, additionalUTxOs }: EvaluationInput): Promise<EvalRedeemer[]> => {
+    pending ??= provider.evaluateTx(tx, additionalUTxOs).then((redeemers) => {
+      if (!Array.isArray(redeemers)) {
+        throw new ClaimValidationError(
+          "claim_evaluation_unavailable",
+          "Provider did not return measured execution units for transaction completion.",
+        );
+      }
+      cached = normalizeEvaluation(
+        redeemers,
+        "claim_evaluation_unavailable",
+        "Provider returned invalid measured execution units for transaction completion.",
+      );
+      return cached;
+    });
+    return cloneEvaluation(await pending);
+  };
+  return {
+    adapter: {
+      name: "claim-provider-snapshot",
+      evaluate,
+    },
+    result: () => {
+      if (!cached) {
+        throw new ClaimValidationError(
+          "claim_evaluation_unavailable",
+          "Transaction completion did not measure claim execution units.",
+        );
+      }
+      return cloneEvaluation(cached);
+    },
+  };
+}
+
+function cloneEvaluation(redeemers: EvalRedeemer[]): EvalRedeemer[] {
+  return redeemers.map((redeemer) => ({
+    redeemer_tag: redeemer.redeemer_tag,
+    redeemer_index: redeemer.redeemer_index,
+    ex_units: {
+      mem: redeemer.ex_units.mem,
+      steps: redeemer.ex_units.steps,
+    },
+  }));
+}
+
+function assertSameEvaluation(
+  expected: EvalRedeemer[],
+  actual: EvalRedeemer[],
+  code: string,
+  message: string,
+): void {
+  const normalizedExpected = normalizeEvaluation(expected, code, message);
+  const normalizedActual = normalizeEvaluation(actual, code, message);
+  if (stableStringify(normalizedExpected) !== stableStringify(normalizedActual)) {
+    throw new ClaimValidationError(code, message);
+  }
+}
+
+function normalizeEvaluation(redeemers: EvalRedeemer[], code: string, message: string): EvalRedeemer[] {
+  const seen = new Set<string>();
+  const normalized = redeemers.map((redeemer) => {
+    if (
+      !redeemer ||
+      typeof redeemer !== "object" ||
+      !isEvaluationTag(redeemer.redeemer_tag) ||
+      !Number.isSafeInteger(redeemer.redeemer_index) ||
+      redeemer.redeemer_index < 0 ||
+      !redeemer.ex_units ||
+      typeof redeemer.ex_units !== "object" ||
+      !Number.isSafeInteger(redeemer.ex_units.mem) ||
+      redeemer.ex_units.mem < 0 ||
+      !Number.isSafeInteger(redeemer.ex_units.steps) ||
+      redeemer.ex_units.steps < 0
+    ) {
+      throw new ClaimValidationError(code, message);
+    }
+    const key = `${redeemer.redeemer_tag}:${redeemer.redeemer_index}`;
+    if (seen.has(key)) {
+      throw new ClaimValidationError(code, message);
+    }
+    seen.add(key);
+    return {
+      redeemer_tag: redeemer.redeemer_tag,
+      redeemer_index: redeemer.redeemer_index,
+      ex_units: {
+        mem: redeemer.ex_units.mem,
+        steps: redeemer.ex_units.steps,
+      },
+    };
+  });
+  return normalized.sort((left, right) => {
+    const tagCompare = left.redeemer_tag.localeCompare(right.redeemer_tag);
+    return tagCompare !== 0 ? tagCompare : left.redeemer_index - right.redeemer_index;
+  });
+}
+
+function isEvaluationTag(value: unknown): value is EvalRedeemer["redeemer_tag"] {
+  return value === "spend" || value === "mint" || value === "publish" || value === "withdraw" || value === "vote" || value === "propose";
+}
+
+function assertTransactionEvaluationBudgets(txCbor: string, evaluated: EvalRedeemer[]): void {
+  let embedded: EvalRedeemer[];
+  try {
+    embedded = transactionEvaluationRedeemers(txCbor);
+  } catch (error) {
+    if (error instanceof ClaimValidationError) {
+      throw error;
+    }
+    throw new ClaimValidationError(
+      "claim_evaluation_tx_budget_mismatch",
+      "Built claim transaction execution budgets could not be inspected.",
+    );
+  }
+  assertSameEvaluation(
+    evaluated,
+    embedded,
+    "claim_evaluation_tx_budget_mismatch",
+    "Built claim transaction execution budgets do not match final provider measurements.",
+  );
+}
+
+function transactionEvaluationRedeemers(txCbor: string): EvalRedeemer[] {
+  const redeemers = CML.Transaction.from_cbor_hex(txCbor).witness_set().redeemers();
+  if (!redeemers) {
+    return [];
+  }
+  const result: EvalRedeemer[] = [];
+  const legacy = redeemers.as_arr_legacy_redeemer();
+  if (legacy) {
+    for (let index = 0; index < legacy.len(); index += 1) {
+      const redeemer = legacy.get(index);
+      result.push(evaluationRedeemerFromCml(redeemer.tag(), redeemer.index(), redeemer.ex_units()));
+    }
+  }
+  const mapped = redeemers.as_map_redeemer_key_to_redeemer_val();
+  if (mapped) {
+    const keys = mapped.keys();
+    for (let index = 0; index < keys.len(); index += 1) {
+      const key = keys.get(index);
+      const value = mapped.get(key);
+      if (!value) {
+        throw new ClaimValidationError(
+          "claim_evaluation_tx_budget_mismatch",
+          "Built claim transaction contains an invalid redeemer budget map.",
+        );
+      }
+      result.push(evaluationRedeemerFromCml(key.tag(), key.index(), value.ex_units()));
+    }
+  }
+  return result;
+}
+
+function evaluationRedeemerFromCml(
+  tag: CML.RedeemerTag,
+  index: bigint,
+  exUnits: CML.ExUnits,
+): EvalRedeemer {
+  const redeemerIndex = safeEvaluationNumber(index);
+  return {
+    redeemer_tag: evaluationTagFromCml(tag),
+    redeemer_index: redeemerIndex,
+    ex_units: {
+      mem: safeEvaluationNumber(exUnits.mem()),
+      steps: safeEvaluationNumber(exUnits.steps()),
+    },
+  };
+}
+
+function safeEvaluationNumber(value: bigint): number {
+  const result = Number(value);
+  if (!Number.isSafeInteger(result) || result < 0) {
+    throw new ClaimValidationError(
+      "claim_evaluation_tx_budget_mismatch",
+      "Built claim transaction contains an invalid execution budget.",
+    );
+  }
+  return result;
+}
+
+function evaluationTagFromCml(tag: CML.RedeemerTag): EvalRedeemer["redeemer_tag"] {
+  switch (tag) {
+    case CML.RedeemerTag.Spend:
+      return "spend";
+    case CML.RedeemerTag.Mint:
+      return "mint";
+    case CML.RedeemerTag.Cert:
+      return "publish";
+    case CML.RedeemerTag.Reward:
+      return "withdraw";
+    case CML.RedeemerTag.Voting:
+      return "vote";
+    case CML.RedeemerTag.Proposing:
+      return "propose";
+    default:
+      throw new ClaimValidationError(
+        "claim_evaluation_tx_budget_mismatch",
+        "Built claim transaction contains an unknown redeemer tag.",
+      );
+  }
 }
 
 function summarizeEvaluation(

@@ -1147,6 +1147,46 @@ describe("ClaimFlow", () => {
     expect(await screen.findByRole("button", { name: /Copy Safe wallet \(destination\) — copied/i })).toBeInTheDocument();
   });
 
+  it("shows build progress immediately and suppresses duplicate build requests", async () => {
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    writeResumeSnapshotForTest({ screen: "current-batch", draft });
+    let resolveBuild!: (response: Response) => void;
+    const pendingBuild = new Promise<Response>((resolve) => {
+      resolveBuild = resolve;
+    });
+    const fallbackFetch = claimFlowFetch({ draft });
+    const fetch = vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url) === "/claim-api/build") {
+        return pendingBuild;
+      }
+      return fallbackFetch(url, init);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    expect(await screen.findByRole("heading", { name: "Claim funds" })).toBeInTheDocument();
+    const buildButton = screen.getByRole("button", { name: "Build transaction for review" });
+    fireEvent.click(buildButton);
+    fireEvent.click(buildButton);
+
+    const buildingButton = await screen.findByRole("button", { name: "Building transaction" });
+    expect(buildingButton).toBeDisabled();
+    expect(buildingButton.querySelector("svg.spin")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Go back" })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(/Refreshing current chain data/i);
+    expect(fetch.mock.calls.filter(([url]) => String(url) === "/claim-api/build")).toHaveLength(1);
+
+    resolveBuild(jsonResponse(claimBuild(draft)));
+    expect(await screen.findByText("Review hash")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /submit claim/i })).toBeEnabled();
+  });
+
   it("keeps Refresh status passive and starts the next batch only from the explicit CTA", async () => {
     window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
     const draft = claimDraft([`${"a".repeat(64)}#0`]);
