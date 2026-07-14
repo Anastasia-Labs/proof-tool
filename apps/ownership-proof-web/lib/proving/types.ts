@@ -83,6 +83,22 @@ export type ProverPreflightResult = {
   chunk_size?: number;
   deployment_id?: string;
   signature_key_id?: string;
+  applied_tuning?: {
+    worker_count?: number;
+    shard_count?: number;
+    range_fetch_concurrency?: number;
+    chunk_prefetch_window?: number;
+  };
+  timings?: {
+    initialization_ms?: number;
+    asset_open_ms?: number;
+    ccs_fetch_ms?: number;
+    ccs_decode_ms?: number;
+    ccs_hash_ms?: number;
+    ccs_bytes_fetched?: number;
+    ccs_browser_prefetch_ms?: number;
+    ccs_browser_prefetch_bytes?: number;
+  };
 };
 
 export type ProverProveResult = {
@@ -92,13 +108,14 @@ export type ProverProveResult = {
   wall_seconds?: number;
   peak_heap_gib?: number;
   verified_locally?: boolean;
+  trace?: unknown;
 };
 
 // postMessage protocol with public/proof-runtime/prover-worker.js. The request
 // JSON crossing this boundary contains master_xprv_hex; nothing that carries it
 // may be logged, thrown, or surfaced outside the provider modules.
 export type ProverWorkerRequest =
-  | { id: string; type: "init"; wasmUrl: string; wasmExecUrl: string; gogc: number; gomemlimit: string }
+  | { id: string; type: "init"; wasmUrl: string; wasmExecUrl: string; msmWorkerWasmUrl: string; gogc: number; gomemlimit: string }
   | { id: string; type: "preflight"; requestJson: string }
   | { id: string; type: "prove"; requestJson: string };
 

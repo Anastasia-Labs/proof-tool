@@ -55,7 +55,16 @@ import {
 } from "../lib/claim/types";
 import type { AssetMap, BrowserProvingDescriptor, DeploymentResponse, ReclaimApiError, ReclaimNetwork } from "../lib/reclaim/types";
 import { LOVELACE_UNIT } from "../lib/reclaim/types";
-import { ProvingCancelledError, checkBrowserProving, proveDestinationInBrowser } from "../lib/proving/browser-wasm";
+import {
+  ProvingCancelledError,
+  checkBrowserProving,
+  disposePreparedBrowserProvingSession,
+  proveDestinationInBrowser,
+} from "../lib/proving/browser-wasm";
+import {
+  downloadLastBrowserProvingDiagnostic,
+  hasBrowserProvingDiagnostic,
+} from "../lib/proving/diagnostic";
 import { proveDestinationViaHelper } from "../lib/proving/desktop-helper";
 import {
   acknowledgePairing,
@@ -568,6 +577,7 @@ const defaultCreateWorker = () =>
   }) as WorkerLike;
 
 export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps = {}) {
+  useEffect(() => () => disposePreparedBrowserProvingSession(), []);
   const [screen, setScreen] = useState<ClaimScreen>("deployment-review");
   // Mirror of `screen` for async completions that must know where the user is
   // right now (C5/C11). Synchronously updated by changeScreen for user
@@ -3415,6 +3425,16 @@ function CreateProofs({
               ? "Proofs will be generated in this browser. Expect about 2 minutes per proof on a fast machine; your recovery phrase stays on this device."
               : "Your recovery phrase stays on this device."}
       </Notice>
+      {browserSelected && hasBrowserProvingDiagnostic() ? (
+        <button
+          className="claim-secondary-button"
+          type="button"
+          onClick={downloadLastBrowserProvingDiagnostic}
+        >
+          <Download size={18} aria-hidden="true" />
+          Download performance diagnostic
+        </button>
+      ) : null}
       {onCheckHelper && !browserSelected && (helperBad || helperChecking) ? (
         <button
           className="claim-secondary-button"
@@ -3780,6 +3800,16 @@ function CreateProofsComplete({
       <Notice icon={Check} title="Ready to claim">
         Your proofs are bound to the safe wallet address. They can only be used to send recovered funds there.
       </Notice>
+      {hasBrowserProvingDiagnostic() ? (
+        <button
+          className="claim-secondary-button"
+          type="button"
+          onClick={downloadLastBrowserProvingDiagnostic}
+        >
+          <Download size={18} aria-hidden="true" />
+          Download performance diagnostic
+        </button>
+      ) : null}
       <div className="claim-content-with-aside">
         <Panel title="Claim plan">
           {batchSummary || fixtureMode ? (

@@ -1070,11 +1070,21 @@ function browserProvingTuningField(
   }
   const root = objectField(value, field, errors);
   const tuning: BrowserProvingTuning = {};
-  for (const key of ["worker_count", "shard_count", "shard_multiplier", "range_fetch_concurrency", "gogc"] as const) {
+  for (const key of ["worker_count", "shard_count", "shard_multiplier", "range_fetch_concurrency", "chunk_prefetch_window", "gogc"] as const) {
     if (root[key] === undefined) {
       continue;
     }
     tuning[key] = positiveIntegerField(root[key], `${field}.${key}`, errors);
+  }
+  if (
+    tuning.chunk_prefetch_window !== undefined &&
+    tuning.chunk_prefetch_window > 4
+  ) {
+    errors.push({
+      code: "invalid_value",
+      field: field + ".chunk_prefetch_window",
+      message: field + ".chunk_prefetch_window must be at most 4.",
+    });
   }
   if (root.pinned_decode !== undefined) {
     if (typeof root.pinned_decode !== "boolean") {

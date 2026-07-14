@@ -1,9 +1,15 @@
 import type { BrowserProvingDescriptor } from "../reclaim/types";
 import type { BrowserCapabilityFailure, BrowserCapabilityReport } from "./types";
+import type { BrowserCalibrationSummary } from "./diagnostic";
 
 const NESTED_WORKER_PROBE_TIMEOUT_MS = 4000;
 export const MIN_HARDWARE_CONCURRENCY = 4;
 const RECOMMENDED_DEVICE_MEMORY_GIB = 8;
+const CALIBRATION_TIMEOUT_MS = 3000;
+const CALIBRATION_WORKER_BYTES = 2 * 1024 * 1024;
+const CALIBRATION_FLOOR = 8;
+const CALIBRATION_CAP = 16;
+const CALIBRATION_RESERVED_THREADS = 2;
 
 // Capability preflight for browser proving. Every check here runs before the
 // browser method is enabled, and again immediately before proving — always
@@ -143,4 +149,102 @@ async function probeNestedWorkers(): Promise<{ ok: boolean; message: string }> {
     workerRef.current?.terminate();
     URL.revokeObjectURL(parentUrl);
   }
+}
+
+
+// W5 grows from the safe eight-worker floor only after this browser proves it
+// can create and touch the additional worker memory. deviceMemory is advisory:
+// browsers that omit it can still reach 12/16 when CPU and calibration agree.
+export async function calibrateBrowserWorkerCapacity(
+  descriptor: BrowserProvingDescriptor,
+): Promise<BrowserCalibrationSummary> {
+  const startedAt = performance.now();
+  const explicit = descriptor.tuning?.worker_count;
+  if (Number.isSafeInteger(explicit) && Number(explicit) > 0) {
+    return calibrationResult([], Math.min(CALIBRATION_CAP, Number(explicit)), startedAt, "deployment-pinned");
+  }
+  if (descriptor.tuning?.opt_w5 !== true) {
+    return calibrationResult([], CALIBRATION_FLOOR, startedAt, "adaptive-workers-disabled");
+  }
+  const memory = readDeviceMemoryGiB();
+  if (memory !== null && memory < RECOMMENDED_DEVICE_MEMORY_GIB) {
+    return calibrationResult([], CALIBRATION_FLOOR, startedAt, "reported-memory-below-floor");
+  }
+  const cores =
+    typeof navigator !== "undefined" && Number.isFinite(navigator.hardwareConcurrency)
+      ? Math.floor(navigator.hardwareConcurrency)
+      : null;
+  if (cores === null || cores - CALIBRATION_RESERVED_THREADS < 12) {
+    return calibrationResult([], CALIBRATION_FLOOR, startedAt, "insufficient-or-unknown-cpu-capacity");
+  }
+  const target = Math.min(CALIBRATION_CAP, cores - CALIBRATION_RESERVED_THREADS);
+  const stages = [CALIBRATION_FLOOR, 12, 16].filter((count) => count <= target);
+  const attemptedWorkerCounts: number[] = [];
+  const workers: Worker[] = [];
+  const source =
+    "self.onmessage=()=>{try{const b=new Uint8Array(" +
+    CALIBRATION_WORKER_BYTES +
+    ");for(let i=0;i<b.length;i+=4096)b[i]=i&255;self.postMessage({ok:true});}catch(e){self.postMessage({ok:false});}}";
+  const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+  let applied = CALIBRATION_FLOOR;
+  try {
+    for (const count of stages) {
+      attemptedWorkerCounts.push(count);
+      if (!(await growCalibrationPool(workers, count, url))) {
+        return calibrationResult(attemptedWorkerCounts, applied, startedAt, "calibration-stopped");
+      }
+      applied = count;
+    }
+    return calibrationResult(attemptedWorkerCounts, applied, startedAt, "calibration-passed");
+  } finally {
+    for (const worker of workers) worker.terminate();
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function growCalibrationPool(
+  workers: Worker[],
+  count: number,
+  url: string,
+): Promise<boolean> {
+  const additions: Worker[] = [];
+  try {
+    while (workers.length < count) {
+      const worker = new Worker(url);
+      workers.push(worker);
+      additions.push(worker);
+    }
+  } catch {
+    return false;
+  }
+  return await Promise.race([
+    Promise.all(
+      additions.map(
+        (worker) =>
+          new Promise<boolean>((resolve) => {
+            worker.onmessage = (event: MessageEvent<{ ok?: boolean }>) =>
+              resolve(event.data?.ok === true);
+            worker.onerror = () => resolve(false);
+            worker.postMessage(null);
+          }),
+      ),
+    ).then((values) => values.every(Boolean)),
+    new Promise<boolean>((resolve) =>
+      setTimeout(() => resolve(false), CALIBRATION_TIMEOUT_MS),
+    ),
+  ]);
+}
+
+function calibrationResult(
+  attemptedWorkerCounts: number[],
+  appliedWorkerCount: number,
+  startedAt: number,
+  reason: string,
+): BrowserCalibrationSummary {
+  return {
+    attemptedWorkerCounts,
+    appliedWorkerCount,
+    durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
+    reason,
+  };
 }

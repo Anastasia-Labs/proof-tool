@@ -3,7 +3,14 @@ import type {
   BrowserProvingTuning,
 } from "../reclaim/types";
 import type { ClaimProofRequest } from "../claim/types";
-import { checkBrowserProvingCapability } from "./capability";
+import {
+  calibrateBrowserWorkerCapacity,
+  checkBrowserProvingCapability,
+} from "./capability";
+import {
+  BrowserProvingDiagnosticCollector,
+  browserDiagnosticHostSignals,
+} from "./diagnostic";
 import type {
   BrowserProvingCheckResult,
   DestinationProofResponse,
@@ -23,6 +30,7 @@ type ProverWorkerRequestBody = ProverWorkerRequest extends infer T
 
 export const PROVER_WORKER_INIT_TIMEOUT_MS = 60_000;
 export const PROVER_PREFLIGHT_TIMEOUT_MS = 300_000;
+export const PREPARED_PROVER_TIMEOUT_MS = 180_000;
 
 // Gate G1 defaults. Deployments may still pin explicit values; host adaptation
 // occurs only when the descriptor explicitly opts into W5 and omits
@@ -32,6 +40,7 @@ const DEFAULT_TUNING: Required<Omit<BrowserProvingTuning, "shard_multiplier">> =
     worker_count: 8,
     shard_count: 8,
     range_fetch_concurrency: 2,
+    chunk_prefetch_window: 2,
     pinned_decode: true,
     opt_w1: true,
     opt_w2: true,
@@ -39,8 +48,12 @@ const DEFAULT_TUNING: Required<Omit<BrowserProvingTuning, "shard_multiplier">> =
     opt_w5: true,
     opt_w6: true,
     opt_w7: true,
-    gogc: 50,
-    gomemlimit: "3000MiB",
+    // gogc=15/3200MiB measured faster than 50/3000MiB across cold/warm and
+    // 8/16-worker cases (output/gogc50-comparison vs remote-browser-matrix-v2-opt-r1):
+    // on the single-threaded main instance, small frequent GC cycles beat
+    // large deferred ones, and the higher limit adds headroom against GC thrash.
+    gogc: 15,
+    gomemlimit: "3200MiB",
   };
 
 export class ProvingCancelledError extends Error {
@@ -61,11 +74,21 @@ function defaultCreateProverWorker(): ProverWorkerLike {
   ) as unknown as ProverWorkerLike;
 }
 
-// Full readiness check for the browser provider: capability preflight first
-// (cheap, no network), then the asset preflight inside the prover worker
-// (signed manifest, chunk manifest, runtime hash pins), then the vk_hash chain
-// against the deployment's verifier hash. Runs before the browser option is
-// enabled and again before proving — always before the phrase is read.
+type PreparedProverSession = {
+  publicKey: string;
+  client: ProverWorkerClient;
+  collector: BrowserProvingDiagnosticCollector;
+  preflight: ProverPreflightResult;
+  workerCount: number;
+  createdAt: number;
+  expiry: ReturnType<typeof setTimeout>;
+};
+
+let preparedSession: PreparedProverSession | null = null;
+
+// Full readiness performs the signed asset preflight exactly once. The
+// validated worker, CCS, and nested MSM pool remain available until proving,
+// explicit disposal, or the short expiry below.
 export async function checkBrowserProving(
   descriptor: BrowserProvingDescriptor | null | undefined,
   expectedVkHash: string,
@@ -76,57 +99,32 @@ export async function checkBrowserProving(
     return { status: "unsupported", capability, preflight: null };
   }
 
-  const client = new ProverWorkerClient(
-    options.createWorker ?? defaultCreateProverWorker,
-  );
   try {
-    await client.init(descriptor);
-    const preflight = await client.preflight(
-      buildPreflightRequestJson(descriptor),
+    const session = await prepareProverSession(
+      descriptor,
+      expectedVkHash,
+      options,
     );
-    if (preflight.ok !== true) {
-      capability.failures.push({
-        check: "asset-preflight",
-        message: "Proof assets failed verification.",
-      });
-      return {
-        status: "asset-error",
-        capability: { ...capability, ok: false },
-        preflight,
-      };
-    }
-    if (preflight.vk_hash !== expectedVkHash) {
-      capability.failures.push({
-        check: "vk-hash",
-        message: "Proof assets do not match this deployment's verifier key.",
-      });
-      return {
-        status: "asset-error",
-        capability: { ...capability, ok: false },
-        preflight,
-      };
-    }
-    return { status: "ready", capability, preflight };
+    return { status: "ready", capability, preflight: session.preflight };
   } catch (error) {
+    const message = sanitizeProverError(error);
     capability.failures.push({
-      check: "asset-preflight",
-      message: sanitizeProverError(error),
+      check: message.includes("do not match this deployment")
+        ? "vk-hash"
+        : "asset-preflight",
+      message,
     });
     return {
       status: "asset-error",
       capability: { ...capability, ok: false },
       preflight: null,
     };
-  } finally {
-    client.terminate();
   }
 }
 
-// Sequential per-request proving in one long-lived worker: the runtime and
-// verified asset state are reused across the batch, and the ~2.3 GiB peak per
-// proof leaves no headroom for parallelism. All-or-nothing, matching helper
-// semantics. AbortSignal terminates the worker outright — the Go runtime does
-// not cancel mid-MSM.
+// Sequential per-request proving uses the prepared worker. The Go runtime
+// consumes the prepared CCS on the first proof and retains the verified asset
+// reader plus nested pool for later distinct statements in this claim flow.
 export async function proveDestinationInBrowser(
   input: GenerateDestinationProofsInput,
   options: BrowserWasmOptions = {},
@@ -135,10 +133,16 @@ export async function proveDestinationInBrowser(
   if (!descriptor || !descriptor.enabled) {
     throw new Error("Browser proving is not enabled for this deployment.");
   }
+  if (input.signal?.aborted) {
+    throw new ProvingCancelledError();
+  }
   const total = input.draft.proofRequests.length;
-  const client = new ProverWorkerClient(
-    options.createWorker ?? defaultCreateProverWorker,
+  const session = await takeOrPrepareProverSession(
+    descriptor,
+    input.expectedVkHash,
+    options,
   );
+  const client = session.client;
   let masterXPrvHex: string | null = null;
   const onAbort = () => client.terminate(new ProvingCancelledError());
   try {
@@ -146,19 +150,6 @@ export async function proveDestinationInBrowser(
       throw new ProvingCancelledError();
     }
     input.signal?.addEventListener("abort", onAbort);
-
-    await client.init(descriptor);
-    const preflight = await client.preflight(
-      buildPreflightRequestJson(descriptor),
-    );
-    if (preflight.ok !== true) {
-      throw new Error("Proof assets failed verification.");
-    }
-    if (preflight.vk_hash !== input.expectedVkHash) {
-      throw new Error(
-        "Proof assets do not match this deployment's verifier key.",
-      );
-    }
 
     masterXPrvHex = bytesToHex(input.masterXPrv);
     const artifacts: Array<{
@@ -185,7 +176,12 @@ export async function proveDestinationInBrowser(
         continue;
       }
       const result = await client.prove(
-        buildProveRequestJson(descriptor, masterXPrvHex, request),
+        buildProveRequestJson(
+          descriptor,
+          session.workerCount,
+          masterXPrvHex,
+          request,
+        ),
         (stage, frac) => {
           input.onProgress?.({
             provider: "browser-wasm",
@@ -197,6 +193,7 @@ export async function proveDestinationInBrowser(
           });
         },
       );
+      session.collector.addProof(result);
       if (result.verified_locally !== true) {
         throw new Error(
           "The browser prover could not verify a generated proof locally.",
@@ -223,8 +220,163 @@ export async function proveDestinationInBrowser(
   } finally {
     input.signal?.removeEventListener("abort", onAbort);
     masterXPrvHex = null;
+    session.collector.finish();
     client.terminate();
+    if (preparedSession === session) preparedSession = null;
   }
+}
+
+export function disposePreparedBrowserProvingSession(): void {
+  const session = preparedSession;
+  preparedSession = null;
+  if (!session) return;
+  clearTimeout(session.expiry);
+  session.collector.finish();
+  session.client.terminate();
+}
+
+async function takeOrPrepareProverSession(
+  descriptor: BrowserProvingDescriptor,
+  expectedVkHash: string,
+  options: BrowserWasmOptions,
+): Promise<PreparedProverSession> {
+  const publicKey = preparedSessionPublicKey(descriptor, expectedVkHash);
+  if (preparedSession?.publicKey === publicKey) {
+    clearTimeout(preparedSession.expiry);
+    preparedSession.collector.recordPreparedSessionReuse(
+      nowMS() - preparedSession.createdAt,
+    );
+    return preparedSession;
+  }
+  const session = await prepareProverSession(
+    descriptor,
+    expectedVkHash,
+    options,
+  );
+  clearTimeout(session.expiry);
+  return session;
+}
+
+async function prepareProverSession(
+  descriptor: BrowserProvingDescriptor,
+  expectedVkHash: string,
+  options: BrowserWasmOptions,
+): Promise<PreparedProverSession> {
+  const publicKey = preparedSessionPublicKey(descriptor, expectedVkHash);
+  if (preparedSession?.publicKey === publicKey) {
+    resetPreparedSessionExpiry(preparedSession);
+    return preparedSession;
+  }
+  disposePreparedBrowserProvingSession();
+
+  const calibration = options.createWorker
+    ? {
+        attemptedWorkerCounts: [],
+        appliedWorkerCount: resolveBrowserWorkerCount(descriptor),
+        durationMs: 0,
+        reason: "injected-worker-test-seam",
+      }
+    : await calibrateBrowserWorkerCapacity(descriptor);
+  const workerCount = calibration.appliedWorkerCount;
+  const collector = new BrowserProvingDiagnosticCollector(
+    browserDiagnosticHostSignals(calibration),
+  );
+  const client = new ProverWorkerClient(
+    options.createWorker ?? defaultCreateProverWorker,
+  );
+  try {
+    const initializationStarted = nowMS();
+    const ccsPrefetch = options.createWorker
+      ? Promise.resolve({ durationMS: 0, bytes: 0 })
+      : prefetchPublicCCS(descriptor.ccs_url);
+    await client.init(descriptor);
+    collector.recordInitialization(nowMS() - initializationStarted);
+    const prefetched = await ccsPrefetch;
+
+    const preflightStarted = nowMS();
+    const preflight = await client.preflight(
+      buildPreflightRequestJson(descriptor, workerCount),
+    );
+    preflight.timings = {
+      ...preflight.timings,
+      ccs_browser_prefetch_ms: prefetched.durationMS,
+      ccs_browser_prefetch_bytes: prefetched.bytes,
+    };
+    collector.recordPreflight(nowMS() - preflightStarted, preflight);
+    if (preflight.ok !== true) {
+      throw new Error("Proof assets failed verification.");
+    }
+    if (preflight.vk_hash !== expectedVkHash) {
+      throw new Error(
+        "Proof assets do not match this deployment's verifier key.",
+      );
+    }
+    const session: PreparedProverSession = {
+      publicKey,
+      client,
+      collector,
+      preflight,
+      workerCount,
+      createdAt: nowMS(),
+      expiry: setTimeout(() => undefined, PREPARED_PROVER_TIMEOUT_MS),
+    };
+    resetPreparedSessionExpiry(session);
+    preparedSession = session;
+    return session;
+  } catch (error) {
+    collector.finish();
+    client.terminate();
+    throw error;
+  }
+}
+
+function resetPreparedSessionExpiry(session: PreparedProverSession): void {
+  clearTimeout(session.expiry);
+  session.expiry = setTimeout(() => {
+    if (preparedSession === session) {
+      disposePreparedBrowserProvingSession();
+    }
+  }, PREPARED_PROVER_TIMEOUT_MS);
+}
+
+function preparedSessionPublicKey(
+  descriptor: BrowserProvingDescriptor,
+  expectedVkHash: string,
+): string {
+  return JSON.stringify({
+    artifacts: buildArtifactsBlock(descriptor),
+    tuning: descriptor.tuning ?? null,
+    expectedVkHash,
+  });
+}
+
+async function prefetchPublicCCS(
+  ccsURL: string,
+): Promise<{ durationMS: number; bytes: number }> {
+  const started = nowMS();
+  let bytes = 0;
+  try {
+    const response = await fetch(absolutize(ccsURL), { cache: "force-cache" });
+    if (!response.ok || !response.body) {
+      return { durationMS: nowMS() - started, bytes: 0 };
+    }
+    const reader = response.body.getReader();
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      bytes += part.value.byteLength;
+    }
+  } catch {
+    bytes = 0;
+  }
+  return { durationMS: nowMS() - started, bytes };
+}
+
+function nowMS(): number {
+  return typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
 }
 
 function proofRequestStatementKey(request: ClaimProofRequest): string {
@@ -237,15 +389,17 @@ function proofRequestStatementKey(request: ClaimProofRequest): string {
 
 function buildPreflightRequestJson(
   descriptor: BrowserProvingDescriptor,
+  workerCount: number,
 ): string {
   return JSON.stringify({
     artifacts: buildArtifactsBlock(descriptor),
-    tuning: buildTuningBlock(descriptor),
+    tuning: buildTuningBlock(descriptor, workerCount),
   });
 }
 
 function buildProveRequestJson(
   descriptor: BrowserProvingDescriptor,
+  workerCount: number,
   masterXPrvHex: string,
   request: ClaimProofRequest,
 ): string {
@@ -258,16 +412,18 @@ function buildProveRequestJson(
       max_index: 999,
     },
     artifacts: buildArtifactsBlock(descriptor),
-    tuning: buildTuningBlock(descriptor),
+    tuning: buildTuningBlock(descriptor, workerCount),
     include_debug_path: false,
   });
 }
 
 function buildTuningBlock(
   descriptor: BrowserProvingDescriptor,
+  appliedWorkerCount?: number,
 ): Record<string, boolean | number> {
   const tuning = { ...DEFAULT_TUNING, ...descriptor.tuning };
-  const workerCount = resolveBrowserWorkerCount(descriptor);
+  const workerCount =
+    appliedWorkerCount ?? resolveBrowserWorkerCount(descriptor);
   return {
     worker_count: workerCount,
     // Every selected Worker must receive at least one section shard. The
@@ -275,6 +431,7 @@ function buildTuningBlock(
     // worker pools raise it without changing the published base descriptor.
     shard_count: Math.max(tuning.shard_count, workerCount),
     range_fetch_concurrency: tuning.range_fetch_concurrency,
+    chunk_prefetch_window: tuning.chunk_prefetch_window,
     pinned_decode: tuning.pinned_decode,
     opt_w1: tuning.opt_w1,
     opt_w2: tuning.opt_w2,
@@ -316,9 +473,9 @@ export function resolveBrowserWorkerCount(
   if (
     host.hardwareConcurrency === null ||
     !Number.isFinite(host.hardwareConcurrency) ||
-    host.deviceMemoryGiB === null ||
-    !Number.isFinite(host.deviceMemoryGiB) ||
-    host.deviceMemoryGiB < W5_MIN_DEVICE_MEMORY_GIB
+    (host.deviceMemoryGiB !== null &&
+      (!Number.isFinite(host.deviceMemoryGiB) ||
+        host.deviceMemoryGiB < W5_MIN_DEVICE_MEMORY_GIB))
   ) {
     return W5_WORKER_FLOOR;
   }
@@ -446,6 +603,7 @@ class ProverWorkerClient {
         wasmExecUrl: absolutize(
           `${trimSlash(descriptor.runtime_base_url)}/wasm_exec.js`,
         ),
+        msmWorkerWasmUrl: absolutize(descriptor.msm_worker_wasm_url),
         gogc: tuning.gogc,
         gomemlimit: tuning.gomemlimit,
       },

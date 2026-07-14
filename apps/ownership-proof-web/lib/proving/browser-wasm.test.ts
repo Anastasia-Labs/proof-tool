@@ -4,6 +4,7 @@ import type { BrowserProvingDescriptor } from "../reclaim/types";
 import {
   ProvingCancelledError,
   checkBrowserProving,
+  disposePreparedBrowserProvingSession,
   proveDestinationInBrowser,
   resolveBrowserWorkerCount,
   sanitizeProverError,
@@ -186,7 +187,7 @@ describe("W5 host-gated worker count", () => {
     },
   );
 
-  it("uses the safe worker-8 default when either host signal is missing", () => {
+  it("keeps the safe floor for unknown CPU but does not require deviceMemory", () => {
     expect(
       resolveBrowserWorkerCount(adaptive, {
         hardwareConcurrency: null,
@@ -198,7 +199,7 @@ describe("W5 host-gated worker count", () => {
         hardwareConcurrency: 32,
         deviceMemoryGiB: null,
       }),
-    ).toBe(8);
+    ).toBe(16);
   });
 
   it("preserves explicit tuning and legacy descriptors", () => {
@@ -246,6 +247,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  disposePreparedBrowserProvingSession();
   vi.unstubAllGlobals();
 });
 
@@ -467,10 +469,10 @@ describe("proveDestinationInBrowser", () => {
       expected: { worker_count: 8, shard_count: 8 },
     },
     {
-      name: "adaptive host with missing memory signal",
+      name: "adaptive host without a deviceMemory signal",
       tuning: { shard_count: 8, opt_w5: true },
       host: { hardwareConcurrency: 32 },
-      expected: { worker_count: 8, shard_count: 8 },
+      expected: { worker_count: 16, shard_count: 16 },
     },
     {
       name: "explicit worker pool above configured shards",
@@ -647,6 +649,59 @@ describe("proveDestinationInBrowser", () => {
         { createWorker: () => worker },
       ),
     ).rejects.toThrow(/\[redacted\]/);
+  });
+});
+
+describe("prepared browser prover session", () => {
+  it("reuses readiness preflight for the proof flow", async () => {
+    stubCapableEnvironment();
+    let initCalls = 0;
+    let preflightCalls = 0;
+    let proveCalls = 0;
+    const worker = new FakeProverWorker({
+      init: (message) => {
+        initCalls += 1;
+        return [{ id: message.id as string, type: "ready" }];
+      },
+      preflight: (message) => {
+        preflightCalls += 1;
+        return readyPreflight().map((response) => ({
+          ...response,
+          id: message.id as string,
+        }));
+      },
+      prove: (message) => {
+        proveCalls += 1;
+        return [{
+          id: message.id as string,
+          type: "prove-result",
+          result: { verified_locally: true, artifact: proveArtifact() },
+        }];
+      },
+    });
+    const provingDescriptor = descriptor();
+    const options = { createWorker: () => worker };
+    await expect(
+      checkBrowserProving(provingDescriptor, EXPECTED_VK_HASH, options),
+    ).resolves.toMatchObject({ status: "ready" });
+    expect(worker.terminated).toBe(false);
+    await expect(
+      proveDestinationInBrowser(
+        {
+          masterXPrv,
+          draft: draftWith(1),
+          expectedVkHash: EXPECTED_VK_HASH,
+          browserProving: provingDescriptor,
+        },
+        options,
+      ),
+    ).resolves.toMatchObject({ profile: "single-destination" });
+    expect({ initCalls, preflightCalls, proveCalls }).toEqual({
+      initCalls: 1,
+      preflightCalls: 1,
+      proveCalls: 1,
+    });
+    expect(worker.terminated).toBe(true);
   });
 });
 

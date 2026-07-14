@@ -18,6 +18,7 @@ export type BrowserProvingTuning = {
   shard_count?: number;
   shard_multiplier?: number;
   range_fetch_concurrency?: number;
+  chunk_prefetch_window?: number;
   pinned_decode?: boolean;
   opt_w1?: boolean;
   opt_w2?: boolean;

@@ -39,14 +39,14 @@
       "manifest_url": "/proof-assets/manifest.json",
       "manifest_sig_url": "/proof-assets/manifest.sig",
       "manifest_public_key_hex": "2af3b300b9e641ede236d4b7d48b43eccfb843ffa9aca74abb38f98e7211eccb",
-      "chunk_manifest_url": "/proof-assets/chunk-manifest-2m-r1.json",
-      "chunk_manifest_sig_url": "/proof-assets/chunk-manifest-2m-r1.sig",
+      "chunk_manifest_url": "/proof-assets/chunk-manifest.json",
+      "chunk_manifest_sig_url": "/proof-assets/chunk-manifest.sig",
       "chunk_manifest_public_key_hex": "2af3b300b9e641ede236d4b7d48b43eccfb843ffa9aca74abb38f98e7211eccb",
       "deployment_manifest_url": "/proof-assets/reclaim-deployment.json",
       "vk_url": "/proof-assets/ownership.vk",
       "pk_url": "https://proof-assets.reclaim-proof.com/proof-assets/preprod-9fac96b-g3a/ownership.pk",
       "pk_index_url": "/proof-assets/ownership.pk.idx.json",
-      "ccs_url": "https://proof-assets.reclaim-proof.com/proof-assets/preprod-9fac96b-g3a/ownership-destination.ccs",
+      "ccs_url": "https://proof-assets-2m.reclaim-proof.com/proof-assets/preprod-9fac96b-g3a-pk2m-r1/ownership-destination.ccs",
       "ccs_blake2b256": "blake2b256:bf2243b3f4885357bbad0b6728582f56f0e00cd361e1e8af8a2d0dbe10a9f352",
       "proof_wasm_url": "/proof-runtime/proof-destination.wasm",
       "worker_js_url": "/proof-runtime/msm-worker.js",
@@ -54,6 +54,7 @@
       "tuning": {
         "shard_count": 8,
         "range_fetch_concurrency": 2,
+        "chunk_prefetch_window": 2,
         "pinned_decode": true,
         "opt_w1": true,
         "opt_w2": true,
@@ -61,8 +62,8 @@
         "opt_w5": true,
         "opt_w6": true,
         "opt_w7": true,
-        "gogc": 50,
-        "gomemlimit": "3000MiB"
+        "gogc": 15,
+        "gomemlimit": "3200MiB"
       }
     }
   },
