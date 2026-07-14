@@ -28,7 +28,11 @@ type ProverWorkerRequestBody = ProverWorkerRequest extends infer T
     : never
   : never;
 
-export const PROVER_WORKER_INIT_TIMEOUT_MS = 60_000;
+// Init now downloads and compiles both proof-destination.wasm (~24.5 MB) and
+// msmworker.wasm (~12 MB) before the worker acks ready, so the budget covers
+// ~36.4 MB on a ~300 KB/s link rather than cutting off users the 60s budget
+// served before the msm compile moved into init.
+export const PROVER_WORKER_INIT_TIMEOUT_MS = 120_000;
 export const PROVER_PREFLIGHT_TIMEOUT_MS = 300_000;
 export const PREPARED_PROVER_TIMEOUT_MS = 180_000;
 
@@ -86,6 +90,14 @@ type PreparedProverSession = {
 
 let preparedSession: PreparedProverSession | null = null;
 
+// Concurrent preparations must share one in-flight promise: a second worker
+// prepared in parallel would be orphaned when the later `preparedSession`
+// assignment wins, leaking the Go runtime and its nested MSM pool.
+let preparingSession: {
+  publicKey: string;
+  promise: Promise<PreparedProverSession>;
+} | null = null;
+
 // Full readiness performs the signed asset preflight exactly once. The
 // validated worker, CCS, and nested MSM pool remain available until proving,
 // explicit disposal, or the short expiry below.
@@ -137,10 +149,13 @@ export async function proveDestinationInBrowser(
     throw new ProvingCancelledError();
   }
   const total = input.draft.proofRequests.length;
-  const session = await takeOrPrepareProverSession(
-    descriptor,
-    input.expectedVkHash,
-    options,
+  // Preparation (calibration + init + preflight) can take minutes on slow
+  // links; racing it against the abort signal keeps Cancel responsive. An
+  // abandoned preparation completes in the background and parks itself as the
+  // prepared session, where the expiry timer reclaims it.
+  const session = await raceSessionWithAbort(
+    takeOrPrepareProverSession(descriptor, input.expectedVkHash, options),
+    input.signal,
   );
   const client = session.client;
   let masterXPrvHex: string | null = null;
@@ -257,6 +272,53 @@ async function takeOrPrepareProverSession(
   return session;
 }
 
+// Settles a session-preparation promise the caller no longer wants (the user
+// aborted while it was in flight). The finished session stays parked for
+// reuse under its expiry timer; anything else is torn down immediately.
+function reparkAbandonedSession(
+  preparation: Promise<PreparedProverSession>,
+): void {
+  void preparation.then(
+    (session) => {
+      if (preparedSession === session) {
+        resetPreparedSessionExpiry(session);
+      } else {
+        session.collector.finish();
+        session.client.terminate();
+      }
+    },
+    () => undefined,
+  );
+}
+
+async function raceSessionWithAbort(
+  preparation: Promise<PreparedProverSession>,
+  signal: AbortSignal | null | undefined,
+): Promise<PreparedProverSession> {
+  if (!signal) {
+    return preparation;
+  }
+  if (signal.aborted) {
+    reparkAbandonedSession(preparation);
+    throw new ProvingCancelledError();
+  }
+  let onAbort: (() => void) | null = null;
+  try {
+    return await new Promise<PreparedProverSession>((resolve, reject) => {
+      onAbort = () => {
+        reparkAbandonedSession(preparation);
+        reject(new ProvingCancelledError());
+      };
+      signal.addEventListener("abort", onAbort);
+      preparation.then(resolve, reject);
+    });
+  } finally {
+    if (onAbort) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+}
+
 async function prepareProverSession(
   descriptor: BrowserProvingDescriptor,
   expectedVkHash: string,
@@ -267,6 +329,38 @@ async function prepareProverSession(
     resetPreparedSessionExpiry(preparedSession);
     return preparedSession;
   }
+  if (preparingSession?.publicKey === publicKey) {
+    return preparingSession.promise;
+  }
+  if (preparingSession) {
+    // A preparation for a different deployment is in flight; let it settle so
+    // the preparedSession overwrite below cannot orphan its worker.
+    await preparingSession.promise.catch(() => undefined);
+    if (preparedSession?.publicKey === publicKey) {
+      resetPreparedSessionExpiry(preparedSession);
+      return preparedSession;
+    }
+  }
+  const inFlight = {
+    publicKey,
+    promise: createProverSession(publicKey, descriptor, expectedVkHash, options),
+  };
+  preparingSession = inFlight;
+  try {
+    return await inFlight.promise;
+  } finally {
+    if (preparingSession === inFlight) {
+      preparingSession = null;
+    }
+  }
+}
+
+async function createProverSession(
+  publicKey: string,
+  descriptor: BrowserProvingDescriptor,
+  expectedVkHash: string,
+  options: BrowserWasmOptions,
+): Promise<PreparedProverSession> {
   disposePreparedBrowserProvingSession();
 
   const calibration = options.createWorker
@@ -350,13 +444,28 @@ function preparedSessionPublicKey(
   });
 }
 
+// Cache-warming only: the worker preflight re-reads the CCS through the HTTP
+// cache. The prefetch is bounded so a stalled connection can never wedge the
+// readiness check — on timeout the abort rejects any pending read and the
+// preparation proceeds without the warm cache.
+const PUBLIC_CCS_PREFETCH_TIMEOUT_MS = 120_000;
+
 async function prefetchPublicCCS(
   ccsURL: string,
 ): Promise<{ durationMS: number; bytes: number }> {
   const started = nowMS();
   let bytes = 0;
+  const controller =
+    typeof AbortController !== "undefined" ? new AbortController() : null;
+  const deadline = setTimeout(
+    () => controller?.abort(),
+    PUBLIC_CCS_PREFETCH_TIMEOUT_MS,
+  );
   try {
-    const response = await fetch(absolutize(ccsURL), { cache: "force-cache" });
+    const response = await fetch(absolutize(ccsURL), {
+      cache: "force-cache",
+      signal: controller?.signal,
+    });
     if (!response.ok || !response.body) {
       return { durationMS: nowMS() - started, bytes: 0 };
     }
@@ -368,6 +477,8 @@ async function prefetchPublicCCS(
     }
   } catch {
     bytes = 0;
+  } finally {
+    clearTimeout(deadline);
   }
   return { durationMS: nowMS() - started, bytes };
 }
@@ -473,9 +584,9 @@ export function resolveBrowserWorkerCount(
   if (
     host.hardwareConcurrency === null ||
     !Number.isFinite(host.hardwareConcurrency) ||
-    (host.deviceMemoryGiB !== null &&
-      (!Number.isFinite(host.deviceMemoryGiB) ||
-        host.deviceMemoryGiB < W5_MIN_DEVICE_MEMORY_GIB))
+    host.deviceMemoryGiB === null ||
+    !Number.isFinite(host.deviceMemoryGiB) ||
+    host.deviceMemoryGiB < W5_MIN_DEVICE_MEMORY_GIB
   ) {
     return W5_WORKER_FLOOR;
   }

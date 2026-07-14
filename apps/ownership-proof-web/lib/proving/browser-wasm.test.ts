@@ -187,19 +187,21 @@ describe("W5 host-gated worker count", () => {
     },
   );
 
-  it("keeps the safe floor for unknown CPU but does not require deviceMemory", () => {
+  it("keeps the safe floor when either host signal is absent", () => {
     expect(
       resolveBrowserWorkerCount(adaptive, {
         hardwareConcurrency: null,
         deviceMemoryGiB: 8,
       }),
     ).toBe(8);
+    // Firefox never reports deviceMemory; unknown memory must not unlock
+    // 12-16 workers on a host that may only have 4-8 GiB.
     expect(
       resolveBrowserWorkerCount(adaptive, {
         hardwareConcurrency: 32,
         deviceMemoryGiB: null,
       }),
-    ).toBe(16);
+    ).toBe(8);
   });
 
   it("preserves explicit tuning and legacy descriptors", () => {
@@ -472,7 +474,7 @@ describe("proveDestinationInBrowser", () => {
       name: "adaptive host without a deviceMemory signal",
       tuning: { shard_count: 8, opt_w5: true },
       host: { hardwareConcurrency: 32 },
-      expected: { worker_count: 16, shard_count: 16 },
+      expected: { worker_count: 8, shard_count: 8 },
     },
     {
       name: "explicit worker pool above configured shards",
@@ -590,7 +592,7 @@ describe("proveDestinationInBrowser", () => {
     ).rejects.toThrow(/not enabled/i);
   });
 
-  it("terminates the worker and raises ProvingCancelledError on abort", async () => {
+  it("terminates the worker and raises ProvingCancelledError on abort during proving", async () => {
     const controller = new AbortController();
     const worker = new FakeProverWorker({
       init: (m) => [{ id: m.id as string, type: "ready" }],
@@ -614,10 +616,48 @@ describe("proveDestinationInBrowser", () => {
       },
       { createWorker: () => worker },
     );
-    await Promise.resolve();
+    // Once the worker has seen a prove request, preparation is over and the
+    // abort listener is armed — this abort exercises the in-proof path.
+    await vi.waitFor(() =>
+      expect(worker.seen.some((m) => m.type === "prove")).toBe(true),
+    );
     controller.abort();
     await expect(promise).rejects.toBeInstanceOf(ProvingCancelledError);
     expect(worker.terminated).toBe(true);
+  });
+
+  it("cancel during session preparation rejects promptly and parks the worker for reuse", async () => {
+    const controller = new AbortController();
+    const worker = new FakeProverWorker({
+      init: (m) => [{ id: m.id as string, type: "ready" }],
+      preflight: (m) => [
+        {
+          id: m.id as string,
+          type: "preflight-result",
+          result: { ok: true, vk_hash: EXPECTED_VK_HASH },
+        },
+      ],
+      prove: () => [],
+    });
+    const promise = proveDestinationInBrowser(
+      {
+        masterXPrv,
+        draft: draftWith(2),
+        expectedVkHash: EXPECTED_VK_HASH,
+        browserProving: descriptor(),
+        signal: controller.signal,
+      },
+      { createWorker: () => worker },
+    );
+    controller.abort();
+    await expect(promise).rejects.toBeInstanceOf(ProvingCancelledError);
+    // The abandoned preparation finishes in the background and parks itself
+    // as the prepared session (reclaimed by the expiry timer); explicit
+    // disposal must reach the worker.
+    await vi.waitFor(() => {
+      disposePreparedBrowserProvingSession();
+      expect(worker.terminated).toBe(true);
+    });
   });
 
   it("sanitizes worker error messages that contain long hex", async () => {

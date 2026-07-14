@@ -153,8 +153,10 @@ async function probeNestedWorkers(): Promise<{ ok: boolean; message: string }> {
 
 
 // W5 grows from the safe eight-worker floor only after this browser proves it
-// can create and touch the additional worker memory. deviceMemory is advisory:
-// browsers that omit it can still reach 12/16 when CPU and calibration agree.
+// can create and touch the additional worker memory. A host that does not
+// report deviceMemory (Firefox never does) stays at the floor: the 2 MiB
+// calibration probe is no proxy for the GiB-scale proving peak, and an
+// unknown-memory host given 12-16 workers can OOM mid-proof.
 export async function calibrateBrowserWorkerCapacity(
   descriptor: BrowserProvingDescriptor,
 ): Promise<BrowserCalibrationSummary> {
@@ -167,7 +169,10 @@ export async function calibrateBrowserWorkerCapacity(
     return calibrationResult([], CALIBRATION_FLOOR, startedAt, "adaptive-workers-disabled");
   }
   const memory = readDeviceMemoryGiB();
-  if (memory !== null && memory < RECOMMENDED_DEVICE_MEMORY_GIB) {
+  if (memory === null) {
+    return calibrationResult([], CALIBRATION_FLOOR, startedAt, "unreported-device-memory");
+  }
+  if (memory < RECOMMENDED_DEVICE_MEMORY_GIB) {
     return calibrationResult([], CALIBRATION_FLOOR, startedAt, "reported-memory-below-floor");
   }
   const cores =
