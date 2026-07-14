@@ -92,16 +92,42 @@ describe("Proof Helper desktop app", () => {
     expect(screen.getByText("Proofs are created on this computer. Your recovery phrase is never sent to Reclaim servers.")).toBeInTheDocument();
   });
 
-  it("installs proof assets from the production action and enables Reclaim", async () => {
+  it("auto-installs missing proof assets on launch and enables Reclaim", async () => {
     const api = fakeApi({ keyStatus: missingStatus, releaseInstallStatus: readyStatus });
     render(<App api={api} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /install proof assets/i }));
-
+    // No click: opening the app with missing assets starts the install.
     await waitFor(() => expect(api.installProofAssetsRelease).toHaveBeenCalledOnce());
-    expect(await screen.findByText("Downloading proof assets.")).toBeInTheDocument();
     expect(await screen.findByText("Proof assets installed and verified.")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /open reclaim/i })).toBeInTheDocument();
+    // The one-shot guard must not fire again after the status updates.
+    expect(api.installProofAssetsRelease).toHaveBeenCalledOnce();
+  });
+
+  it("does not auto-install when installed proof assets are invalid", async () => {
+    const api = fakeApi({ keyStatus: invalidStatus });
+    render(<App api={api} />);
+
+    expect(await screen.findByRole("heading", { name: "Blocked" })).toBeInTheDocument();
+    expect(api.installProofAssetsRelease).not.toHaveBeenCalled();
+  });
+
+  it("explains low disk space from the auto-install and retries from the button", async () => {
+    const api = fakeApi({
+      keyStatus: missingStatus,
+      releaseInstallStatus: readyStatus,
+      releaseInstallErrorOnce: "not enough disk space: 1024 bytes available, 5368709120 bytes required",
+    });
+    render(<App api={api} />);
+
+    // The launch-time attempt fails and explains what to do.
+    await waitFor(() => expect(api.installProofAssetsRelease).toHaveBeenCalledOnce());
+    expect((await screen.findAllByText(/Not enough free disk space .* Free up some space/i)).length).toBeGreaterThan(0);
+
+    // The manual button retries after the user frees space.
+    fireEvent.click(await screen.findByRole("button", { name: /install proof assets/i }));
+    await waitFor(() => expect(api.installProofAssetsRelease).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Proof assets installed and verified.")).toBeInTheDocument();
   });
 
   it("offers replacement when installed proof assets are invalid", async () => {
@@ -227,6 +253,7 @@ function fakeApi({
   startup: helperStartup = startup,
   releaseInstallStatus,
   releaseInstallNever = false,
+  releaseInstallErrorOnce,
   activateStatus,
   activateNever = false,
   runtimeDiagnostics = windowsDiagnostics,
@@ -236,15 +263,22 @@ function fakeApi({
   startup?: HelperStartup;
   releaseInstallStatus?: KeyBundleStatus;
   releaseInstallNever?: boolean;
+  releaseInstallErrorOnce?: string;
   activateStatus?: KeyBundleStatus;
   activateNever?: boolean;
   runtimeDiagnostics?: RuntimeDiagnostics;
 }): DesktopApi {
   let keyBundleProgressListener: ((progress: KeyBundleProgress) => void) | undefined;
   let proofAssetProgressListener: ((progress: ProofAssetInstallProgress) => void) | undefined;
+  let pendingInstallError = releaseInstallErrorOnce;
   return {
     keyStatus: vi.fn().mockResolvedValue(keyStatus),
     installProofAssetsRelease: vi.fn().mockImplementation(() => {
+      if (pendingInstallError) {
+        const failure = pendingInstallError;
+        pendingInstallError = undefined;
+        return Promise.reject(new Error(failure));
+      }
       proofAssetProgressListener?.({
         release_tag: "test-release",
         phase: "downloading",

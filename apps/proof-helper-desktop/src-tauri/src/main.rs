@@ -3,6 +3,7 @@
 mod commands;
 mod key_bundle;
 mod proof_assets_release;
+mod range_download;
 mod sidecar;
 
 fn proof_helper_builder<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {

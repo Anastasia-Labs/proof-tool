@@ -12,7 +12,7 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type {
   DesktopApi,
   HelperStartup,
@@ -233,12 +233,36 @@ export function App({ api = tauriDesktopApi, showDeveloperControls = defaultShow
       setMessage("Proof assets installed and verified.");
       setMessageTone("ok");
     } catch (error) {
-      setMessage(messageFor(error));
+      const text = messageFor(error);
+      setMessage(
+        text.includes("not enough disk space")
+          ? `Not enough free disk space to install the proof assets (about 5 GB needed). Free up some space, then click Install proof assets to retry. (${text})`
+          : text,
+      );
       setMessageTone("bad");
     } finally {
       setBusy(null);
     }
   };
+
+  // First-run convenience: the proof assets are required for everything the
+  // app does, so start installing them as soon as the app opens and finds
+  // them missing. Attempted once per app run — on failure (e.g. low disk
+  // space) the message above explains and the Install button retries.
+  // Deliberately not triggered for the "invalid" state, which keeps its
+  // explicit Blocked/replace flow.
+  const autoInstallAttempted = useRef(false);
+  useEffect(() => {
+    if (autoInstallAttempted.current) {
+      return;
+    }
+    if (keyStatus?.state !== "missing" || busy !== null) {
+      return;
+    }
+    autoInstallAttempted.current = true;
+    void installProofAssets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot, guarded by ref
+  }, [keyStatus, busy]);
 
   const installBundle = async () => {
     setBusy("install");

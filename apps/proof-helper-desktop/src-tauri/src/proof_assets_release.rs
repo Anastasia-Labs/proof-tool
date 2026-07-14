@@ -1,4 +1,5 @@
 use crate::key_bundle::{self, KeyBundleState, KeyBundleStatus};
+use crate::range_download;
 use blake2::{
     digest::{Update as BlakeUpdate, VariableOutput},
     Blake2bVar,
@@ -17,6 +18,7 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tar::Archive;
 use tauri::{AppHandle, Emitter, Runtime, State};
@@ -147,32 +149,66 @@ fn install_release_from_descriptor<R: Runtime>(
         "Checking disk space and release identity.",
     )?;
 
-    let response = Client::builder()
+    let client = Client::builder()
         .connect_timeout(DOWNLOAD_CONNECT_TIMEOUT)
         .build()
-        .map_err(|err| format!("create download client: {err}"))?
+        .map_err(|err| format!("create download client: {err}"))?;
+
+    // Probe with a one-byte range request. 206 means the server honors
+    // ranges, so download the archive as parallel ranges (GitHub's CDN gives
+    // several times the single-connection throughput that way). Any other
+    // success status means the server ignored the header and this response is
+    // already streaming the full body, so fall back to consuming it directly.
+    let probe = client
         .get(&descriptor.archive_url)
+        .header(reqwest::header::RANGE, "bytes=0-0")
         .send()
         .map_err(|err| format!("download proof assets: {err}"))?
         .error_for_status()
         .map_err(|err| format!("download proof assets: {err}"))?;
 
     let kind = ArchiveKind::from_url(&descriptor.archive_url);
-    install_archive_from_reader(
-        descriptor,
-        &paths.active_dir,
-        &paths.downloading_dir,
-        response,
-        kind,
-        &mut |progress| {
-            if state.cancel_activation.load(Ordering::SeqCst) {
-                return Err("proof assets install cancelled".to_string());
-            }
-            app.emit(PROOF_ASSET_INSTALL_PROGRESS_EVENT, progress)
-                .map_err(|err| format!("emit proof asset install progress: {err}"))
-        },
-        &|| state.cancel_activation.load(Ordering::SeqCst),
-    )
+    let mut on_progress = |progress| {
+        if state.cancel_activation.load(Ordering::SeqCst) {
+            return Err("proof assets install cancelled".to_string());
+        }
+        app.emit(PROOF_ASSET_INSTALL_PROGRESS_EVENT, progress)
+            .map_err(|err| format!("emit proof asset install progress: {err}"))
+    };
+    let cancelled = || state.cancel_activation.load(Ordering::SeqCst);
+
+    if probe.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+        drop(probe);
+        let source = Arc::new(range_download::HttpRangeSource {
+            client,
+            url: descriptor.archive_url.clone(),
+        });
+        let reader = range_download::ParallelRangeReader::new(
+            source,
+            descriptor.archive_size,
+            range_download::DEFAULT_CHUNK_SIZE,
+            range_download::DEFAULT_WORKERS,
+        );
+        install_archive_from_reader(
+            descriptor,
+            &paths.active_dir,
+            &paths.downloading_dir,
+            reader,
+            kind,
+            &mut on_progress,
+            &cancelled,
+        )
+    } else {
+        install_archive_from_reader(
+            descriptor,
+            &paths.active_dir,
+            &paths.downloading_dir,
+            probe,
+            kind,
+            &mut on_progress,
+            &cancelled,
+        )
+    }
 }
 
 fn validate_descriptor_for_download(
