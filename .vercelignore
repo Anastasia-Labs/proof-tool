@@ -4,8 +4,13 @@ output/
 # (the @proof-zk-recovery/proof-tool-client entry points) from the upload
 # and breaks the Vercel build.
 /.codex/
+/.claude/
 /.agents/
 /.git/
+/vendor/
+/.playwright-cli/
+/.wrangler/
+/audit/
 /dist/
 /experiments/
 /contracts/
