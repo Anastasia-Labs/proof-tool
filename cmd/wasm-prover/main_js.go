@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall/js"
 	"time"
 
@@ -78,6 +79,7 @@ type tuningRequest struct {
 	ShardCount            int   `json:"shard_count,omitempty"`
 	ShardMultiplier       int   `json:"shard_multiplier,omitempty"`
 	RangeFetchConcurrency int   `json:"range_fetch_concurrency,omitempty"`
+	ChunkPrefetchWindow   int   `json:"chunk_prefetch_window,omitempty"`
 	PinnedDecode          *bool `json:"pinned_decode,omitempty"`
 	OptW1                 bool  `json:"opt_w1,omitempty"`
 	OptW2                 bool  `json:"opt_w2,omitempty"`
@@ -105,6 +107,44 @@ type streamingArtifacts struct {
 	chunkManifest *proofassets.ChunkManifest
 }
 
+type preparedProverSession struct {
+	key    string
+	bundle *streamingArtifacts
+	ccs    constraint.ConstraintSystem
+	engine msmengine.MSMEngine
+}
+
+var (
+	preparedMu      sync.Mutex
+	preparedSession *preparedProverSession
+)
+
+func preparedSessionKey(artifacts artifactRequest, tuning tuningRequest) (string, error) {
+	encoded, err := json.Marshal(struct {
+		Artifacts artifactRequest `json:"artifacts"`
+		Tuning    tuningRequest   `json:"tuning"`
+	}{artifacts, tuning})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func closePreparedProverLocked() {
+	session := preparedSession
+	preparedSession = nil
+	if session == nil {
+		return
+	}
+	if session.engine != nil {
+		_ = session.engine.Close()
+	}
+	if session.bundle != nil {
+		_ = session.bundle.Close()
+	}
+}
+
 type proofTrace struct {
 	Schema               string              `json:"schema"`
 	StartedAt            string              `json:"started_at"`
@@ -112,10 +152,10 @@ type proofTrace struct {
 	WorkerCount          int                 `json:"worker_count,omitempty"`
 	ShardCount           int                 `json:"shard_count,omitempty"`
 	RangeFetchConcurrent int                 `json:"range_fetch_concurrency,omitempty"`
+	ChunkPrefetchWindow  int                 `json:"chunk_prefetch_window,omitempty"`
 	GOMEMLIMIT           string              `json:"gomemlimit,omitempty"`
 	GOGC                 string              `json:"gogc,omitempty"`
 	ProgressDenominator  int                 `json:"progress_denominator,omitempty"`
-	ProgressScalars      []int               `json:"progress_scalars,omitempty"`
 	PKRangeStats         streampk.RangeStats `json:"pk_range_stats"`
 	RuntimeOptions       map[string]bool     `json:"runtime_options,omitempty"`
 	Events               []traceEvent        `json:"events"`
@@ -251,26 +291,59 @@ func probeEngine(requestJSON string) (js.Value, error) {
 }
 
 func preflight(requestJSON string) (js.Value, error) {
+	preparedMu.Lock()
+	defer preparedMu.Unlock()
+
 	var req proveRequest
 	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
 		return js.Undefined(), fmt.Errorf("parse request json: %w", err)
 	}
+	key, err := preparedSessionKey(req.Artifacts, req.Tuning)
+	if err != nil {
+		return js.Undefined(), fmt.Errorf("prepare session key: %w", err)
+	}
+	closePreparedProverLocked()
+
+	assetStarted := time.Now()
 	bundle, err := openStreamingArtifacts(req.Artifacts, keyOpenOptions(req.Tuning)...)
 	if err != nil {
 		return js.Undefined(), fmt.Errorf("load destination streaming artifacts: %w", err)
 	}
-	defer bundle.Close()
+	assetOpenMS := elapsedMilliseconds(assetStarted)
+	lastCCSLoadStats = ccsLoadStats{}
+	ccsStarted := time.Now()
 	ccs, err := openConstraintSystem(req.Artifacts, bundle.manifest, bundle.chunkManifest)
 	if err != nil {
+		_ = bundle.Close()
 		return js.Undefined(), err
 	}
+	ccsOpenMS := elapsedMilliseconds(ccsStarted)
+	requested := msmOptions(req.Tuning, req.Artifacts)
+	selected := msmengine.SelectWithOptions(probeCapabilities(), requested)
+	applied := map[string]any{"worker_count": 1}
+	if instrumented, ok := selected.(msmengine.InstrumentedEngine); ok {
+		applied = instrumented.Instrumentation()
+	}
+	preparedSession = &preparedProverSession{
+		key: key, bundle: bundle, ccs: ccs, engine: selected,
+	}
+
 	out := map[string]any{
 		"ok":               true,
 		"vk_hash":          bundle.manifest.VKHash,
 		"constraints":      ccs.GetNbConstraints(),
 		"chunk_manifest":   bundle.chunkManifest != nil,
 		"runtime_options":  appliedRuntimeOptions(req.Tuning),
-		"requested_tuning": tuningFields(msmOptions(req.Tuning, req.Artifacts)),
+		"requested_tuning": tuningFields(requested),
+		"applied_tuning":   applied,
+		"timings": map[string]any{
+			"asset_open_ms":     assetOpenMS,
+			"ccs_fetch_ms":      lastCCSLoadStats.FetchMS,
+			"ccs_hash_ms":       lastCCSLoadStats.HashMS,
+			"ccs_decode_ms":     lastCCSLoadStats.DecodeMS,
+			"ccs_bytes_fetched": lastCCSLoadStats.BytesFetched,
+			"ccs_open_total_ms": ccsOpenMS,
+		},
 	}
 	if bundle.chunkManifest != nil {
 		out["chunks"] = len(bundle.chunkManifest.ProvingKey.Chunks)
@@ -282,6 +355,9 @@ func preflight(requestJSON string) (js.Value, error) {
 }
 
 func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
+	preparedMu.Lock()
+	defer preparedMu.Unlock()
+
 	started := time.Now()
 	trace := newProofTrace(started)
 	restoreTrace := msmengine.SetTraceSink(func(event msmengine.TraceEvent) {
@@ -300,6 +376,10 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 		return js.Undefined(), fmt.Errorf("parse request json: %w", err)
 	}
 	endParse(nil)
+	key, err := preparedSessionKey(req.Artifacts, req.Tuning)
+	if err != nil {
+		return js.Undefined(), fmt.Errorf("prepare session key: %w", err)
+	}
 	runtimeOptions := appliedRuntimeOptions(req.Tuning)
 	trace.RuntimeOptions = runtimeOptions
 
@@ -308,6 +388,7 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 	if err != nil {
 		return js.Undefined(), err
 	}
+	defer clear(master)
 	target, err := ownershipdest.DecodeCredentialHex(req.TargetCredentialHex)
 	if err != nil {
 		return js.Undefined(), err
@@ -320,31 +401,47 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 
 	progress(progressCB, "open-keys", 0.08)
 	endOpenKeys := trace.span("open-keys", map[string]any{"source": artifactSource(req.Artifacts)})
-	bundle, err := openStreamingArtifacts(req.Artifacts, keyOpenOptions(req.Tuning)...)
-	if err != nil {
-		return js.Undefined(), fmt.Errorf("load destination streaming artifacts: %w", err)
+	session := preparedSession
+	preparedReuse := session != nil && session.key == key
+	if session != nil && !preparedReuse {
+		closePreparedProverLocked()
+		session = nil
 	}
-	defer bundle.Close()
+	var bundle *streamingArtifacts
+	if preparedReuse {
+		bundle = session.bundle
+	} else {
+		bundle, err = openStreamingArtifacts(req.Artifacts, keyOpenOptions(req.Tuning)...)
+		if err != nil {
+			return js.Undefined(), fmt.Errorf("load destination streaming artifacts: %w", err)
+		}
+		defer bundle.Close()
+	}
 	endOpenKeys(map[string]any{
-		"pk_range_requests": streampk.RangeStatsSnapshot().Requests,
-		"pk_range_bytes":    streampk.RangeStatsSnapshot().Bytes,
+		"prepared_session_reused": preparedReuse,
+		"pk_range_requests":       streampk.RangeStatsSnapshot().Requests,
+		"pk_range_bytes":          streampk.RangeStatsSnapshot().Bytes,
 	})
 
 	progress(progressCB, "open-ccs", 0.14)
-	endOpenCCS := trace.span("open-ccs", map[string]any{"ccs_url": req.Artifacts.CCSURL != ""})
-	ccs, err := openConstraintSystem(req.Artifacts, bundle.manifest, bundle.chunkManifest)
-	if err != nil {
-		return js.Undefined(), err
+	endOpenCCS := trace.span("open-ccs", map[string]any{"prepared_session_reused": preparedReuse})
+	var ccs constraint.ConstraintSystem
+	if preparedReuse && session.ccs != nil {
+		ccs = session.ccs
+	} else {
+		ccs, err = openConstraintSystem(req.Artifacts, bundle.manifest, bundle.chunkManifest)
+		if err != nil {
+			return js.Undefined(), err
+		}
 	}
 	endOpenCCS(map[string]any{"constraints": ccs.GetNbConstraints()})
-
 	progress(progressCB, "find-path", 0.20)
 	endFindPath := trace.span("find-path", nil)
 	path, err := ownership.FindPath(master, target, searchOptions(req.Search))
 	if err != nil {
 		return js.Undefined(), err
 	}
-	endFindPath(map[string]any{"account": path.Account, "role": path.Role, "index": path.Index})
+	endFindPath(nil)
 
 	endWitness := trace.span("witness creation", nil)
 	publicInput, err := ownershipdest.PublicInputForCredentialDestination(target, destination)
@@ -366,15 +463,19 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 	endProbe := trace.span("probe", nil)
 	probe := probeCapabilities()
 	tuning := msmOptions(req.Tuning, req.Artifacts)
-	selected := msmengine.SelectWithOptions(probe, tuning)
-	defer selected.Close()
+	var selected msmengine.MSMEngine
+	if preparedReuse {
+		selected = session.engine
+	} else {
+		selected = msmengine.SelectWithOptions(probe, tuning)
+		defer selected.Close()
+	}
 	previousEngine := msmengine.Current()
 	defer msmengine.SetCurrent(previousEngine)
 	msmTotals, err := bundle.keySource.ProveMSMScalarTotals()
 	if err != nil {
 		return js.Undefined(), fmt.Errorf("compute proof progress weights: %w", err)
 	}
-	trace.ProgressScalars = append([]int(nil), msmTotals...)
 	for _, n := range msmTotals {
 		trace.ProgressDenominator += n
 	}
@@ -392,6 +493,11 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 	progress(progressCB, "prove", 0.30)
 	endProve := trace.span("prove", map[string]any{"progress_denominator": trace.ProgressDenominator})
 	proveStarted := time.Now()
+	if preparedReuse && req.Tuning.OptW3 {
+		// ProveAndRelease consumes this prepared CCS. Later distinct proofs reopen
+		// the same hash-pinned public CCS while retaining the verified assets and pool.
+		session.ccs = nil
+	}
 	var proof groth16.Proof
 	usedEngine := selected.Name()
 	runWithEngine := func(e msmengine.MSMEngine) error {
@@ -576,6 +682,7 @@ func (t *proofTrace) applyEngine(e msmengine.MSMEngine) {
 		t.WorkerCount = intField(fields, "worker_count")
 		t.ShardCount = intField(fields, "shard_count")
 		t.RangeFetchConcurrent = intField(fields, "range_fetch_concurrency")
+		t.ChunkPrefetchWindow = intField(fields, "chunk_prefetch_window")
 	}
 }
 
@@ -604,6 +711,10 @@ func addGCDeltaFields(fields map[string]any, start, end memSnapshot) map[string]
 	fields["gc_forced_delta"] = deltaUint32(start.NumForcedGC, end.NumForcedGC)
 	fields["gc_pause_delta_ns"] = deltaUint64(start.PauseTotalNs, end.PauseTotalNs)
 	return fields
+}
+
+func elapsedMilliseconds(started time.Time) float64 {
+	return float64(time.Since(started)) / float64(time.Millisecond)
 }
 
 func deltaUint32(start, end uint32) uint32 {
@@ -669,6 +780,7 @@ func msmOptions(req tuningRequest, artifacts artifactRequest) msmengine.Options 
 		WorkerCount:           req.WorkerCount,
 		ShardCount:            shards,
 		RangeFetchConcurrency: req.RangeFetchConcurrency,
+		ChunkPrefetchWindow:   req.ChunkPrefetchWindow,
 		WorkerURL:             workerURL,
 		PinnedDecode:          pinnedDecode,
 		OptW7:                 req.OptW7,
@@ -681,6 +793,7 @@ func tuningFields(opts msmengine.Options) map[string]any {
 		"worker_count":            opts.WorkerCount,
 		"shard_count":             opts.ShardCount,
 		"range_fetch_concurrency": opts.RangeFetchConcurrency,
+		"chunk_prefetch_window":   opts.ChunkPrefetchWindow,
 		"worker_url":              opts.WorkerURL,
 		"pinned_decode":           opts.PinnedDecode,
 		"opt_w7":                  opts.OptW7,
@@ -758,11 +871,22 @@ func reopenPinnedConstraintSystem(req artifactRequest, manifest *artifact.KeyMan
 	return openConstraintSystem(req, manifest, chunkManifest)
 }
 
+type ccsLoadStats struct {
+	FetchMS      float64
+	HashMS       float64
+	DecodeMS     float64
+	BytesFetched int64
+}
+
+var lastCCSLoadStats ccsLoadStats
+
 func fetchCCS(rawURL string) (constraint.ConstraintSystem, prover.FileDigest, error) {
+	requestStarted := time.Now()
 	resp, err := http.Get(rawURL)
 	if err != nil {
 		return nil, prover.FileDigest{}, err
 	}
+	headerMS := elapsedMilliseconds(requestStarted)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, prover.FileDigest{}, fmt.Errorf("GET %s returned %d", rawURL, resp.StatusCode)
@@ -773,19 +897,58 @@ func fetchCCS(rawURL string) (constraint.ConstraintSystem, prover.FileDigest, er
 	if err != nil {
 		return nil, prover.FileDigest{}, fmt.Errorf("create blake2b digest: %w", err)
 	}
-	reader := &countingReader{r: io.TeeReader(resp.Body, io.MultiWriter(sha, blake))}
+	body := &timedReader{r: resp.Body}
+	hashes := &timedWriter{w: io.MultiWriter(sha, blake)}
+	reader := &countingReader{r: io.TeeReader(body, hashes)}
 	ccs := groth16.NewCS(ecc.BLS12_381)
+	decodeStarted := time.Now()
+	bodyBefore, hashBefore := body.duration, hashes.duration
 	if _, err := ccs.ReadFrom(reader); err != nil {
 		return nil, prover.FileDigest{}, fmt.Errorf("read constraint system: %w", err)
 	}
+	decodeWall := time.Since(decodeStarted)
+	decodeMS := float64(decodeWall-body.duration+bodyBefore-hashes.duration+hashBefore) / float64(time.Millisecond)
+	if decodeMS < 0 {
+		decodeMS = 0
+	}
 	if _, err := io.Copy(io.Discard, reader); err != nil {
 		return nil, prover.FileDigest{}, fmt.Errorf("read constraint system trailer: %w", err)
+	}
+	lastCCSLoadStats = ccsLoadStats{
+		FetchMS:      headerMS + float64(body.duration)/float64(time.Millisecond),
+		HashMS:       float64(hashes.duration) / float64(time.Millisecond),
+		DecodeMS:     decodeMS,
+		BytesFetched: reader.n,
 	}
 	return ccs, prover.FileDigest{
 		SHA256:     "sha256:" + hex.EncodeToString(sha.Sum(nil)),
 		Blake2b256: "blake2b256:" + hex.EncodeToString(blake.Sum(nil)),
 		Size:       reader.n,
 	}, nil
+}
+
+type timedReader struct {
+	r        io.Reader
+	duration time.Duration
+}
+
+func (r *timedReader) Read(p []byte) (int, error) {
+	started := time.Now()
+	n, err := r.r.Read(p)
+	r.duration += time.Since(started)
+	return n, err
+}
+
+type timedWriter struct {
+	w        io.Writer
+	duration time.Duration
+}
+
+func (w *timedWriter) Write(p []byte) (int, error) {
+	started := time.Now()
+	n, err := w.w.Write(p)
+	w.duration += time.Since(started)
+	return n, err
 }
 
 type countingReader struct {

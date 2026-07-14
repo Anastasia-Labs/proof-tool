@@ -20,6 +20,7 @@ type Options struct {
 	WorkerCount           int
 	ShardCount            int
 	RangeFetchConcurrency int
+	ChunkPrefetchWindow   int
 	WorkerURL             string
 	PinnedDecode          bool
 	OptW7                 bool

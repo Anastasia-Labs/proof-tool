@@ -207,7 +207,7 @@ func (s *sectionScheduler) run(workerSlot int, task asyncShardTask) {
 	zeroBytes(scsBuf)
 	sabMS := elapsedMS(sabStart)
 	workerStart := time.Now()
-	reply := w.postSectionAndWaitLockedCancelable(task.requestID, h.g2, h.planJSON, h.section, task.r, scsSab, s.owner.pinnedDecode, s.owner.optW7, s.cancel)
+	reply := w.postSectionAndWaitLockedCancelable(task.requestID, h.g2, h.planJSON, h.section, task.r, scsSab, s.owner.pinnedDecode, s.owner.optW7, s.owner.chunkPrefetchWindow, s.cancel)
 	zeroSAB(scsSab)
 	workerMS := elapsedMS(workerStart)
 	w.mu.Unlock()

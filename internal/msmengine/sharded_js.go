@@ -448,6 +448,7 @@ type shardedMSM struct {
 	workers               int
 	shards                int
 	rangeFetchConcurrency int
+	chunkPrefetchWindow   int
 	pinnedDecode          bool
 	optW7                 bool
 	pool                  *workerPool
@@ -489,6 +490,13 @@ func NewShardedWithOptions(workerURL string, cap int, opts Options) (*shardedMSM
 	if concurrency < 1 {
 		concurrency = 1
 	}
+	prefetchWindow := opts.ChunkPrefetchWindow
+	if prefetchWindow <= 0 {
+		prefetchWindow = 2
+	}
+	if prefetchWindow > 4 {
+		prefetchWindow = 4
+	}
 	pool := &workerPool{}
 	for i := 0; i < n; i++ {
 		w, err := newWorker(g, workerURL, i)
@@ -498,7 +506,7 @@ func NewShardedWithOptions(workerURL string, cap int, opts Options) (*shardedMSM
 		}
 		pool.workers = append(pool.workers, w)
 	}
-	return &shardedMSM{workers: n, shards: shards, rangeFetchConcurrency: concurrency, pinnedDecode: opts.PinnedDecode, optW7: opts.OptW7, pool: pool}, nil
+	return &shardedMSM{workers: n, shards: shards, rangeFetchConcurrency: concurrency, chunkPrefetchWindow: prefetchWindow, pinnedDecode: opts.PinnedDecode, optW7: opts.OptW7, pool: pool}, nil
 }
 
 // newWorker spawns one Web Worker from workerURL and wires its onmessage/onerror
@@ -513,6 +521,18 @@ func newWorker(g js.Value, workerURL string, id int) (*worker, error) {
 	}
 	w.onMsg = js.FuncOf(func(this js.Value, args []js.Value) any {
 		data := args[0].Get("data")
+		if typ := data.Get("type"); !typ.IsUndefined() {
+			switch typ.String() {
+			case "ready":
+				return nil
+			case "init-error":
+				select {
+				case w.replies <- workerReply{err: errors.New(data.Get("error").String())}:
+				default:
+				}
+				return nil
+			}
+		}
 		if errv := data.Get("error"); !errv.IsUndefined() && !errv.IsNull() {
 			select {
 			case w.replies <- workerReply{id: data.Get("id").Int(), err: errors.New(errv.String())}:
@@ -548,6 +568,9 @@ func newWorker(g js.Value, workerURL string, id int) (*worker, error) {
 	})
 	jsWorker.Set("onmessage", w.onMsg)
 	jsWorker.Set("onerror", w.onErr)
+	if initialize := g.Get("__initializeMSMWorker"); initialize.Type() == js.TypeFunction {
+		initialize.Invoke(jsWorker)
+	}
 	return w, nil
 }
 
@@ -580,6 +603,7 @@ func (s *shardedMSM) Instrumentation() map[string]any {
 		"worker_count":            s.workers,
 		"shard_count":             s.shards,
 		"range_fetch_concurrency": s.rangeFetchConcurrency,
+		"chunk_prefetch_window":   s.chunkPrefetchWindow,
 		"pinned_decode":           s.pinnedDecode,
 		"opt_w7":                  s.optW7,
 		"async_queue_capacity":    asyncQueueCapacity(s.shards),
@@ -1071,7 +1095,7 @@ func (s *shardedMSM) MSMG1Section(dst *bls12381.G1Jac, plan *PKSectionPlan, sect
 			zeroBytes(scsBuf)
 			sabMS := elapsedMS(sabStart)
 			workerStart := time.Now()
-			reply := w.postSectionAndWaitLocked(idx, false, string(planJSON), section, r, scsSab, s.pinnedDecode, s.optW7)
+			reply := w.postSectionAndWaitLocked(idx, false, string(planJSON), section, r, scsSab, s.pinnedDecode, s.optW7, s.chunkPrefetchWindow)
 			zeroSAB(scsSab)
 			workerMS := elapsedMS(workerStart)
 			w.mu.Unlock()
@@ -1214,7 +1238,7 @@ func (s *shardedMSM) MSMG2Section(dst *bls12381.G2Jac, plan *PKSectionPlan, sect
 			zeroBytes(scsBuf)
 			sabMS := elapsedMS(sabStart)
 			workerStart := time.Now()
-			reply := w.postSectionAndWaitLocked(idx, true, string(planJSON), section, r, scsSab, s.pinnedDecode, s.optW7)
+			reply := w.postSectionAndWaitLocked(idx, true, string(planJSON), section, r, scsSab, s.pinnedDecode, s.optW7, s.chunkPrefetchWindow)
 			zeroSAB(scsSab)
 			workerMS := elapsedMS(workerStart)
 			w.mu.Unlock()
@@ -1354,11 +1378,11 @@ func (w *worker) postAndWaitLocked(id int, g2 bool, ptsSab, scsSab js.Value, pin
 	return reply.partial, reply.computeMS, reply.timings, nil
 }
 
-func (w *worker) postSectionAndWaitLocked(id int, g2 bool, planJSON string, section string, r [2]int, scsSab js.Value, pinnedDecode, optW7 bool) workerReply {
-	return w.postSectionAndWaitLockedCancelable(id, g2, planJSON, section, r, scsSab, pinnedDecode, optW7, nil)
+func (w *worker) postSectionAndWaitLocked(id int, g2 bool, planJSON string, section string, r [2]int, scsSab js.Value, pinnedDecode, optW7 bool, chunkPrefetchWindow int) workerReply {
+	return w.postSectionAndWaitLockedCancelable(id, g2, planJSON, section, r, scsSab, pinnedDecode, optW7, chunkPrefetchWindow, nil)
 }
 
-func (w *worker) postSectionAndWaitLockedCancelable(id int, g2 bool, planJSON string, section string, r [2]int, scsSab js.Value, pinnedDecode, optW7 bool, cancel <-chan struct{}) workerReply {
+func (w *worker) postSectionAndWaitLockedCancelable(id int, g2 bool, planJSON string, section string, r [2]int, scsSab js.Value, pinnedDecode, optW7 bool, chunkPrefetchWindow int, cancel <-chan struct{}) workerReply {
 	msg := js.Global().Get("Object").New()
 	msg.Set("type", "msm-section-range")
 	msg.Set("id", id)
@@ -1370,6 +1394,7 @@ func (w *worker) postSectionAndWaitLockedCancelable(id int, g2 bool, planJSON st
 	msg.Set("scs", scsSab)
 	msg.Set("pinnedDecode", pinnedDecode)
 	msg.Set("optW7", optW7)
+	msg.Set("chunkPrefetchWindow", chunkPrefetchWindow)
 	w.js.Call("postMessage", msg)
 	reply, waitErr := waitForAsyncResult(w.replies, cancel, asyncWorkerReplyTimeout)
 	if waitErr != nil {
