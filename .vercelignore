@@ -1,15 +1,19 @@
 output/
-.codex/
-.agents/
-.git/
-dist/
-experiments/
-contracts/
-cmd/
-internal/
-scripts/
-docs/
-apps/proof-helper-desktop/
+# Root-anchored: bare patterns follow gitignore semantics and match at any
+# depth — an unanchored dist/ strips the tracked packages/client-ts/dist/
+# (the @proof-zk-recovery/proof-tool-client entry points) from the upload
+# and breaks the Vercel build.
+/.codex/
+/.agents/
+/.git/
+/dist/
+/experiments/
+/contracts/
+/cmd/
+/internal/
+/scripts/
+/docs/
+/apps/proof-helper-desktop/
 .proof-tool/
 .env.local
 .env.*.local
