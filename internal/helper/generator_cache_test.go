@@ -63,6 +63,45 @@ func TestAcquireDestinationProverLoadsOnceAcrossConcurrentRequests(t *testing.T)
 	}
 }
 
+func TestWarmDestinationProverPopulatesCacheSoRequestsSkipTheLoad(t *testing.T) {
+	g, bundleLoads, ccsLoads, _ := stubGenerator(t, time.Hour)
+	select {
+	case <-g.WarmDestinationProver():
+	case <-time.After(5 * time.Second):
+		t.Fatal("warm-up did not finish")
+	}
+	if got := bundleLoads.Load(); got != 1 {
+		t.Fatalf("warm-up loaded bundle %d times, want 1", got)
+	}
+	// A prove-path acquire after warming must reuse the cache, not reload.
+	if _, _, err := g.acquireDestinationProver(); err != nil {
+		t.Fatalf("acquire after warm: %v", err)
+	}
+	if got := bundleLoads.Load(); got != 1 {
+		t.Fatalf("bundle loaded %d times after acquire, want 1 (cached)", got)
+	}
+	if got := ccsLoads.Load(); got != 1 {
+		t.Fatalf("frozen ccs loaded %d times after acquire, want 1 (cached)", got)
+	}
+}
+
+func TestWarmDestinationProverSurvivesMissingKeys(t *testing.T) {
+	// No stubs: the temp dir has no manifest, so the load fails. Warming must
+	// swallow the error (the first real request surfaces it) and not cache.
+	g := &OwnershipGenerator{DestinationKeysDir: t.TempDir()}
+	select {
+	case <-g.WarmDestinationProver():
+	case <-time.After(5 * time.Second):
+		t.Fatal("warm-up did not finish")
+	}
+	g.mu.Lock()
+	cached := g.destCache != nil
+	g.mu.Unlock()
+	if cached {
+		t.Fatal("failed warm-up must not populate the cache")
+	}
+}
+
 func TestAcquireDestinationProverEvictsAfterIdleTTLAndReloads(t *testing.T) {
 	g, bundleLoads, _, _ := stubGenerator(t, 30*time.Millisecond)
 	if _, _, err := g.acquireDestinationProver(); err != nil {

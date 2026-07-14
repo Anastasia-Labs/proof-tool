@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -219,6 +220,25 @@ func (g *OwnershipGenerator) evictDestinationProver() {
 		g.destCache.evict.Stop()
 		g.destCache = nil
 	}
+}
+
+// WarmDestinationProver loads the destination proving bundle and constraint
+// system into the idle-TTL cache in the background, so the first prove
+// request does not pay the multi-second proving-key load (~16 s for the
+// 1.3 GiB v2 key). Best-effort: on failure the first real request reloads
+// and surfaces the error to its caller.
+func (g *OwnershipGenerator) WarmDestinationProver() <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		start := time.Now()
+		if _, _, err := g.acquireDestinationProver(); err != nil {
+			fmt.Fprintf(os.Stderr, "destination prover warm-up skipped: %v\n", err)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "destination prover warmed in %.1fs\n", time.Since(start).Seconds())
+	}()
+	return done
 }
 
 func BuildInput(req ProveRequest) (ProveInput, error) {

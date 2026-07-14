@@ -1107,6 +1107,11 @@ func cmdServeHelper(args []string) error {
 	actualAddr := listener.Addr().String()
 	helperURL := "http://" + actualAddr
 	fmt.Fprintf(os.Stderr, "proof helper listening on %s\n", helperURL)
+	// Start loading the destination proving key now so it is in memory by the
+	// time the user has paired and reaches Generate proofs.
+	if warmer, ok := generator.(interface{ WarmDestinationProver() <-chan struct{} }); ok {
+		warmer.WarmDestinationProver()
+	}
 	fmt.Fprintf(os.Stderr, "allowed_origins: %s\n", strings.Join(origins, ","))
 	if *fixtureMode {
 		fmt.Fprintln(os.Stderr, "mode: fixture")
