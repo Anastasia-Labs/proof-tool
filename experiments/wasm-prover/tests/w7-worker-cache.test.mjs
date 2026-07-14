@@ -15,6 +15,8 @@ const legacyWorkerSource = await readFile(
 function workerHarness(source = workerSource) {
   const queued = [];
   let fetchCount = 0;
+  let activeFetches = 0;
+  let maxActiveFetches = 0;
   let tick = 0;
   const context = vm.createContext({
     URL,
@@ -32,9 +34,13 @@ function workerHarness(source = workerSource) {
     },
     async fetch() {
       fetchCount++;
-      const bytes = queued.shift();
-      if (!bytes) throw new Error("unexpected fetch");
+      activeFetches++;
+      maxActiveFetches = Math.max(maxActiveFetches, activeFetches);
+      const queuedValue = queued.shift();
+      if (!queuedValue) throw new Error("unexpected fetch");
+      const bytes = await queuedValue;
       const copy = Uint8Array.from(bytes);
+      activeFetches--;
       return {
         status: 200,
         headers: { get: () => "identity" },
@@ -51,6 +57,7 @@ function workerHarness(source = workerSource) {
       queued.push(bytes);
     },
     fetchCount: () => fetchCount,
+    maxActiveFetches: () => maxActiveFetches,
     cacheSize: () => vm.runInContext("verifiedChunkCache.size", context),
     telemetry: (enabled = false) => {
       context.testEnabled = enabled;
@@ -71,11 +78,12 @@ function workerHarness(source = workerSource) {
         context,
       );
     },
-    fetchSection: (plan, enabled = true) => {
+    fetchSection: (plan, enabled = true, prefetchWindow = 2) => {
       context.testPlan = plan;
       context.testEnabled = enabled;
+      context.testPrefetchWindow = prefetchWindow;
       return vm.runInContext(
-        'fetchSectionPointBytes(testPlan, "A", 0, 2, false, testEnabled)',
+        'fetchSectionPointBytes(testPlan, "A", 0, Math.floor(testPlan.sections.A.len / 96), false, testEnabled, testPrefetchWindow)',
         context,
       );
     },
@@ -282,4 +290,43 @@ test("W7 qualification rejects the legacy production Worker false-pass shape", a
     },
     /did not acknowledge/,
   );
+});
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+test("chunk prefetch window bounds concurrent verified requests", async () => {
+  const harness = workerHarness();
+  const waits = Array.from({ length: 4 }, () => deferred());
+  for (const wait of waits) harness.queue(wait.promise);
+  const plan = {
+    base_url: "https://assets.example/",
+    file_size: 384,
+    sections: { A: { offset: 0, len: 384, elem_size: 96 } },
+    chunks: Array.from({ length: 4 }, (_, index) => ({
+      ...pinnedChunk(),
+      index,
+      offset: index * 96,
+      size: 96,
+      path: "chunks/" + index + ".bin",
+    })),
+  };
+  const pending = harness.fetchSection(plan, true, 2);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(harness.fetchCount(), 2);
+  waits[0].resolve(new Uint8Array(96).fill(2));
+  waits[1].resolve(new Uint8Array(96).fill(2));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(harness.fetchCount(), 4);
+  waits[2].resolve(new Uint8Array(96).fill(2));
+  waits[3].resolve(new Uint8Array(96).fill(2));
+  const result = await pending;
+  assert.equal(harness.maxActiveFetches(), 2);
+  assert.equal(result.timings.fetch_requests, 4);
+  assert.equal(result.timings.cache_misses, 4);
 });

@@ -16,6 +16,7 @@ import {
 } from "../runtime/contamination.mjs";
 import { qualifyWorkerTelemetry } from "../runtime/common.mjs";
 import {
+  assertRedactedBenchmarkOutput,
   invalidateCaseOutput,
   writeCaseOutputAtomic,
 } from "../runtime/guarded-output.mjs";
@@ -42,6 +43,15 @@ const defaults = {
   workers: 8,
   shards: 32,
   rangeFetchConcurrency: 2,
+  chunkPrefetchWindow: 2,
+  artifactOverridesFile: "",
+  artifactOverrides: null,
+  privateInputsFile: "",
+  privateInputs: null,
+  browserCookieFile: "",
+  browserCookies: [],
+  browserProfileDir: "",
+  cacheMode: "cold",
   preflightSeconds: 30,
   sampleMs: 5000,
   maxLoadPerCore: 0.35,
@@ -68,6 +78,22 @@ const defaults = {
 };
 
 const opts = parseArgs(process.argv.slice(2), defaults);
+if (opts.artifactOverridesFile) {
+  opts.artifactOverrides = JSON.parse(
+    await fs.readFile(opts.artifactOverridesFile, "utf8"),
+  );
+}
+if (opts.privateInputsFile) {
+  opts.privateInputs = JSON.parse(
+    await fs.readFile(opts.privateInputsFile, "utf8"),
+  );
+}
+validatePrivateInputs(opts.privateInputs);
+if (opts.browserCookieFile) {
+  opts.browserCookies = parseNetscapeCookies(
+    await fs.readFile(opts.browserCookieFile, "utf8"),
+  );
+}
 await fs.mkdir(opts.outputDir, { recursive: true });
 const affinity = await applyAffinity(opts.cpuList);
 
@@ -197,10 +223,52 @@ async function runBrowserBenchmark(
   const monitorErrors = [];
   const started = Date.now();
   let hostEmulation = null;
+  const deliveryResponses = [];
+  const responseHeaderTasks = [];
   try {
-    browser = await chromium.launch({ headless: true, chromiumSandbox: false });
-    page = await browser.newPage();
+    if (options.browserProfileDir) {
+      await fs.mkdir(options.browserProfileDir, { recursive: true });
+      browser = await chromium.launchPersistentContext(
+        options.browserProfileDir,
+        { headless: true, chromiumSandbox: false },
+      );
+      page = await browser.newPage();
+    } else {
+      browser = await chromium.launch({
+        headless: true,
+        chromiumSandbox: false,
+      });
+      page = await browser.newPage();
+    }
+    if (options.cacheMode === "cold") {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Network.enable");
+      await cdp.send("Network.clearBrowserCache");
+      await cdp.detach();
+    }
+    if (options.browserCookies.length > 0) {
+      await page.context().addCookies(options.browserCookies);
+    }
     page.setDefaultTimeout(0);
+    page.on("response", (response) => {
+      responseHeaderTasks.push(
+        response.allHeaders().then((headers) => {
+          const cacheStatus = headers["cf-cache-status"];
+          if (!cacheStatus) return;
+          const url = response.url();
+          deliveryResponses.push({
+            kind: /ccs(?:$|[?.])/u.test(url)
+              ? "ccs"
+              : /(?:chunk|\.bin)(?:$|[/?._-])/u.test(url)
+                ? "pk-chunk"
+                : "public-asset",
+            cache_status: cacheStatus,
+            age_seconds: Number(headers.age || 0),
+            status: response.status(),
+          });
+        }),
+      );
+    });
     await installBenchmarkPageInit(page, options);
 
     let previousCPU = readCPUStat();
@@ -238,6 +306,19 @@ async function runBrowserBenchmark(
       async (testCase) => {
         const req = structuredClone(globalThis.__defaultProofRequest);
         req.tuning = { ...(req.tuning || {}), ...(testCase.tuning || {}) };
+        req.artifacts = {
+          ...(req.artifacts || {}),
+          ...(testCase.artifacts || {}),
+        };
+        const flowStarted = performance.now();
+        const preparedStarted = performance.now();
+        const prepared = await globalThis.preflightProofAssets(
+          JSON.stringify({
+            artifacts: req.artifacts,
+            tuning: req.tuning,
+          }),
+        );
+        const preparedMS = performance.now() - preparedStarted;
         const result = await globalThis.proveDestination(
           JSON.stringify(req),
           (progress) => {
@@ -276,17 +357,30 @@ async function runBrowserBenchmark(
             "key manifest raw SHA-256 disagrees with chunk-manifest coherence",
           );
         }
+        // The patched prover records only a numeric work count under the
+        // historical `scalars` key. Rename that aggregate before it crosses
+        // the diagnostic boundary; non-numeric values fail closed.
+        for (const event of result.trace?.events || []) {
+          if (!Object.hasOwn(event.fields || {}, "scalars")) continue;
+          if (typeof event.fields.scalars !== "number") {
+            throw new Error("proof trace contains non-numeric scalar data");
+          }
+          event.fields.scalar_count = event.fields.scalars;
+          delete event.fields.scalars;
+        }
         return {
           name: testCase.name,
           tuning: req.tuning,
           wall_seconds: result.wall_seconds,
           prove_ms: result.ms,
+          prepared_preflight_ms: preparedMS,
+          prepared_preflight: prepared,
+          prepared_flow_ms: performance.now() - flowStarted,
           peak_heap_gib: result.peak_heap_gib,
           engine: result.engine,
           runtime_options: result.runtime_options,
           verified_locally: result.verified_locally,
           trace: result.trace,
-          artifact: result.artifact,
           asset_identity: {
             key_manifest_sha256: keyManifestSHA256,
             key_manifest_blake2b256:
@@ -306,8 +400,12 @@ async function runBrowserBenchmark(
       {
         name: options.caseName,
         tuning: runtimeTuning,
+        artifacts: options.artifactOverrides,
       },
     );
+
+    await Promise.all(responseHeaderTasks);
+    result.delivery_observations = deliveryResponses;
 
     if (
       options.optW1 !== null &&
@@ -389,6 +487,7 @@ async function runBrowserBenchmark(
       observed_transient_reasons: contaminationResult.observedReasons,
       max_consecutive_contaminated_samples: contaminationResult.maxConsecutive,
     };
+    assertRedactedBenchmarkOutput(result, options.privateInputs);
     await writeCaseOutputAtomic(proofOutputPath, result);
     return {
       ok: true,
@@ -463,6 +562,9 @@ function buildSummary({
       worker_count: options.workers,
       shard_count: options.shards,
       range_fetch_concurrency: options.rangeFetchConcurrency,
+      chunk_prefetch_window: options.chunkPrefetchWindow,
+      cache_mode: options.cacheMode,
+      browser_profile_dir: options.browserProfileDir || "",
       gogc: options.gogc,
       gomemlimit: options.gomemlimit,
       cpu_list: options.cpuList || "",
@@ -860,6 +962,24 @@ function parseArgs(args, base) {
       case "--range-fetch-concurrency":
         options.rangeFetchConcurrency = Number(nextValue());
         break;
+      case "--chunk-prefetch-window":
+        options.chunkPrefetchWindow = Number(nextValue());
+        break;
+      case "--artifact-overrides":
+        options.artifactOverridesFile = path.resolve(nextValue());
+        break;
+      case "--private-inputs-file":
+        options.privateInputsFile = path.resolve(nextValue());
+        break;
+      case "--browser-profile-dir":
+        options.browserProfileDir = path.resolve(nextValue());
+        break;
+      case "--browser-cookie-file":
+        options.browserCookieFile = path.resolve(nextValue());
+        break;
+      case "--cache-mode":
+        options.cacheMode = nextValue();
+        break;
       case "--preflight-seconds":
         options.preflightSeconds = Number(nextValue());
         break;
@@ -963,17 +1083,65 @@ function parseArgs(args, base) {
   return options;
 }
 
+function validatePrivateInputs(value) {
+  if (!value || typeof value !== "object") {
+    throw new Error("--private-inputs-file is required");
+  }
+  for (const field of [
+    "master_xprv_hex",
+    "target_credential_hex",
+    "destination_address_hex",
+  ]) {
+    if (typeof value[field] !== "string" || value[field] === "") {
+      throw new Error(`private benchmark inputs are missing ${field}`);
+    }
+  }
+  if (!value.search || typeof value.search !== "object") {
+    throw new Error("private benchmark inputs are missing search");
+  }
+}
+
+function parseNetscapeCookies(raw) {
+  const cookies = [];
+  for (const line of raw.split(/\r?\n/u)) {
+    if (line === "" || (line.startsWith("#") && !line.startsWith("#HttpOnly_"))) continue;
+    const fields = line.split("\t");
+    if (fields.length < 7) continue;
+    const httpOnly = fields[0].startsWith("#HttpOnly_");
+    const domain = fields[0].replace(/^#HttpOnly_/u, "");
+    cookies.push({
+      domain,
+      path: fields[2] || "/",
+      secure: fields[3] === "TRUE",
+      expires: Number(fields[4]),
+      name: fields[5],
+      value: fields.slice(6).join("\t"),
+      httpOnly,
+      sameSite: "Lax",
+    });
+  }
+  if (cookies.length === 0) throw new Error("browser cookie file contains no cookies");
+  return cookies;
+}
+
 function validateOptions(options) {
   for (const [name, value] of [
     ["workers", options.workers],
     ["shards", options.shards],
     ["range_fetch_concurrency", options.rangeFetchConcurrency],
+    ["chunk_prefetch_window", options.chunkPrefetchWindow],
     ["preflight_seconds", options.preflightSeconds],
     ["sample_ms", options.sampleMs],
   ]) {
     if (!Number.isFinite(value) || value <= 0) {
       throw new Error(`${name} must be a positive number`);
     }
+  }
+  if (![1, 2, 3, 4].includes(options.chunkPrefetchWindow)) {
+    throw new Error("chunk_prefetch_window must be one of 1, 2, 3, or 4");
+  }
+  if (!["cold", "warm"].includes(options.cacheMode)) {
+    throw new Error("cache_mode must be cold or warm");
   }
   validateHostEmulationOptions(options);
 }
@@ -987,6 +1155,12 @@ Options:
   --workers N                         Worker count. Default: ${defaults.workers}
   --shards N                          Shard count. Default: ${defaults.shards}
   --rf N                              Range fetch concurrency. Default: ${defaults.rangeFetchConcurrency}
+  --chunk-prefetch-window N           Verified chunk window (1-4). Default: 2
+  --artifact-overrides FILE           Public artifact URL overrides JSON.
+  --private-inputs-file FILE          Local proof inputs injected before navigation; never served.
+  --browser-profile-dir DIR           Persistent Chromium profile for cold/warm runs.
+  --browser-cookie-file FILE           Local Netscape cookie file; values are never written to output.
+  --cache-mode cold|warm              Clear or retain that profile cache.
   --base-url URL                      Browser harness URL. Default: ${defaults.baseURL}
   --preflight-seconds N               Idle gate duration. Default: ${defaults.preflightSeconds}
   --sample-ms N                       During-run sample interval. Default: ${defaults.sampleMs}

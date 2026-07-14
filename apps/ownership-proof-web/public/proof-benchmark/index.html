@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Browser WASM Prover Experiment</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f6f3ec;
+        color: #17201c;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 28px 20px 40px;
+      }
+      h1 {
+        margin: 0 0 18px;
+        font-size: 28px;
+        line-height: 1.15;
+      }
+      .panel {
+        border: 1px solid #d5d0c5;
+        background: #fffefa;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 14px 0;
+      }
+      textarea {
+        width: 100%;
+        min-height: 260px;
+        box-sizing: border-box;
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        border: 1px solid #c9c3b8;
+        border-radius: 6px;
+        padding: 12px;
+        resize: vertical;
+      }
+      button {
+        border: 1px solid #21453a;
+        background: #21453a;
+        color: #fff;
+        border-radius: 6px;
+        padding: 10px 14px;
+        font-weight: 650;
+      }
+      button:disabled {
+        opacity: 0.55;
+      }
+      progress {
+        width: 100%;
+        height: 14px;
+      }
+      code,
+      pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+      }
+      pre {
+        overflow: auto;
+        white-space: pre-wrap;
+      }
+      .ok {
+        color: #0f6b42;
+        font-weight: 700;
+      }
+      .bad {
+        color: #a33a2a;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Browser WASM Prover Experiment</h1>
+      <div class="panel">
+        <div id="caps">checking capabilities</div>
+        <div>stage: <code id="stage">loading</code></div>
+        <progress id="bar" value="0" max="1"></progress>
+      </div>
+      <div class="panel">
+        <textarea id="request" spellcheck="false"></textarea>
+        <p><button id="prove" disabled>Run Proof Attempt</button></p>
+      </div>
+      <div class="panel">
+        <pre id="result"></pre>
+      </div>
+    </main>
+    <script src="/proof-runtime/wasm_exec.js"></script>
+    <script type="module" src="/proof-benchmark/browser-prover.js"></script>
+  </body>
+</html>

@@ -99,14 +99,16 @@ function collectCandidateWorkerTelemetry(optW7 = false) {
   return telemetry;
 }
 
-function startKernel() {
+function startKernel(compiledModule = null) {
   readyPromise = (async () => {
     importScripts('wasm_exec.js');
     const go = new Go();
     go.env.GOGC = gogc;
     go.env.GOMEMLIMIT = gomemlimit;
     let instance;
-    if (typeof WebAssembly.instantiateStreaming === 'function') {
+    if (compiledModule) {
+      instance = await WebAssembly.instantiate(compiledModule, go.importObject);
+    } else if (typeof WebAssembly.instantiateStreaming === 'function') {
       const result = await WebAssembly.instantiateStreaming(fetch(wasmURL), go.importObject);
       instance = result.instance;
     } else {
@@ -173,7 +175,7 @@ async function fetchVerifiedChunk(baseURL, chunk, optW7 = false) {
   return { raw, fetchMS, hashMS, fetchedBytes: raw.byteLength, cacheHit: false, cacheMiss: optW7 };
 }
 
-async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = false) {
+async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = false, prefetchWindow = 2) {
   if (!plan || typeof plan !== 'object') throw new Error('pk section plan is required');
   const section = plan.sections && plan.sections[sectionName];
   if (!section) throw new Error(`section ${sectionName} not found in pk section plan`);
@@ -200,26 +202,42 @@ async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = fal
     slice_ms: 0,
     cache_hits: 0,
     cache_misses: 0,
+    fetch_requests: 0,
     w7_applied: optW7 ? 1 : 0,
   };
   const bytes = { fetched: 0, hashed: 0, cache_hit: 0, used: pointsRaw.byteLength };
-  for (const chunk of plan.chunks || []) {
+  const chunks = (plan.chunks || []).filter((chunk) => {
     const chunkStart = chunk.offset;
     const chunkEnd = chunk.offset + chunk.size;
-    if (chunkEnd <= start || chunkStart >= end) continue;
-    const { raw, fetchMS, hashMS, fetchedBytes, cacheHit, cacheMiss } = await fetchVerifiedChunk(plan.base_url, chunk, optW7);
-    timings.fetch_ms += fetchMS;
-    timings.hash_ms += hashMS;
-    timings.cache_hits += cacheHit ? 1 : 0;
-    timings.cache_misses += cacheMiss ? 1 : 0;
-    bytes.fetched += fetchedBytes;
-    bytes.hashed += cacheHit ? 0 : raw.byteLength;
-    bytes.cache_hit += cacheHit ? raw.byteLength : 0;
-    const useStart = Math.max(start, chunkStart);
-    const useEnd = Math.min(end, chunkEnd);
-    const sliceStarted = performance.now();
-    pointsRaw.set(raw.subarray(useStart - chunkStart, useEnd - chunkStart), useStart - start);
-    timings.slice_ms += performance.now() - sliceStarted;
+    return chunkEnd > start && chunkStart < end;
+  });
+  const windowSize = Math.max(1, Math.min(4, Number.isSafeInteger(prefetchWindow) ? prefetchWindow : 2));
+  for (let offset = 0; offset < chunks.length; offset += windowSize) {
+    const window = chunks.slice(offset, offset + windowSize);
+    timings.fetch_requests += window.length;
+    // Promise resolution happens only after each object passes both pinned
+    // digests. No byte is copied into the point buffer before the whole window
+    // has passed verification, and corrupt bytes never enter the W7 cache.
+    const verified = await Promise.all(
+      window.map((chunk) => fetchVerifiedChunk(plan.base_url, chunk, optW7)),
+    );
+    for (let index = 0; index < window.length; index += 1) {
+      const chunk = window[index];
+      const { raw, fetchMS, hashMS, fetchedBytes, cacheHit, cacheMiss } = verified[index];
+      timings.fetch_ms += fetchMS;
+      timings.hash_ms += hashMS;
+      timings.cache_hits += cacheHit ? 1 : 0;
+      timings.cache_misses += cacheMiss ? 1 : 0;
+      bytes.fetched += fetchedBytes;
+      bytes.hashed += cacheHit ? 0 : raw.byteLength;
+      bytes.cache_hit += cacheHit ? raw.byteLength : 0;
+      const chunkStart = chunk.offset;
+      const useStart = Math.max(start, chunkStart);
+      const useEnd = Math.min(end, chunkStart + chunk.size);
+      const sliceStarted = performance.now();
+      pointsRaw.set(raw.subarray(useStart - chunkStart, useEnd - chunkStart), useStart - start);
+      timings.slice_ms += performance.now() - sliceStarted;
+    }
   }
   return { pointsRaw, timings, bytes };
 }
@@ -250,7 +268,15 @@ function copyTimingFields(dst, src) {
 
 async function runSectionRange(msg) {
   const plan = typeof msg.pkPlan === 'string' ? JSON.parse(msg.pkPlan) : msg.pkPlan;
-  const { pointsRaw, timings, bytes } = await fetchSectionPointBytes(plan, msg.section, msg.lo, msg.hi, msg.g2, msg.optW7 === true);
+  const { pointsRaw, timings, bytes } = await fetchSectionPointBytes(
+    plan,
+    msg.section,
+    msg.lo,
+    msg.hi,
+    msg.g2,
+    msg.optW7 === true,
+    msg.chunkPrefetchWindow,
+  );
   const scsU8 = new Uint8Array(msg.scs);
   const computeStarted = performance.now();
   let partial;
@@ -277,7 +303,7 @@ self.onmessage = async (e) => {
     if (msg.gogc && TUNING_VALUE.test(String(msg.gogc))) gogc = String(msg.gogc);
     if (msg.gomemlimit && TUNING_VALUE.test(String(msg.gomemlimit))) gomemlimit = String(msg.gomemlimit);
     try {
-      await startKernel();
+      await startKernel(msg.compiledModule || null);
       self.postMessage({ type: 'ready' });
     } catch (err) {
       self.postMessage({ type: 'init-error', error: String(err && err.message ? err.message : err) });

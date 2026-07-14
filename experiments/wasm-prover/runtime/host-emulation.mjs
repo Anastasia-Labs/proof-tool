@@ -41,6 +41,7 @@ export function benchmarkRuntimeTuning(options) {
     worker_count: options.workers,
     shard_count: options.shards,
     range_fetch_concurrency: options.rangeFetchConcurrency,
+    chunk_prefetch_window: options.chunkPrefetchWindow,
     ...(options.pinnedDecode === null
       ? {}
       : { pinned_decode: options.pinnedDecode }),
@@ -55,9 +56,12 @@ export function benchmarkRuntimeTuning(options) {
 
 export async function installBenchmarkPageInit(page, options) {
   await page.addInitScript(
-    ({ gogc, gomemlimit, hardwareConcurrency, deviceMemoryGiB }) => {
+    ({ gogc, gomemlimit, hardwareConcurrency, deviceMemoryGiB, privateInputs }) => {
       globalThis.__GOGC = gogc;
       globalThis.__GOMEMLIMIT = gomemlimit;
+      if (privateInputs && typeof privateInputs === "object") {
+        globalThis.__benchmarkPrivateRequest = structuredClone(privateInputs);
+      }
       if (Number.isSafeInteger(hardwareConcurrency) && hardwareConcurrency > 0) {
         Object.defineProperty(navigator, "hardwareConcurrency", {
           configurable: true,
@@ -76,6 +80,7 @@ export async function installBenchmarkPageInit(page, options) {
       gomemlimit: options.gomemlimit,
       hardwareConcurrency: options.emulateHardwareConcurrency,
       deviceMemoryGiB: options.emulateDeviceMemoryGiB,
+      privateInputs: options.privateInputs || null,
     },
   );
 }
