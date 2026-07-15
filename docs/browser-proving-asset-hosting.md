@@ -70,8 +70,8 @@ The three Ruleset Engine rules match only:
 
 | Layer | Stable rule reference | Action |
 | --- | --- | --- |
-| Cache Rule | `proof_assets_cache_eligible_v1` | `set_cache_settings` with `cache: true` |
-| Response Header Transform Rule | `proof_assets_response_headers_v1` | Set `Cache-Control: public, max-age=31536000, immutable` and `Cross-Origin-Resource-Policy: cross-origin` |
+| Cache Rule | `proof_assets_cache_eligible_v1` | `set_cache_settings` with `cache: true` and a 1-year `edge_ttl` override (objects are write-once and content-addressed, so maximal edge retention is safe; added 2026-07-15) |
+| Response Header Transform Rule | `proof_assets_response_headers_v1` | Set `Cache-Control: public, max-age=31536000, immutable`, `Cross-Origin-Resource-Policy: cross-origin`, and `Timing-Allow-Origin: *` (exposes Resource Timing `transferSize` cross-origin so the prover's `range_bytes_network/disk_cache` telemetry gets full attribution; added 2026-07-15) |
 | Compression Rule | `proof_assets_disable_compression_v1` | `compress_response` with `algorithms: [{"name":"none"}]` |
 
 Tiered Cache and Smart Tiered Cache are both enabled. Those are zone settings,
