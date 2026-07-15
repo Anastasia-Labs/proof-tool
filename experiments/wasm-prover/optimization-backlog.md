@@ -150,6 +150,39 @@ rebuild intentionally differs because the circuit track has since begun C3;
 the public binary remains the benchmarked pre-C3 r8 until G3 replaces the full
 v1 key/CCS/VK/runtime set with the coherent v2 ceremony artifacts.
 
+## W8 / readahead / zstd-CCS candidate results (2026-07-14, branch optimize-browser-7-14-2026)
+
+Local same-stage counterbalanced A/B on the v2 2-MiB tier (localhost harness,
+w16/s16/rf2, gogc15/3200MiB, all W1-W7 on, signed local manifest, verified
+proofs in every run; see `experiments/wasm-prover/browser-proving-efficiency-plan.md`
+for the design):
+
+- **opt-W8 (computeH transforms on 3 dedicated FFT workers)**: computeH span
+  20.5-21.1 s -> 15.0-15.1 s (about -27%), order-independent across
+  counterbalanced pairs; wall means about 45.1 -> 41.3 s on a noisy host. The
+  engine self-gates to pools of >= 8 MSM workers; per-vector worker round-trip
+  overhead (canonical scalar marshal + SAB copies + per-call table builds) is
+  the remaining gap to the ideal, and a six-step full-pool FFT remains the
+  follow-up (workstream B1b).
+- **chunk_readahead=2 (dispatch-order HTTP-cache warm-up)**: engaged from the
+  open-keys boundary (615 chunks); localhost cannot show the transfer win —
+  the effect is a cold/remote-link lever. `range_bytes_network/disk_cache/opaque`
+  telemetry was added to the shard measures to quantify it on real CDNs
+  (requires Timing-Allow-Origin at the edge for full attribution).
+- **zstd CCS transport**: 129,221,468 -> 38,327,673 bytes (29.7%) on the wire,
+  decoded+double-digest-verified in the browser (`open-ccs` trace shows
+  encoding=zstd), identity fallback on transport failure, fail-closed on
+  digest mismatch. The `.zst` is uploaded next to the live identity CCS under
+  `proof-assets/preprod-9fac96b-g3a-pk2m-r1/` (sha256 matches the pin);
+  shipping it to production needs the v2-signed manifest refresh.
+- Gates: guarded uncontaminated run 45,138 ms / verified / 16 workers
+  qualified (`local-opt-candidate-w16-s16-rf2-r2`); full six-case tamper
+  matrix passes (this work also fixed a verify-tamper.mjs no-op when vk_hash
+  ends in `0`); native + vendored (`TestComputeHW8EngineMatchesSerial`,
+  `TestHTransformMatchesSerialFFT`) + Node (`fft-transform-roundtrip.mjs`,
+  `node-msm-check`) + web suites pass. Remote-matrix confirmation against the
+  CDN is the remaining promotion step.
+
 ## Performance History
 
 | Route | Prove time | Peak main heap | Disposition |
@@ -268,6 +301,8 @@ Supporting gates:
 
 ```bash
 go test ./internal/msmengine ./internal/streampk ./internal/streamprove ./internal/proofassets
+# vendored computeH differentials (W6/W8) — `go test ./...` skips vendor/:
+go test ./vendor/github.com/consensys/gnark/backend/groth16/bls12-381/ -run 'TestComputeH|TestW6' 
 GOROOT="$(go env GOROOT)" N=2000 WORKERS=4 \
   node experiments/wasm-prover/web/node-msm-check/run.mjs
 node experiments/wasm-prover/scripts/verify-tamper.mjs <artifact.json>

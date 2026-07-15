@@ -42,6 +42,9 @@ export function benchmarkRuntimeTuning(options) {
     shard_count: options.shards,
     range_fetch_concurrency: options.rangeFetchConcurrency,
     chunk_prefetch_window: options.chunkPrefetchWindow,
+    ...(options.chunkReadahead === null || options.chunkReadahead === undefined
+      ? {}
+      : { chunk_readahead: options.chunkReadahead }),
     ...(options.pinnedDecode === null
       ? {}
       : { pinned_decode: options.pinnedDecode }),
@@ -51,6 +54,9 @@ export function benchmarkRuntimeTuning(options) {
     ...(options.optW5 === null ? {} : { opt_w5: options.optW5 }),
     ...(options.optW6 === null ? {} : { opt_w6: options.optW6 }),
     ...(options.optW7 === null ? {} : { opt_w7: options.optW7 }),
+    ...(options.optW8 === null || options.optW8 === undefined
+      ? {}
+      : { opt_w8: options.optW8 }),
   };
 }
 

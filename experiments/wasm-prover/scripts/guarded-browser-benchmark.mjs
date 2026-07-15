@@ -44,6 +44,8 @@ const defaults = {
   shards: 32,
   rangeFetchConcurrency: 2,
   chunkPrefetchWindow: 2,
+  chunkReadahead: null,
+  optW8: null,
   artifactOverridesFile: "",
   artifactOverrides: null,
   privateInputsFile: "",
@@ -564,6 +566,8 @@ function buildSummary({
       shard_count: options.shards,
       range_fetch_concurrency: options.rangeFetchConcurrency,
       chunk_prefetch_window: options.chunkPrefetchWindow,
+      chunk_readahead: options.chunkReadahead,
+      opt_w8: options.optW8,
       cache_mode: options.cacheMode,
       browser_profile_dir: options.browserProfileDir || "",
       gogc: options.gogc,
@@ -966,6 +970,15 @@ function parseArgs(args, base) {
       case "--chunk-prefetch-window":
         options.chunkPrefetchWindow = Number(nextValue());
         break;
+      case "--chunk-readahead":
+        options.chunkReadahead = Number(nextValue());
+        break;
+      case "--opt-w8":
+        options.optW8 = true;
+        break;
+      case "--no-opt-w8":
+        options.optW8 = false;
+        break;
       case "--artifact-overrides":
         options.artifactOverridesFile = path.resolve(nextValue());
         break;
@@ -1144,6 +1157,12 @@ function validateOptions(options) {
   if (![1, 2, 3, 4].includes(options.chunkPrefetchWindow)) {
     throw new Error("chunk_prefetch_window must be one of 1, 2, 3, or 4");
   }
+  if (
+    options.chunkReadahead !== null &&
+    ![0, 1, 2, 3, 4].includes(options.chunkReadahead)
+  ) {
+    throw new Error("chunk_readahead must be one of 0, 1, 2, 3, or 4");
+  }
   if (!["cold", "warm"].includes(options.cacheMode)) {
     throw new Error("cache_mode must be cold or warm");
   }
@@ -1160,6 +1179,8 @@ Options:
   --shards N                          Shard count. Default: ${defaults.shards}
   --rf N                              Range fetch concurrency. Default: ${defaults.rangeFetchConcurrency}
   --chunk-prefetch-window N           Verified chunk window (1-4). Default: 2
+  --chunk-readahead N                 Dispatch-order HTTP-cache warm lanes (0 disables, 1-4). Default: runtime default
+  --opt-w8 / --no-opt-w8              Toggle computeH FFT workers (opt_w8). Default: runtime default
   --artifact-overrides FILE           Public artifact URL overrides JSON.
   --private-inputs-file FILE          Local proof inputs injected into the harness page before navigation.
                                       Loopback harnesses only, unless the exposure flag below is passed.

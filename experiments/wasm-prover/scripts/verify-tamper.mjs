@@ -27,7 +27,7 @@ try {
   await check('tampered destination address', { ...proof, destination_address: flipHex(proof.destination_address) }, false);
   await check('tampered public input', { ...proof, public_input: flipPublicInput(proof.public_input) }, false);
   await check('tampered proof bytes', { ...proof, proof: proof.proof.slice(0, -4) + 'AAAA' }, false);
-  await check('wrong vk_hash', { ...proof, vk_hash: proof.vk_hash.replace(/[0-9a-f]$/i, '0') }, false);
+  await check('wrong vk_hash', { ...proof, vk_hash: flipLastHexNibble(proof.vk_hash) }, false);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -47,6 +47,16 @@ async function check(label, value, shouldPass) {
     throw new Error(`${label}: expected pass=${shouldPass}, got status=${res.status}`);
   }
   console.log(`${label}: ${passed ? 'verified true' : 'rejected'}`);
+}
+
+// flipLastHexNibble produces a WELL-FORMED wrong digest: same prefix, same
+// length, last hex nibble changed. This keeps the tamper case exercising the
+// digest-equality check rather than format validation (and unlike the old
+// replace-with-'0', it is never a no-op).
+function flipLastHexNibble(value) {
+  const last = value[value.length - 1];
+  const flipped = last === '0' ? '1' : '0';
+  return value.slice(0, -1) + flipped;
 }
 
 function flipHex(value) {
