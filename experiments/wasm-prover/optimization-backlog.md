@@ -249,6 +249,13 @@ Do not reintroduce these without a new hypothesis and real proof evidence:
   valid benchmark completed.
 - WebGPU/specialized MSM was deferred. It is a separate high-risk research
   project, not an unimplemented switch.
+- An arkworks (Rust) wasm MSM kernel was benchmarked (2026-07-15,
+  `experiments/wasm-prover/rust-msm-spike/`) and REJECTED: bit-exact with the
+  Go kernel but 0.73-0.76x its speed portable, 0.51-0.54x with +simd128
+  (arkworks has no hand-written SIMD paths; autovectorization pessimizes).
+  Do not reintroduce a non-Go CPU kernel without first beating gnark's Go
+  wasm MSM by >=1.3x in that spike harness — hand-written SIMD128 field
+  arithmetic would be the only plausible route.
 
 ## Open Research Questions
 

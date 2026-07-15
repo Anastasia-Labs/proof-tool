@@ -53,6 +53,8 @@ experiments/wasm-prover/cmd/*
 !experiments/wasm-prover/tools
 !experiments/wasm-prover/web
 !experiments/wasm-prover/README.md
+!experiments/wasm-prover/rust-msm-spike
+
 experiments/wasm-prover/msmengine/*
 !experiments/wasm-prover/msmengine/shim.go
 experiments/wasm-prover/patches/*
@@ -68,6 +70,7 @@ experiments/wasm-prover/patches/*
 !experiments/wasm-prover/scripts/**
 !experiments/wasm-prover/tests/**
 !experiments/wasm-prover/tools/**
+experiments/wasm-prover/rust-msm-spike/target*
 experiments/wasm-prover/web/*
 !experiments/wasm-prover/web/worker.js
 

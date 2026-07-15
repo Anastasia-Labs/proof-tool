@@ -133,6 +133,28 @@ medians per the benchmark protocol, not single traces.
 
 ## Workstream C — Rust + wasm-SIMD MSM kernel (arkworks)
 
+**PHASE 0 RAN 2026-07-15: NO-GO.** `experiments/wasm-prover/rust-msm-spike/`
+(bench.mjs, reproducible) measured arkworks 0.5 against the Go gnark kernel on
+the exact worker wire format, single-threaded, same V8, bit-exact results
+asserted on every run:
+
+| n       | go-gnark | rust-portable | rust +simd128 |
+|---------|---------:|--------------:|--------------:|
+| 16,384  |   533 ms | 700 ms (0.76x) | 983 ms (0.54x) |
+| 131,072 | 3,379 ms | 4,650 ms (0.73x) | 6,546 ms (0.52x) |
+| 524,288 | 12,620 ms | 16,689 ms (0.76x) | 24,659 ms (0.51x) |
+
+arkworks is ~1.3x SLOWER than gnark-on-Go-wasm, and `+simd128` makes it ~2x
+slower (arkworks has no hand-written SIMD128 paths; LLVM autovectorization
+pessimizes the bigint arithmetic). wasm-opt -O3 on the Rust module does not
+change the verdict (0.71x). Per the kill criterion below, workstream C stops
+here; the effort goes to B1b and workstream A. Two durable positives: the
+two-runtime boundary and the hand-written ZCash serializer are PROVEN (byte-
+identical partials through the real wasm boundary), so if a future kernel
+with hand-written SIMD128 field arithmetic (not arkworks) shows a real win,
+the integration path is de-risked. Any revival must first beat gnark's Go
+wasm MSM by >=1.3x in this same spike harness.
+
 Backend locked: **arkworks** (`ark-bls12-381`/`ark-ec`) — pure Rust, clean
 `wasm32-unknown-unknown` + `+simd128` build, permissive licence, easy
 differential testing. `blst` rejected: its speed is x86/aarch64 asm with no
