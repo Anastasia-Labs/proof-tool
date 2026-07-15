@@ -65,7 +65,11 @@ import {
   downloadLastBrowserProvingDiagnostic,
   hasBrowserProvingDiagnostic,
 } from "../lib/proving/diagnostic";
-import { proveDestinationViaHelper } from "../lib/proving/desktop-helper";
+import {
+  preflightDestinationViaHelper,
+  proveDestinationViaHelper,
+} from "../lib/proving/desktop-helper";
+import { fetchLoopback, queryLoopbackPermission } from "../lib/proving/loopback-access";
 import {
   acknowledgePairing,
   broadcastPairing,
@@ -181,7 +185,13 @@ type SafeWalletSummary = ImpactedWalletSummary & {
   changeAddress: string;
 };
 
-type ClaimHelperState = "unpaired" | "checking" | "ready" | "unavailable";
+type ClaimHelperState =
+  | "unpaired"
+  | "checking"
+  | "ready"
+  | "permission-prompt"
+  | "permission-denied"
+  | "unavailable";
 type LocalProofMethod = "desktop" | "browser";
 type SafeWalletSigningSessionState =
   | "not-connected"
@@ -210,6 +220,7 @@ type ClaimHelperStatusResponse = {
   connected?: boolean;
   sidecar_version?: string;
   protocol_version?: string;
+  capabilities?: string[];
   destination_profile?: ClaimHelperDestinationProfile;
 };
 
@@ -911,7 +922,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     selectedSafeWallet,
   ]);
 
-  const checkHelper = useCallback(async (): Promise<boolean> => {
+  const checkHelper = useCallback(async (requestPermission = false): Promise<boolean> => {
     if (fixtureEnabled) {
       return true;
     }
@@ -919,6 +930,19 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       setHelperState("unpaired");
       setHelperStatus(null);
       setHelperError("Open Proof Helper from this page so it can pair with the claim flow.");
+      return false;
+    }
+    const permission = await queryLoopbackPermission();
+    if (permission === "denied") {
+      setHelperState("permission-denied");
+      setHelperStatus(null);
+      setHelperError("Local device access is blocked for this site. Allow local network access in your browser site settings, then try again.");
+      return false;
+    }
+    if (permission === "prompt" && !requestPermission) {
+      setHelperState("permission-prompt");
+      setHelperStatus(null);
+      setHelperError("Allow this site to connect to Proof Helper on this computer. No recovery phrase is sent during this check.");
       return false;
     }
     setHelperState("checking");
@@ -929,7 +953,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         headers: {
           "X-Proof-Tool-Token": helperToken,
         },
-      });
+      }, fetchLoopback);
       setHelperStatus(status);
       const profile = status.destination_profile;
       if (!profile) {
@@ -956,15 +980,25 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       return true;
     } catch (error) {
       setHelperStatus(null);
-      setHelperState("unavailable");
-      setHelperError(sanitizeRecoverableError(error, "Proof Helper is unavailable."));
+      const nextPermission = await queryLoopbackPermission();
+      if (nextPermission === "denied") {
+        setHelperState("permission-denied");
+        setHelperError("Local device access was denied. Allow local network access in your browser site settings, then try again.");
+      } else {
+        setHelperState("unavailable");
+        setHelperError(sanitizeRecoverableError(error, "Proof Helper is unavailable."));
+      }
       return false;
     }
   }, [deployment, fixtureEnabled, helperToken, helperUrl]);
 
+  const requestHelperAccess = useCallback(() => {
+    void checkHelper(true);
+  }, [checkHelper]);
+
   useEffect(() => {
     if (!fixtureEnabled && helperUrl && helperToken) {
-      void checkHelper();
+      void checkHelper(false);
     }
   }, [checkHelper, fixtureEnabled, helperToken, helperUrl]);
 
@@ -1470,17 +1504,6 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       return;
     }
 
-    // C28: validate the full phrase (wordlist + BIP-39 checksum) straight from
-    // the DOM inputs BEFORE any worker/helper run starts and BEFORE the grid
-    // is cleared. On failure the inputs are left intact so the user can fix
-    // word order or spelling. Only the boolean outcome leaves this check — the
-    // words never reach React state, error messages, or logs.
-    if (!recoveryPhraseInputsPassValidation()) {
-      setPhraseChecksumFailed(true);
-      return;
-    }
-    setPhraseChecksumFailed(false);
-
     proofRunInFlightRef.current = true;
     const runId = ++proofRunIdRef.current;
     try {
@@ -1489,11 +1512,26 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         return;
       }
 
-      const helperReady = await checkHelper();
+      const helperReady = await checkHelper(true);
       if (!helperReady) {
         setScreen("helper-unavailable");
         return;
       }
+
+      // Exercise the exact authenticated endpoint with a no-secret request.
+      // This must succeed before even reading the phrase fields so browser
+      // permission/CORS/helper-version failures leave the phrase untouched.
+      try {
+        await preflightDestinationViaHelper({ helperUrl, helperToken });
+      } catch (error) {
+        setProofError(sanitizeRecoverableError(error, "Proof Helper could not complete its safe preflight."));
+        return;
+      }
+      if (!recoveryPhraseInputsPassValidation()) {
+        setPhraseChecksumFailed(true);
+        return;
+      }
+      setPhraseChecksumFailed(false);
 
       const seedPhrase = readAndClearRecoveryPhrase();
       changeScreen("create-proofs-generating");
@@ -1536,6 +1574,12 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       setProofError("This browser cannot generate proofs right now. Choose Proof Helper Desktop to continue.");
       return;
     }
+
+    if (!recoveryPhraseInputsPassValidation()) {
+      setPhraseChecksumFailed(true);
+      return;
+    }
+    setPhraseChecksumFailed(false);
 
     const seedPhrase = readAndClearRecoveryPhrase();
     changeScreen("create-proofs-generating");
@@ -2069,7 +2113,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
             helperState,
             helperStatus,
             helperError,
-            checkHelper,
+            checkHelper: requestHelperAccess,
             proofArtifacts,
             proofError,
             phraseChecksumFailed,
@@ -3300,6 +3344,8 @@ function CreateProofs({
   const effectiveHelperState: ClaimHelperState = fixtureMode && mode !== "helper-unavailable" ? "ready" : (helperState ?? "unpaired");
   const helperReady = effectiveHelperState === "ready";
   const helperChecking = effectiveHelperState === "checking";
+  const helperPermissionPrompt = effectiveHelperState === "permission-prompt";
+  const helperPermissionDenied = effectiveHelperState === "permission-denied";
   const helperUnavailable = !helperReady && !helperChecking;
   const helperBad = mode === "helper-unavailable" || (!fixtureMode && helperUnavailable);
   const failed = mode === "failed";
@@ -3449,7 +3495,13 @@ function CreateProofs({
           disabled={helperChecking}
         >
           <RefreshCw size={18} aria-hidden="true" className={helperChecking ? "spin" : undefined} />
-          {helperChecking ? "Checking helper..." : "Check helper again"}
+          {helperChecking
+            ? "Checking helper..."
+            : helperPermissionPrompt
+              ? "Allow desktop connection"
+              : helperPermissionDenied
+                ? "Check permission again"
+                : "Check helper again"}
         </button>
       ) : null}
       {proofMethodDialogOpen ? (
@@ -5554,8 +5606,12 @@ class ClaimApiError extends Error {
   }
 }
 
-async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+async function fetchJSON<T>(
+  url: string,
+  init?: RequestInit,
+  fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = fetch,
+): Promise<T> {
+  const response = await fetcher(url, init);
   let payload: unknown = null;
   try {
     payload = await response.json();

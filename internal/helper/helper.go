@@ -27,7 +27,8 @@ const (
 	ProtocolVersion = "proof-helper-v1"
 	SidecarVersion  = "0.1.0"
 
-	DestinationProfileSingle = "single-destination"
+	DestinationProfileSingle       = "single-destination"
+	DestinationPreflightCapability = "prove-destination-preflight-v1"
 )
 
 type ProveRequest struct {
@@ -54,11 +55,17 @@ type ProveResponse struct {
 }
 
 type ProveDestinationRequest struct {
+	PreflightOnly    bool                      `json:"preflight_only,omitempty"`
 	MasterXPrvBase64 string                    `json:"master_xprv_base64"`
 	Profile          string                    `json:"profile"`
 	Requests         []DestinationProofRequest `json:"requests"`
 	Search           *DestinationSearchRequest `json:"search,omitempty"`
 	IncludeDebugPath bool                      `json:"include_debug_path,omitempty"`
+}
+
+type ProveDestinationPreflightResponse struct {
+	OK         bool   `json:"ok"`
+	Capability string `json:"capability"`
 }
 
 type DestinationProofRequest struct {

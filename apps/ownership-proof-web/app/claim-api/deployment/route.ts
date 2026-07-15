@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
-import { loadClaimDeployment } from "../../../lib/reclaim-server/manifest";
+import { getClaimDeployment } from "../../../lib/reclaim-server/config";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export function GET() {
-  return NextResponse.json(loadClaimDeployment());
+  return NextResponse.json(getClaimDeployment(), {
+    headers: {
+      "Cache-Control": "no-store",
+    },
+  });
 }

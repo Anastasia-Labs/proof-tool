@@ -151,6 +151,8 @@ export type ClaimDeploymentConfigResult =
 type ManifestLoadOptions = {
   env?: EnvMap;
   cwd?: string;
+  manifest?: unknown;
+  enforceEnvCoherence?: boolean;
 };
 
 const NETWORK_IDS: Record<ReclaimNetwork, 0 | 1> = {
@@ -349,7 +351,9 @@ const ENV_MATCH_FIELDS: Array<{ env: string; field: string; getValue: (manifest:
 export function loadReclaimDeployment(options: ManifestLoadOptions = {}): DeploymentConfigResult {
   const env = options.env ?? process.env;
   const providerFallback = providerReadiness(null, env);
-  const source = readManifestSource(env, options.cwd ?? process.cwd());
+  const source = options.manifest === undefined
+    ? readManifestSource(env, options.cwd ?? process.cwd())
+    : { raw: options.manifest, errors: [] };
 
   if (!source.raw) {
     return disabledResult(source.errors, providerFallback);
@@ -360,7 +364,9 @@ export function loadReclaimDeployment(options: ManifestLoadOptions = {}): Deploy
     return disabledResult([...source.errors, ...validation.errors], providerFallback);
   }
 
-  const envErrors = validateManifestEnvCoherence(validation.manifest, env);
+  const envErrors = options.enforceEnvCoherence === false
+    ? []
+    : validateManifestEnvCoherence(validation.manifest, env);
   if (envErrors.length > 0) {
     return disabledResult(envErrors, providerReadiness(validation.manifest, env));
   }
@@ -982,7 +988,15 @@ function claimCapabilities(manifest: ReclaimDeploymentManifest): ClaimDeployment
   };
 }
 
-const BROWSER_PROVING_SAME_ORIGIN_URLS = ["runtime_base_url", "proof_wasm_url", "worker_js_url", "msm_worker_wasm_url"] as const;
+const BROWSER_PROVING_SAME_ORIGIN_URLS = [
+  "runtime_base_url",
+  "runtime_manifest_url",
+  "prover_worker_js_url",
+  "wasm_exec_js_url",
+  "proof_wasm_url",
+  "worker_js_url",
+  "msm_worker_wasm_url",
+] as const;
 
 const BROWSER_PROVING_ASSET_URLS = [
   "manifest_url",
@@ -1013,6 +1027,9 @@ function browserProvingFromField(
   const descriptor: BrowserProvingDescriptor = {
     enabled: root.enabled === true,
     runtime_base_url: "",
+    runtime_manifest_url: "",
+    prover_worker_js_url: "",
+    wasm_exec_js_url: "",
     manifest_url: "",
     manifest_sig_url: "",
     manifest_public_key_hex: hexField(root.manifest_public_key_hex, `${field}.manifest_public_key_hex`, 64, errors),

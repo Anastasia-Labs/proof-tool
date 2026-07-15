@@ -1,6 +1,12 @@
 import { Blockfrost, Koios, type Provider } from "@lucid-evolution/lucid";
 import type { ReclaimDeployment, ReclaimNetwork } from "../reclaim/types";
-import { loadReclaimDeployment, type DeploymentConfigResult } from "./manifest";
+import bundledReclaimDeployment from "../../public/proof-assets/reclaim-deployment.json";
+import {
+  loadClaimDeployment,
+  loadReclaimDeployment,
+  type ClaimDeploymentConfigResult,
+  type DeploymentConfigResult,
+} from "./manifest";
 
 const NETWORK_IDS: Record<ReclaimNetwork, 0 | 1> = {
   Mainnet: 1,
@@ -21,7 +27,20 @@ const BLOCKFROST_URLS: Record<ReclaimNetwork, string> = {
 };
 
 export function getReclaimDeployment(): DeploymentConfigResult {
-  return loadReclaimDeployment();
+  return loadReclaimDeployment({
+    manifest: bundledReclaimDeployment,
+    // The committed descriptor is the release-coherence root for Vercel.
+    // Provider credentials still come from process.env, but stale deployment
+    // selector/pin variables must not override a merge-reviewed release.
+    enforceEnvCoherence: false,
+  });
+}
+
+export function getClaimDeployment(): ClaimDeploymentConfigResult {
+  return loadClaimDeployment({
+    manifest: bundledReclaimDeployment,
+    enforceEnvCoherence: false,
+  });
 }
 
 export function getProvider(deployment: ReclaimDeployment): ProviderConfigResult {

@@ -35,6 +35,9 @@ export type BrowserProvingTuning = {
 export type BrowserProvingDescriptor = {
   enabled: boolean;
   runtime_base_url: string;
+  runtime_manifest_url: string;
+  prover_worker_js_url: string;
+  wasm_exec_js_url: string;
   manifest_url: string;
   manifest_sig_url: string;
   manifest_public_key_hex: string;
