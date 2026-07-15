@@ -24,15 +24,10 @@ output/
 .env.*.local
 deployments/reclaim/preprod/*.local.json
 *.pk
-*.vk
 proof-tool.zip
 apps/ownership-proof-web/.next/
 apps/ownership-proof-web/node_modules/
 apps/ownership-proof-web/tsconfig.tsbuildinfo
-!apps/ownership-proof-web/public/proof-assets/ownership.vk
-# Versioned releases must carry the same small verifying key. The blanket
-# *.vk rule exists only to keep generated proving bundles out of deployments.
-!apps/ownership-proof-web/public/proof-releases/**/assets/ownership.vk
 apps/proof-helper-desktop/dist/
 apps/proof-helper-desktop/node_modules/
 apps/proof-helper-desktop/src-tauri/target/
