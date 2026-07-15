@@ -49,7 +49,7 @@ jobs:
   deployed-release:
     if: >-
       ${{
-        (github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success') ||
+        (github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production') ||
         (github.event_name == 'workflow_dispatch' && inputs.base_url != '') ||
         github.event_name == 'schedule'
       }}
