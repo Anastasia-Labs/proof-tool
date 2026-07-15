@@ -155,6 +155,27 @@ with hand-written SIMD128 field arithmetic (not arkworks) shows a real win,
 the integration path is de-risked. Any revival must first beat gnark's Go
 wasm MSM by >=1.3x in this same spike harness.
 
+**Follow-up spikes 2026-07-15 (js-kernels/): wasmcurves and mcl-wasm also
+fail the bar.** Same harness discipline (Go-minted vectors, bit-exact results
+asserted, single-threaded kernels, multiexp-to-multiexp timing):
+
+| n       | go-gnark | wasmcurves (ffjavascript) | mcl-wasm |
+|---------|---------:|--------------------------:|---------:|
+| 16,384  |   548 ms | 520 ms (1.05x) | 899 ms (0.61x) |
+| 131,072 | 3,194 ms | 3,349 ms (0.95x) | 7,200 ms (0.44x) |
+| 524,288 | 12,481 ms | 12,200 ms (1.02x) | — |
+
+wasmcurves (snarkjs's hand-written-WAT engine, 32-bit limbs) lands at DEAD
+PARITY with gnark's Go — which empirically kills the "32-bit-limb rewrite
+gives 1.2-1.6x" hypothesis: the scalar hand-written-wasm frontier is where
+gnark already sits. mcl-wasm loses outright (0.44-0.61x; its fixed wasm
+memory also cannot hold one production shard per mulVec call, and its heap
+views detach on growth — chunked at 4096 with live-view shims to complete
+the measurement at all). The only unexplored CPU lever left is hand-written
+SIMD128 field arithmetic, which must now deliver >=1.3x over this scalar
+frontier on its own — treat any such proposal as research, not a backlog
+item.
+
 Backend locked: **arkworks** (`ark-bls12-381`/`ark-ec`) — pure Rust, clean
 `wasm32-unknown-unknown` + `+simd128` build, permissive licence, easy
 differential testing. `blst` rejected: its speed is x86/aarch64 asm with no

@@ -256,6 +256,13 @@ Do not reintroduce these without a new hypothesis and real proof evidence:
   Do not reintroduce a non-Go CPU kernel without first beating gnark's Go
   wasm MSM by >=1.3x in that spike harness — hand-written SIMD128 field
   arithmetic would be the only plausible route.
+- wasmcurves (snarkjs's hand-written-wasm engine) and mcl-wasm were also
+  benchmarked (2026-07-15, `experiments/wasm-prover/rust-msm-spike/js-kernels/`)
+  and REJECTED: wasmcurves is dead parity with the Go kernel (0.95-1.05x
+  across 16k-524k points, bit-exact), mcl-wasm 0.44-0.61x with wasm-memory
+  limitations at shard sizes. Parity from a hand-written 32-bit-limb wasm
+  library also empirically closes the "32-bit limb rewrite" optimization
+  hypothesis for any future non-Go kernel.
 
 ## Open Research Questions
 

@@ -85,3 +85,4 @@ experiments/wasm-prover/web/*
 /docs/ux-review-landing-and-claim-flow.md
 /contracts/ownership-verifier/testdata/*-review.md
 .vercel/
+experiments/wasm-prover/rust-msm-spike/js-kernels/node_modules
