@@ -288,7 +288,18 @@ describe("ClaimFlow", () => {
     );
     expect(within(dialog).getByRole("link", { name: /Linux/i })).toHaveAttribute(
       "href",
-      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.1/proof-helper_0.2.1_amd64.deb",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.2/proof-helper_0.2.2_linux_x86_64.AppImage",
+    );
+    expect(within(dialog).getByText("Download AppImage")).toBeInTheDocument();
+    expect(within(dialog).getByText("263592681101d7edaeed071d02758ed570a6187072939479f9d3ead763b9745c")).toBeInTheDocument();
+    expect(within(dialog).getByText("sha256sum -c proof-helper_0.2.2_linux_x86_64.AppImage.sha256")).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "Download checksum" })).toHaveAttribute(
+      "href",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.2/proof-helper_0.2.2_linux_x86_64.AppImage.sha256",
+    );
+    expect(within(dialog).getByRole("link", { name: "Verification and launch instructions" })).toHaveAttribute(
+      "href",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.2/VERIFY-LINUX.md",
     );
     expect(within(dialog).getByText("Windows zip start command")).toBeInTheDocument();
     expect(within(dialog).getByText(/Start Proof Helper\.bat/)).toHaveTextContent(

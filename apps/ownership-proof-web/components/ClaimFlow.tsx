@@ -538,11 +538,16 @@ const DESTINATION_PROFILE = "single-destination";
 const releaseRepo = "https://github.com/Anastasia-Labs/proof-tool-release";
 // Pinned release tags: `releases/latest` is unsafe because the repository also
 // hosts proof-assets releases, which can become "latest" and break these URLs.
-const desktopReleaseTag = "proof-helper-desktop-v0.2.1";
+const windowsDesktopReleaseTag = "proof-helper-desktop-v0.2.1";
+const linuxDesktopReleaseTag = "proof-helper-desktop-v0.2.2";
 const portableReleaseTag = "proof-helper-v0.1.0";
-const windowsInstallerDownload = `${releaseRepo}/releases/download/${desktopReleaseTag}/proof-helper_0.2.1_windows_x64_setup.exe`;
+const linuxAppImageFilename = "proof-helper_0.2.2_linux_x86_64.AppImage";
+const linuxAppImageSha256 = "263592681101d7edaeed071d02758ed570a6187072939479f9d3ead763b9745c";
+const windowsInstallerDownload = `${releaseRepo}/releases/download/${windowsDesktopReleaseTag}/proof-helper_0.2.1_windows_x64_setup.exe`;
 const macZipDownload = `${releaseRepo}/releases/download/${portableReleaseTag}/proof-helper_0.1.0_macos_universal.zip`;
-const linuxDebDownload = `${releaseRepo}/releases/download/${desktopReleaseTag}/proof-helper_0.2.1_amd64.deb`;
+const linuxAppImageDownload = `${releaseRepo}/releases/download/${linuxDesktopReleaseTag}/${linuxAppImageFilename}`;
+const linuxAppImageChecksumDownload = `${linuxAppImageDownload}.sha256`;
+const linuxVerificationInstructions = `${releaseRepo}/releases/download/${linuxDesktopReleaseTag}/VERIFY-LINUX.md`;
 
 const proofHelperDownloadChoices = [
   {
@@ -562,9 +567,9 @@ const proofHelperDownloadChoices = [
   {
     platform: "linux",
     label: "Linux",
-    description: "Downloads the Debian package.",
-    action: "Download .deb",
-    href: linuxDebDownload,
+    description: "Downloads the portable x86-64 AppImage.",
+    action: "Download AppImage",
+    href: linuxAppImageDownload,
   },
 ] as const;
 
@@ -4737,6 +4742,22 @@ function ProofHelperInstallDialog({ onClose }: { onClose: () => void }) {
               </span>
             </a>
           ))}
+        </div>
+        <div className="helper-start-command">
+          <div>
+            <strong>Verify the Linux AppImage</strong>
+            <p>Compare the download against the published SHA-256 before running it.</p>
+          </div>
+          <code>{linuxAppImageSha256}</code>
+          <code>{`sha256sum -c ${linuxAppImageFilename}.sha256`}</code>
+          <a className="claim-external-link" href={linuxAppImageChecksumDownload} target="_blank" rel="noreferrer">
+            Download checksum
+            <ExternalLink size={16} aria-hidden="true" />
+          </a>
+          <a className="claim-external-link" href={linuxVerificationInstructions} target="_blank" rel="noreferrer">
+            Verification and launch instructions
+            <ExternalLink size={16} aria-hidden="true" />
+          </a>
         </div>
         <div className="helper-start-command">
           <div>
