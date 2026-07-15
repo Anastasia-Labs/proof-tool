@@ -1,12 +1,64 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClaimDraftResponse } from "../claim/types";
-import { proveDestinationViaHelper } from "./desktop-helper";
+import {
+  DESTINATION_PREFLIGHT_CAPABILITY,
+  preflightDestinationViaHelper,
+  proveDestinationViaHelper,
+} from "./desktop-helper";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("proveDestinationViaHelper", () => {
+  it("preflights the exact proof endpoint without sending a secret", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({ preflight_only: true });
+      expect(init).toMatchObject({ method: "POST", targetAddressSpace: "loopback" });
+      return {
+        ok: true,
+        async json() {
+          return { ok: true, capability: DESTINATION_PREFLIGHT_CAPABILITY };
+        },
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(preflightDestinationViaHelper({
+      helperUrl: "http://127.0.0.1:3001/",
+      helperToken: "test-token",
+    })).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("accepts the exact no-secret rejection returned by the published v0.2.1 helper", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({ preflight_only: true });
+      return new Response(JSON.stringify({
+        code: "invalid_request",
+        error: "The destination proof request was not valid JSON.",
+      }), { status: 400 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(preflightDestinationViaHelper({
+      helperUrl: "http://127.0.0.1:3001/",
+      helperToken: "test-token",
+    })).resolves.toBeUndefined();
+  });
+
+  it("rejects near-miss legacy responses instead of treating arbitrary failures as a preflight", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      code: "invalid_request",
+      error: "The destination proof request was not valid.",
+    }), { status: 400 })));
+
+    await expect(preflightDestinationViaHelper({
+      helperUrl: "http://127.0.0.1:3001/",
+      helperToken: "test-token",
+    })).rejects.toThrow("The destination proof request was not valid.");
+  });
+
   it("requests one proof per distinct statement and expands exact artifacts back to draft order", async () => {
     let postedRequests: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {

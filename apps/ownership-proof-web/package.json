@@ -17,6 +17,8 @@
     "test:e2e:preprod": "node e2e/preprod/run.mjs",
     "test:e2e:preprod:lace-smoke": "RECLAIM_E2E_WALLET_MODE=lace node e2e/preprod/run.mjs",
     "typecheck": "tsc --noEmit",
+    "verify:proof-release": "node scripts/verify-proof-release.mjs --web-root public --deployment public/proof-assets/reclaim-deployment.json",
+    "verify:proof-release:live": "node scripts/verify-proof-release.mjs --base-url \"$PROOF_RELEASE_BASE_URL\"",
     "verify:reclaim-manifest": "node scripts/verify-reclaim-manifest.mjs",
     "visual:claim": "node scripts/claim-ui-visual-check.mjs",
     "visual:claim:strict": "CLAIM_VISUAL_STRICT=1 node scripts/claim-ui-visual-check.mjs",

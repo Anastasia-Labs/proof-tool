@@ -1,12 +1,13 @@
 {
   "name": "@proof-zk-recovery/proof-helper-desktop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc -p tsconfig.json && vite build",
     "check:tauri-prereqs": "bash scripts/check-tauri-linux-prereqs.sh",
+    "release:stage-linux": "node scripts/stage-linux-release.mjs",
     "release:stage-windows": "node scripts/stage-windows-release.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",

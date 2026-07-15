@@ -77,14 +77,13 @@ export class ProvingCancelledError extends Error {
 }
 
 export type BrowserWasmOptions = {
-  // Test seam; production uses the classic worker at /proof-runtime/prover-worker.js.
+  // Test seam; production loads the classic worker URL pinned by the release
+  // descriptor.
   createWorker?: () => ProverWorkerLike;
 };
 
-function defaultCreateProverWorker(): ProverWorkerLike {
-  return new Worker(
-    "/proof-runtime/prover-worker.js",
-  ) as unknown as ProverWorkerLike;
+function defaultCreateProverWorker(workerURL: string): ProverWorkerLike {
+  return new Worker(absolutize(workerURL)) as unknown as ProverWorkerLike;
 }
 
 type PreparedProverSession = {
@@ -385,7 +384,7 @@ async function createProverSession(
     browserDiagnosticHostSignals(calibration),
   );
   const client = new ProverWorkerClient(
-    options.createWorker ?? defaultCreateProverWorker,
+    options.createWorker ?? (() => defaultCreateProverWorker(descriptor.prover_worker_js_url)),
   );
   try {
     const initializationStarted = nowMS();
@@ -722,9 +721,7 @@ class ProverWorkerClient {
       {
         type: "init",
         wasmUrl: absolutize(descriptor.proof_wasm_url),
-        wasmExecUrl: absolutize(
-          `${trimSlash(descriptor.runtime_base_url)}/wasm_exec.js`,
-        ),
+        wasmExecUrl: absolutize(descriptor.wasm_exec_js_url),
         msmWorkerWasmUrl: absolutize(descriptor.msm_worker_wasm_url),
         gogc: tuning.gogc,
         gomemlimit: tuning.gomemlimit,

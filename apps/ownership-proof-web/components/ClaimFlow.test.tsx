@@ -288,7 +288,18 @@ describe("ClaimFlow", () => {
     );
     expect(within(dialog).getByRole("link", { name: /Linux/i })).toHaveAttribute(
       "href",
-      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.1/proof-helper_0.2.1_amd64.deb",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.2/proof-helper_0.2.2_linux_x86_64.AppImage",
+    );
+    expect(within(dialog).getByText("Download AppImage")).toBeInTheDocument();
+    expect(within(dialog).getByText("263592681101d7edaeed071d02758ed570a6187072939479f9d3ead763b9745c")).toBeInTheDocument();
+    expect(within(dialog).getByText("sha256sum -c proof-helper_0.2.2_linux_x86_64.AppImage.sha256")).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "Download checksum" })).toHaveAttribute(
+      "href",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.2/proof-helper_0.2.2_linux_x86_64.AppImage.sha256",
+    );
+    expect(within(dialog).getByRole("link", { name: "Verification and launch instructions" })).toHaveAttribute(
+      "href",
+      "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-helper-desktop-v0.2.2/VERIFY-LINUX.md",
     );
     expect(within(dialog).getByText("Windows zip start command")).toBeInTheDocument();
     expect(within(dialog).getByText(/Start Proof Helper\.bat/)).toHaveTextContent(
@@ -684,6 +695,10 @@ describe("ClaimFlow", () => {
       }
       if (urlText === "http://127.0.0.1:49152/prove-destination") {
         expect(init?.headers).toMatchObject({ "X-Proof-Tool-Token": "pair-secret" });
+        if ((body as { preflight_only?: boolean })?.preflight_only) {
+          expect(body).toEqual({ preflight_only: true });
+          return jsonResponse({ ok: true, capability: "prove-destination-preflight-v1" });
+        }
         expect(body).toMatchObject({
           profile: "single-destination",
           requests: draft.proofRequests,
@@ -1464,6 +1479,10 @@ describe("ClaimFlow", () => {
     const base = claimFlowFetch({ draft });
     const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       if (String(url) === "http://127.0.0.1:49152/prove-destination") {
+        const body = init?.body ? JSON.parse(String(init.body)) as { preflight_only?: boolean } : {};
+        if (body.preflight_only) {
+          return jsonResponse({ ok: true, capability: "prove-destination-preflight-v1" });
+        }
         return provePromise;
       }
       return base(url, init);
@@ -1482,7 +1501,7 @@ describe("ClaimFlow", () => {
     // The status CTA is disabled while a run is active (C6) and the second
     // click did not spawn a racing helper request.
     expect(await screen.findByRole("button", { name: "Generating proofs" })).toBeDisabled();
-    expect(fetch.mock.calls.filter(([url]) => String(url).endsWith("/prove-destination"))).toHaveLength(1);
+    expect(fetch.mock.calls.filter(([url]) => String(url).endsWith("/prove-destination"))).toHaveLength(2);
 
     resolveProve(jsonResponse(destinationProofResponse(draft)));
 
@@ -1785,12 +1804,15 @@ describe("ClaimFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
 
     // The checksum failure is explained inline, the inputs are NOT cleared,
-    // and no derivation or helper run was started.
+    // and no derivation or secret-bearing helper run was started. The exact
+    // no-secret endpoint preflight still runs first by design.
     expect(await screen.findByText(/phrase checksum doesn't match/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Create proofs" })).toBeInTheDocument();
     expect(recoveryInputs.every((input) => input.value === "abandon")).toBe(true);
     expect(workerFactory).not.toHaveBeenCalled();
-    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/prove-destination"))).toBe(false);
+    const helperCalls = fetch.mock.calls.filter(([url]) => String(url).endsWith("/prove-destination"));
+    expect(helperCalls).toHaveLength(1);
+    expect(JSON.parse(String(helperCalls[0]?.[1]?.body))).toEqual({ preflight_only: true });
 
     // Editing a word clears the checksum notice.
     fireEvent.change(recoveryInputs[0], { target: { value: "gown" } });
@@ -1801,6 +1823,97 @@ describe("ClaimFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
     expect(await screen.findByRole("heading", { name: "Proofs ready" })).toBeInTheDocument();
     expect(recoveryInputs.every((input) => input.value === "")).toBe(true);
+  });
+
+  it("keeps the phrase intact when the exact no-secret desktop preflight fails", async () => {
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    const base = claimFlowFetch({ draft });
+    const helperBodies: unknown[] = [];
+    const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/prove-destination")) {
+        helperBodies.push(JSON.parse(String(init?.body)));
+        return jsonResponse({ error: "preflight blocked" }, { status: 503 });
+      }
+      return base(url, init);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const workerFactory = vi.fn(createWorkerSuccess());
+
+    render(<ClaimFlow createWorker={workerFactory} />);
+    await connectSafeWalletToProofs();
+    await chooseDesktopProofMethod();
+    const recoveryInputs = fillRecoveryPhraseInputs();
+    fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
+
+    expect(await screen.findByText(/preflight blocked/i)).toBeInTheDocument();
+    expect(helperBodies).toEqual([{ preflight_only: true }]);
+    expect(recoveryInputs.every((input) => input.value.length > 0)).toBe(true);
+    expect(workerFactory).not.toHaveBeenCalled();
+  });
+
+  it("proves through the currently published helper when loopback permission is granted", async () => {
+    const permissionQuery = vi.fn(async () => ({ state: "granted" as PermissionState }));
+    vi.stubGlobal("navigator", { permissions: { query: permissionQuery } });
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    const publishedStatus: Record<string, unknown> = { ...helperStatus() };
+    delete publishedStatus.capabilities;
+    const fetch = claimFlowFetch({
+      draft,
+      helperStatus: publishedStatus,
+      legacyDesktopPreflight: true,
+    });
+    vi.stubGlobal("fetch", fetch);
+    const workerFactory = vi.fn(createWorkerSuccess());
+
+    render(<ClaimFlow createWorker={workerFactory} />);
+    await connectSafeWalletToProofs();
+    await chooseDesktopProofMethod();
+    const recoveryInputs = fillRecoveryPhraseInputs();
+    fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
+
+    expect(await screen.findByRole("heading", { name: "Proofs ready" })).toBeInTheDocument();
+    const helperCalls = fetch.mock.calls.filter(([url]) => String(url).endsWith("/prove-destination"));
+    expect(helperCalls).toHaveLength(2);
+    expect(JSON.parse(String(helperCalls[0]?.[1]?.body))).toEqual({ preflight_only: true });
+    expect(permissionQuery).toHaveBeenCalledWith({ name: "loopback-network" });
+    expect(workerFactory).toHaveBeenCalledOnce();
+    expect(recoveryInputs.every((input) => input.value === "")).toBe(true);
+  });
+
+  it("blocks denied loopback permission before reading or clearing the recovery phrase", async () => {
+    const permissionQuery = vi.fn(async () => ({ state: "denied" as PermissionState }));
+    vi.stubGlobal("navigator", { permissions: { query: permissionQuery } });
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    const fetch = claimFlowFetch({ draft: claimDraft([`${"a".repeat(64)}#0`]) });
+    vi.stubGlobal("fetch", fetch);
+    const workerFactory = vi.fn(createWorkerSuccess());
+
+    render(<ClaimFlow createWorker={workerFactory} />);
+    await connectSafeWalletToProofs();
+    await chooseDesktopProofMethod();
+    const recoveryInputs = fillRecoveryPhraseInputs();
+    fireEvent.click(screen.getByRole("button", { name: "Generate proofs" }));
+
+    expect(await screen.findByText(/Local device access is blocked/i)).toBeInTheDocument();
+    expect(permissionQuery).toHaveBeenCalledWith({ name: "loopback-network" });
+    expect(recoveryInputs.every((input) => input.value.length > 0)).toBe(true);
+    expect(workerFactory).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/status"))).toBe(false);
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/prove-destination"))).toBe(false);
   });
 
   it("explains that the phrase was cleared after a proof failure and disables Retry until re-entry", async () => {
@@ -1999,9 +2112,10 @@ function walletApi(
 
 function claimFlowFetch(options: {
   draft?: ReturnType<typeof claimDraft>;
-  helperStatus?: ReturnType<typeof helperStatus>;
+  helperStatus?: Record<string, unknown>;
   destinationProofResponse?: ReturnType<typeof destinationProofResponse>;
   reclaimUtxosResponse?: ReturnType<typeof reclaimUtxos>;
+  legacyDesktopPreflight?: boolean;
 } = {}) {
   const selectedOutrefs = options.draft?.orderedInputs.map((input) => input.outRefId) ?? [`${"a".repeat(64)}#0`];
   const draft = options.draft ?? claimDraft(selectedOutrefs);
@@ -2020,6 +2134,16 @@ function claimFlowFetch(options: {
       return jsonResponse(options.helperStatus ?? helperStatus());
     }
     if (urlText === "http://127.0.0.1:49152/prove-destination") {
+      const body = init?.body ? JSON.parse(String(init.body)) as { preflight_only?: boolean } : {};
+      if (body.preflight_only) {
+        if (options.legacyDesktopPreflight) {
+          return jsonResponse({
+            code: "invalid_request",
+            error: "The destination proof request was not valid JSON.",
+          }, { status: 400 });
+        }
+        return jsonResponse({ ok: true, capability: "prove-destination-preflight-v1" });
+      }
       return jsonResponse(options.destinationProofResponse ?? destinationProofResponse(draft));
     }
     if (urlText === "/claim-api/build") {
@@ -2212,6 +2336,7 @@ function helperStatus(profileOverrides: Record<string, unknown> = {}) {
     connected: true,
     sidecar_version: "0.1.0",
     protocol_version: "proof-helper-v1",
+    capabilities: ["prove-destination-preflight-v1"],
     destination_profile: {
       profile: "single-destination",
       key_ready: true,

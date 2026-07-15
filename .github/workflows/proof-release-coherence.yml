@@ -1,0 +1,73 @@
+name: Proof release coherence
+
+on:
+  deployment_status:
+  pull_request:
+    paths:
+      - ".github/workflows/proof-release-coherence.yml"
+      - "apps/ownership-proof-web/**"
+      - "scripts/stage-proof-assets.sh"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/proof-release-coherence.yml"
+      - "apps/ownership-proof-web/**"
+      - "scripts/stage-proof-assets.sh"
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Optional deployed webapp origin to verify, for example https://proof-tool.vercel.app"
+        required: false
+        type: string
+  schedule:
+    - cron: "17 9 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  local-release:
+    if: ${{ github.event_name != 'deployment_status' && github.event_name != 'schedule' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/ownership-proof-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/ownership-proof-web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify:proof-release
+      - run: pnpm exec vitest run scripts/verify-proof-release.test.mjs
+
+  deployed-release:
+    if: >-
+      ${{
+        (github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production') ||
+        (github.event_name == 'workflow_dispatch' && inputs.base_url != '') ||
+        github.event_name == 'schedule'
+      }}
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url || inputs.base_url || vars.PROOF_RELEASE_BASE_URL || 'https://proof-tool.vercel.app' }}
+    defaults:
+      run:
+        working-directory: apps/ownership-proof-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/ownership-proof-web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/verify-proof-release.mjs --base-url "$BASE_URL"

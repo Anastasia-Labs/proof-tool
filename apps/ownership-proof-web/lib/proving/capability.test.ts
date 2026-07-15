@@ -6,6 +6,9 @@ function descriptor(enabled = true): BrowserProvingDescriptor {
   return {
     enabled,
     runtime_base_url: "/proof-runtime",
+    runtime_manifest_url: "/proof-runtime/runtime-manifest.json",
+    prover_worker_js_url: "/proof-runtime/prover-worker.js",
+    wasm_exec_js_url: "/proof-runtime/wasm_exec.js",
     manifest_url: "/proof-assets/manifest.json",
     manifest_sig_url: "/proof-assets/manifest.sig",
     manifest_public_key_hex: "aa".repeat(32),

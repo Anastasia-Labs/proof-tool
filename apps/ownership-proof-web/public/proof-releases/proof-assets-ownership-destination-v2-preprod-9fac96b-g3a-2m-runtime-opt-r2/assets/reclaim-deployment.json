@@ -1,0 +1,112 @@
+{
+  "schema": "proof-tool-reclaim-deployment-v1",
+  "deployment_id": "preprod:a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd:c513fd78ecb14a4119769986675d602dffa741b4",
+  "network": "Preprod",
+  "network_id": 0,
+  "source_commit": "c513fd78ecb14a4119769986675d602dffa741b4",
+  "contract_version": "ownership-verifier-0.1.0.0",
+  "reclaim_base": {
+    "address": "addr_test1wzjv623jpzs83zhd6xhw5zrl3ypvtqzjmshulgkz9r4rfhghusuru",
+    "script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
+    "required_global_credential": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5"
+  },
+  "reclaim_global": {
+    "script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
+    "rewarding_credential": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
+    "params_currency_symbol": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
+    "verifier_vk_hash": "blake2b256:b1c03cf24376bcd6c743cb372169ff71f93b210e0d8d52b2c6831808f50ded80",
+    "proof_profile": "single-destination",
+    "proof_slot_encoding": "full-proof-plus-public-input-digest-v2",
+    "batch_transcript_vk_hash": "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4"
+  },
+  "params_utxo": {
+    "tx_hash": "a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db",
+    "output_index": 0,
+    "policy_id": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
+    "token_name": "5245434c41494d504152414d53",
+    "holder_address": "addr_test1wr4mrzsjwa6pquu0m6480mq06kpxsht80d4nfh56dcak6lsejdm28",
+    "datum_reclaim_base_script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd"
+  },
+  "proof": {
+    "circuit_id": "root-ownership-destination-v2/bls12-381/groth16",
+    "key_version": "ownership-destination-v2",
+    "destination_address_encoding": "destination-address-v1",
+    "vk_hash": "blake2b256:b1c03cf24376bcd6c743cb372169ff71f93b210e0d8d52b2c6831808f50ded80",
+    "cardano_vk_blake2b256": "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4",
+    "browser_proving": {
+      "enabled": true,
+      "runtime_base_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/runtime",
+      "runtime_manifest_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/runtime/runtime-manifest.json",
+      "prover_worker_js_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/runtime/prover-worker.js",
+      "wasm_exec_js_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/runtime/wasm_exec.js",
+      "manifest_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/assets/manifest.json",
+      "manifest_sig_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/assets/manifest.sig",
+      "manifest_public_key_hex": "2af3b300b9e641ede236d4b7d48b43eccfb843ffa9aca74abb38f98e7211eccb",
+      "chunk_manifest_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/assets/chunk-manifest.json",
+      "chunk_manifest_sig_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/assets/chunk-manifest.sig",
+      "chunk_manifest_public_key_hex": "2af3b300b9e641ede236d4b7d48b43eccfb843ffa9aca74abb38f98e7211eccb",
+      "deployment_manifest_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/assets/reclaim-deployment.json",
+      "vk_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/assets/ownership.vk",
+      "pk_url": "https://proof-assets.reclaim-proof.com/proof-assets/preprod-9fac96b-g3a/ownership.pk",
+      "pk_index_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/assets/ownership.pk.idx.json",
+      "ccs_url": "https://proof-assets-2m.reclaim-proof.com/proof-assets/preprod-9fac96b-g3a-pk2m-r1/ownership-destination.ccs",
+      "ccs_blake2b256": "blake2b256:bf2243b3f4885357bbad0b6728582f56f0e00cd361e1e8af8a2d0dbe10a9f352",
+      "proof_wasm_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/runtime/proof-destination.wasm",
+      "worker_js_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/runtime/msm-worker.js",
+      "msm_worker_wasm_url": "/proof-releases/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2/runtime/msmworker.wasm",
+      "tuning": {
+        "shard_count": 8,
+        "range_fetch_concurrency": 2,
+        "chunk_prefetch_window": 2,
+        "pinned_decode": true,
+        "opt_w1": true,
+        "opt_w2": true,
+        "opt_w3": true,
+        "opt_w5": true,
+        "opt_w6": true,
+        "opt_w7": true,
+        "gogc": 15,
+        "gomemlimit": "3200MiB"
+      }
+    }
+  },
+  "batching": {
+    "default_utxo_count": 6,
+    "optimization_utxo_count": 6,
+    "hard_max_utxo_count": 7,
+    "max_tx_cpu_percent": 90,
+    "max_tx_mem_percent": 80,
+    "distinct_7_opt_in": {
+      "request_parameter": "maxUtxos",
+      "request_value": 7,
+      "require_explicit_request": true,
+      "require_measured_execution_units": true
+    }
+  },
+  "provider": {
+    "primary": "blockfrost",
+    "fallback": "koios"
+  },
+  "reference_scripts": {
+    "reclaim_base": {
+      "tx_hash": "a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db",
+      "output_index": 1,
+      "script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
+      "holder_address": "addr_test1wr4mrzsjwa6pquu0m6480mq06kpxsht80d4nfh56dcak6lsejdm28"
+    },
+    "reclaim_global": {
+      "tx_hash": "a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db",
+      "output_index": 2,
+      "script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
+      "holder_address": "addr_test1wr4mrzsjwa6pquu0m6480mq06kpxsht80d4nfh56dcak6lsejdm28"
+    }
+  },
+  "enabled": true,
+  "preprod_notes": {
+    "holder_model": "local-preprod-unspendable-params-holder",
+    "holder_script_hash": "ebb18a12777410738fdeaa77ec0fd582685d677b6b34de9a6e3b6d7e",
+    "destination_key_provenance": "single-actor local Preprod setup; not an MPC ceremony",
+    "global_reward_address": "stake_test17q24d49cj68ur0ptad5jvd9gu8r7f4rkenjg5ktfcqrm93gnl7wlw",
+    "global_reward_account_registered": true
+  }
+}

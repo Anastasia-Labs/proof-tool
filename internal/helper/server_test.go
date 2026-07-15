@@ -131,6 +131,63 @@ func TestHelperStatusReportsCompatibilityFields(t *testing.T) {
 	if len(status.SupportedOrigins) != 1 || status.SupportedOrigins[0] != testOrigin {
 		t.Fatalf("origins = %+v", status.SupportedOrigins)
 	}
+	if len(status.Capabilities) != 1 || status.Capabilities[0] != DestinationPreflightCapability {
+		t.Fatalf("capabilities = %+v", status.Capabilities)
+	}
+}
+
+func TestProveDestinationPreflightIsExactAndDoesNotCallGenerator(t *testing.T) {
+	fake := &fakeDestinationGenerator{}
+	server := NewServer(fake, testToken, []string{testOrigin})
+	rr := postProveDestination(t, server, ProveDestinationRequest{PreflightOnly: true}, testOrigin, testToken)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	var response ProveDestinationPreflightResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.OK || response.Capability != DestinationPreflightCapability {
+		t.Fatalf("response = %+v", response)
+	}
+	if fake.called {
+		t.Fatal("destination generator was called during preflight")
+	}
+
+	rr = postProveDestination(t, server, ProveDestinationRequest{
+		PreflightOnly:    true,
+		MasterXPrvBase64: "secret-must-not-be-accepted",
+	}, testOrigin, testToken)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("preflight with secret status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	if fake.called {
+		t.Fatal("destination generator was called for invalid preflight")
+	}
+}
+
+func TestProveDestinationPreflightRequiresOriginAndToken(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		origin string
+		token  string
+		status int
+	}{
+		{name: "wrong origin", origin: "http://evil.test", token: testToken, status: http.StatusForbidden},
+		{name: "missing token", origin: testOrigin, token: "", status: http.StatusUnauthorized},
+		{name: "wrong token", origin: testOrigin, token: "wrong", status: http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeDestinationGenerator{}
+			rr := postProveDestination(t, NewServer(fake, testToken, []string{testOrigin}), ProveDestinationRequest{PreflightOnly: true}, tc.origin, tc.token)
+			if rr.Code != tc.status {
+				t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+			}
+			if fake.called {
+				t.Fatal("destination generator called for unauthorized preflight")
+			}
+		})
+	}
 }
 
 func TestHelperStatusReportsMissingProductionKeys(t *testing.T) {

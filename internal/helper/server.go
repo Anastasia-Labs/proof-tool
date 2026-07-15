@@ -56,6 +56,7 @@ type StatusResponse struct {
 	KeyState           string         `json:"key_state"`
 	KeyError           string         `json:"key_error,omitempty"`
 	Compatibility      string         `json:"compatibility"`
+	Capabilities       []string       `json:"capabilities,omitempty"`
 	DestinationProfile *ProfileStatus `json:"destination_profile,omitempty"`
 	SupportedOrigins   []string       `json:"supported_origins"`
 }
@@ -157,6 +158,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		key = reporter.KeyStatus()
 	}
 	var destinationProfile *ProfileStatus
+	var capabilities []string
 	if reporter, ok := s.Generator.(DestinationKeyStatusReporter); ok {
 		status := reporter.DestinationKeyStatus()
 		destinationProfile = &ProfileStatus{
@@ -169,6 +171,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			KeyError:      status.Error,
 			Compatibility: compatibilityForKey(status),
 		}
+	}
+	if _, ok := s.Generator.(DestinationGenerator); ok {
+		capabilities = append(capabilities, DestinationPreflightCapability)
 	}
 	writeJSON(w, http.StatusOK, StatusResponse{
 		Connected:          true,
@@ -183,6 +188,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		KeyState:           key.State,
 		KeyError:           key.Error,
 		Compatibility:      compatibilityForKey(key),
+		Capabilities:       capabilities,
 		DestinationProfile: destinationProfile,
 		SupportedOrigins:   s.allowedOrigins(),
 	})
@@ -255,6 +261,17 @@ func (s *Server) handleProveDestination(w http.ResponseWriter, r *http.Request) 
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "The destination proof request was not valid JSON.")
+		return
+	}
+	if req.PreflightOnly {
+		if req.MasterXPrvBase64 != "" || req.Profile != "" || len(req.Requests) != 0 || req.Search != nil || req.IncludeDebugPath {
+			writeError(w, http.StatusBadRequest, "invalid_request", "A destination preflight must not include proof inputs or recovery secrets.")
+			return
+		}
+		writeJSON(w, http.StatusOK, ProveDestinationPreflightResponse{
+			OK:         true,
+			Capability: DestinationPreflightCapability,
+		})
 		return
 	}
 	input, err := BuildDestinationInput(req)

@@ -289,6 +289,26 @@ describe("reclaim deployment manifest validation", () => {
     expect(errorFields(result)).toContain("RECLAIM_NETWORK");
   });
 
+  it("can pin a merge-reviewed manifest independently of stale deployment selector env", () => {
+    const manifest = validManifest();
+    const result = loadReclaimDeployment({
+      manifest,
+      env: {
+        RECLAIM_DEPLOYMENT_MANIFEST_JSON: JSON.stringify({ stale: true }),
+        RECLAIM_NETWORK: "Mainnet",
+        RECLAIM_DEPLOYMENT_ID: "stale-production-pointer",
+      },
+      enforceEnvCoherence: false,
+    });
+
+    expect(result.available).toBe(true);
+    if (!result.available) {
+      throw new Error("expected the explicitly pinned manifest to validate");
+    }
+    expect(result.deployment.id).toBe(manifest.deployment_id);
+    expect(result.deployment.network).toBe("Preprod");
+  });
+
   it("returns claim deployment capability flags from the same manifest", () => {
     const result = loadClaimDeployment({ env: envFromManifest(validManifest()) });
 
@@ -451,6 +471,9 @@ function withBrowserProving(manifest: ReclaimDeploymentManifest): ReclaimDeploym
       browser_proving: {
         enabled: true,
         runtime_base_url: "/proof-runtime",
+        runtime_manifest_url: "/proof-runtime/runtime-manifest.json",
+        prover_worker_js_url: "/proof-runtime/prover-worker.js",
+        wasm_exec_js_url: "/proof-runtime/wasm_exec.js",
         manifest_url: "/proof-assets/manifest.json",
         manifest_sig_url: "/proof-assets/manifest.sig",
         manifest_public_key_hex: hash64("3"),
