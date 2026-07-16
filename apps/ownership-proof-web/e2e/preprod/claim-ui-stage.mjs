@@ -6,6 +6,8 @@ export const CLAIM_UI_ACCEPTANCE_STAGE_NAME = "claim-ui-acceptance";
 export const COMPROMISED_WALLET_ROLE = "compromised_user";
 export const SAFE_WALLET_ROLE = "safe_claim_destination";
 
+const CLAIM_FLOW_RESUME_STORAGE_KEY = "proof-tool.claim-flow.resume.v1";
+
 export class PreprodClaimUiStageError extends Error {
   constructor(code, message) {
     super(message);
@@ -34,8 +36,9 @@ export async function runClaimUiAcceptanceStage(options = {}) {
     pair: helperTarget.token,
   }).toString();
 
+  await page.addInitScript((storageKey) => globalThis.localStorage.removeItem(storageKey), CLAIM_FLOW_RESUME_STORAGE_KEY);
   await page.goto(claimUrl.toString(), { waitUntil: "domcontentloaded" });
-  await clickByRoleIfVisible(page, "button", "Continue");
+  await clickByRole(page, "button", "Continue");
   await selectClaimRole(page, walletHarness, COMPROMISED_WALLET_ROLE);
   await clickByRole(page, "button", "Connect impacted wallet");
   await approveWalletConnection(walletHarness, COMPROMISED_WALLET_ROLE);
@@ -129,13 +132,6 @@ async function fillRecoveryPhrase(page, phrase) {
       await input.waitFor({ timeout: 180_000 });
     }
     await input.fill(word);
-  }
-}
-
-async function clickByRoleIfVisible(page, role, name) {
-  const locator = page.getByRole(role, { name });
-  if (await locator.isVisible()) {
-    await locator.click();
   }
 }
 

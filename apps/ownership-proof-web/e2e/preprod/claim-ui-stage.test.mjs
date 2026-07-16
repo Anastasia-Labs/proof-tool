@@ -12,11 +12,14 @@ afterEach(() => {
   }
 });
 
-it("continues when deployment review was already accepted in the browser context", async () => {
+it("clears resumable state and starts a fresh browser claim flow", async () => {
   const outputDir = mkdtempSync(path.join(tmpdir(), "proof-tool-claim-ui-"));
   tempDirs.push(outputDir);
   const calls = [];
   const page = {
+    async addInitScript(_callback, storageKey) {
+      calls.push(["addInitScript", storageKey]);
+    },
     async goto(url) {
       calls.push(["goto", url]);
     },
@@ -71,8 +74,8 @@ it("continues when deployment review was already accepted in the browser context
   });
 
   expect(result.ok).toBe(true);
-  expect(calls).toContainEqual(["isVisible", "button", "Continue"]);
-  expect(calls).not.toContainEqual(["click", "button", "Continue"]);
+  expect(calls).toContainEqual(["addInitScript", "proof-tool.claim-flow.resume.v1"]);
+  expect(calls).toContainEqual(["click", "button", "Continue"]);
   const artifact = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
   expect(artifact.helper.token).toBe("[redacted]");
 });
@@ -83,6 +86,9 @@ it("waits for exact recovery-word inputs and enabled claim actions", async () =>
   const calls = [];
   let submitted = false;
   const page = {
+    async addInitScript(_callback, storageKey) {
+      calls.push(["addInitScript", storageKey]);
+    },
     async goto() {},
     getByRole(role, { name }) {
       return {
