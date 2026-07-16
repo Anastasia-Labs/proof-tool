@@ -241,6 +241,9 @@ is not injected into the app and Lace remains the transaction-signing wallet.
 Before the app tab is created, the driver unlocks and selects the compromised
 test wallet so the extension can inject its real CIP-30 provider at document
 creation. The journey still selects and connects Lace through the visible UI.
+The app also refreshes wallet discovery on the Cardano initialization event,
+focus or visibility changes, and a bounded ten-second fallback poll to handle
+slightly delayed extension injection.
 
 The wrapper pushes the exact tested commit only after success and refuses to
 push if the branch, commit, or worktree changes while proving. It never uses a
