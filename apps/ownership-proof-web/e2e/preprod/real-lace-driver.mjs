@@ -566,7 +566,7 @@ async function approveLaceDappConnection(context, extensionId, accountLabel, fal
         .locator('[data-testid^="dropdown-menu-item-"]')
         .filter({ hasText: accountLabel })
         .first();
-      if (!(await safeVisible(account))) {
+      if (!(await waitUntilVisible(account, 5_000))) {
         throw new PreprodRealLaceDriverError(
           "lace_connection_account_missing",
           `Lace connection prompt does not expose the configured account ${accountLabel}.`,
@@ -701,6 +701,17 @@ async function selectLaceFundingProvider(page, providerId, providerName) {
 
 async function safeVisible(locator) {
   return locator.isVisible({ timeout: 250 }).catch(() => false);
+}
+
+async function waitUntilVisible(locator, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await safeVisible(locator)) {
+      return true;
+    }
+    await sleep(EXTENSION_POLL_MS);
+  }
+  return false;
 }
 
 async function visibleText(locator) {
