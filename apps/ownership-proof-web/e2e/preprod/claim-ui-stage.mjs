@@ -52,6 +52,7 @@ export async function runClaimUiAcceptanceStage(options = {}) {
   await page.getByRole("button", { name: "Choose method" }).waitFor({ timeout: 180_000 });
   await pairHelperThroughCourier(page, helperPairingUrl.toString());
   await chooseDesktopProofMethod(page);
+  await allowDesktopConnectionIfRequested(page);
 
   let batches = 0;
   for (; batches < maxBatches; batches += 1) {
@@ -134,6 +135,18 @@ async function chooseDesktopProofMethod(page) {
   await clickByRole(page, "button", "Choose method");
   await page.getByRole("radio", { name: /Proof Helper Desktop/iu }).click({ timeout: 180_000 });
   await clickByRole(page, "button", "Cancel");
+}
+
+async function allowDesktopConnectionIfRequested(page) {
+  const permissionButton = page.getByRole("button", {
+    name: /Allow desktop connection|Check permission again|Check helper again/iu,
+  });
+  try {
+    await permissionButton.waitFor({ state: "visible", timeout: 10_000 });
+  } catch {
+    return;
+  }
+  await permissionButton.click({ timeout: 180_000 });
 }
 
 async function recoveryPhraseForUi(walletHarness, role) {
