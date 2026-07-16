@@ -94,14 +94,21 @@ describe("local production PR claim flow", () => {
     expect(serverEnv.NODE_ENV).toBe("production");
   });
 
-  it("initializes the compromised Lace role before the web-app page is created", async () => {
-    const roles = [];
+  it("resets the local origin and initializes the compromised Lace role before page creation", async () => {
+    const actions = [];
     await prepareLaceRoleBeforeNavigation(
-      { switchActiveWallet: async (role) => roles.push(role) },
+      {
+        disconnectDappOrigin: async (origin, options) => actions.push(["disconnect", origin, options]),
+        switchActiveWallet: async (role) => actions.push(["switch", role]),
+      },
       "compromised_user",
+      "http://127.0.0.1:3917/claim",
     );
-    expect(roles).toEqual(["compromised_user"]);
-    await expect(prepareLaceRoleBeforeNavigation({}, "compromised_user")).rejects.toMatchObject({
+    expect(actions).toEqual([
+      ["disconnect", "http://127.0.0.1:3917/claim", { required: false }],
+      ["switch", "compromised_user"],
+    ]);
+    await expect(prepareLaceRoleBeforeNavigation({}, "compromised_user", "http://127.0.0.1:3917")).rejects.toMatchObject({
       code: "lace_role_preload_unavailable",
     });
   });

@@ -209,12 +209,18 @@ export class RealLaceProfileDriver {
       state.label,
       this.extensionRoute,
       options.beforeApprove,
-      options.allowAlreadyAuthorized && options.dappPage
-        ? async () => {
-            await this.assertActiveDappRole(options.dappPage, role);
-            return true;
-          }
-        : null,
+    );
+  }
+
+  async disconnectDappOrigin(origin, options = {}) {
+    return disconnectLaceDappOrigin(
+      this.context,
+      this.extensionId,
+      this.extensionRoute,
+      this.walletPassword,
+      origin,
+      options.beforeDisconnect,
+      options.required !== false,
     );
   }
 
@@ -296,6 +302,7 @@ export class RealLaceProfileDriver {
     }
     await exactRole.click();
     await page.waitForTimeout(700);
+    return page;
   }
 
   async assertActiveDappRole(page, role) {
@@ -303,7 +310,6 @@ export class RealLaceProfileDriver {
     const probe = await page.evaluate(async (providerId) => {
       const provider = globalThis.cardano?.[providerId];
       if (!provider || typeof provider.enable !== "function") {
-    return page;
         return { present: false };
       }
       const api = await provider.enable();
@@ -542,7 +548,6 @@ async function approveLaceDappConnection(
   accountLabel,
   fallbackRoute,
   onBeforeApprove,
-  isAlreadyAuthorized,
 ) {
   if (!context || !extensionId) {
     throw new PreprodRealLaceDriverError("lace_context_missing", "Lace browser context is not initialized.");
@@ -593,21 +598,91 @@ async function approveLaceDappConnection(
       await authorize.click();
       return page;
     }
-    if (isAlreadyAuthorized) {
-      try {
-        if (await isAlreadyAuthorized()) {
-          return null;
-        }
-      } catch {
-        // The dialog may still be opening; keep polling to the bounded deadline.
-      }
-    }
     await sleep(EXTENSION_POLL_MS);
   }
   throw new PreprodRealLaceDriverError(
     "lace_connection_prompt_missing",
     "Timed out waiting for the Lace DApp authorization prompt.",
   );
+}
+
+async function disconnectLaceDappOrigin(
+  context,
+  extensionId,
+  fallbackRoute,
+  walletPassword,
+  origin,
+  onBeforeDisconnect,
+  required,
+) {
+  const normalizedOrigin = normalizeDappOrigin(origin);
+  const page = await openExtensionRoute(context, extensionId, fallbackRoute);
+  await unlockLacePage(page, walletPassword);
+
+  const settings = page.locator('[data-testid="settings-tab-btn"]').first();
+  if (!(await waitUntilVisible(settings, 5_000))) {
+    throw new PreprodRealLaceDriverError("lace_settings_missing", "Lace Settings was not visible.");
+  }
+  await settings.click();
+
+  const authorizedDapps = page.locator('[data-testid="option-list-item-authorized-dapps"]').first();
+  if (!(await waitUntilVisible(authorizedDapps, 5_000))) {
+    throw new PreprodRealLaceDriverError(
+      "lace_authorized_dapps_missing",
+      "Lace Settings did not expose Authorized DApps.",
+    );
+  }
+  await authorizedDapps.click();
+
+  const originDescription = page.getByText(normalizedOrigin, { exact: true }).first();
+  if (!(await waitUntilVisible(originDescription, 5_000))) {
+    if (!required) {
+      return null;
+    }
+    throw new PreprodRealLaceDriverError(
+      "lace_dapp_authorization_missing",
+      `Lace does not list an authorization for ${normalizedOrigin}.`,
+    );
+  }
+
+  const card = originDescription.locator("xpath=../..");
+  const deleteButton = card.locator('[data-testid="dapp-card-delete-button"]').first().locator("..");
+  if (!(await safeVisible(deleteButton))) {
+    throw new PreprodRealLaceDriverError(
+      "lace_dapp_disconnect_missing",
+      `Lace did not expose the disconnect control for ${normalizedOrigin}.`,
+    );
+  }
+  if (onBeforeDisconnect) {
+    await onBeforeDisconnect(page, deleteButton);
+  }
+  await deleteButton.click();
+  const removed = await originDescription
+    .waitFor({ state: "detached", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!removed) {
+    throw new PreprodRealLaceDriverError(
+      "lace_dapp_disconnect_failed",
+      `Lace did not remove the authorization for ${normalizedOrigin}.`,
+    );
+  }
+  return page;
+}
+
+function normalizeDappOrigin(value) {
+  try {
+    const url = new URL(String(value ?? ""));
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("unsupported protocol");
+    }
+    return url.origin;
+  } catch {
+    throw new PreprodRealLaceDriverError(
+      "lace_dapp_origin_invalid",
+      "The Lace DApp origin must be an HTTP(S) URL.",
+    );
+  }
 }
 
 function extensionPages(context, extensionId) {

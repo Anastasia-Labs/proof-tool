@@ -233,21 +233,25 @@ commit's Vercel stable-pointer manifest keeps the proving key and optimized CCS
 on the approved remote R2-backed asset hosts. The ignored environment still
 supplies provider/review configuration, but cannot replace the committed
 deployment manifest. The command then performs the same real browser-WASM/Lace
-journey, nineteen screenshots, Preprod submission, and provider confirmation as
+journey, twenty screenshots, Preprod submission, and provider confirmation as
 the deployed lane. The Next build and server stay in production mode. Only the
 separate fixture-funding driver drops production mode from its own process; it
 is not injected into the app and Lace remains the transaction-signing wallet.
 
 Before the app tab is created, the driver unlocks and selects the compromised
 test wallet so the extension can inject its real CIP-30 provider at document
-creation. The journey still selects and connects Lace through the visible UI.
-Lace 2.1.1 connection approval selects Source Account, chooses the wallet by
-its configured label, captures the extension review, and then authorizes.
+creation. It first removes any stale authorization for the exact local origin
+through Lace Settings → Authorized DApps; this happens before the journey
+starts at the landing page. The journey still selects and connects Lace
+through the visible UI. Lace 2.1.1 connection approval selects Source Account,
+chooses the wallet by its configured label, captures the extension review, and
+then authorizes.
 
-When the persistent profile already authorized the origin, the driver accepts
-a missing dialog only after CIP-30 network and address checks prove the active
-account is the requested labeled role; screenshots 03 and 08 record the
-visible selected impacted- or safe-account state.
+After the impacted scan, the runner opens Lace Settings → Authorized DApps,
+captures the exact app-origin connection, disconnects it, switches to
+`safe_claim_dest`, and reconnects through the visible safe-wallet UI. A
+missing approval dialog is a failure, so the runner cannot silently reuse the
+impacted account.
 
 The app also refreshes wallet discovery on the Cardano initialization event,
 focus or visibility changes, and a bounded ten-second fallback poll to handle

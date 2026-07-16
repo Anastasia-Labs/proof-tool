@@ -100,7 +100,7 @@ old Lace smoke command remains unacceptable merge evidence.
 | Area | Current implementation | Remaining gate |
 | --- | --- | --- |
 | Command | `test:e2e:preprod:web-app-claim-flow-wasm-lace` invokes the dedicated runner. | Run it live with the dedicated profile and lane-managed fixture. |
-| Start point | The runner clears only app-origin session/local storage, opens `/`, captures `00-landing.png`, and follows `Claim funds`. | Confirm all nineteen captures against the deployed PR UI. |
+| Start point | The runner clears only app-origin session/local storage, opens `/`, captures `00-landing.png`, and follows `Claim funds`. | Confirm all twenty captures against the deployed PR UI. |
 | Target | The contract requires an exact HTTPS Vercel origin and rejects production/non-Vercel/path/query targets. | Exercise it against the immutable URL produced for a PR. |
 | Deployment identity | `/claim-api/build-provenance` exposes non-secret Vercel environment/URL/SHA/PR data; the runner requires an exact match. | Deploy the route and confirm the Vercel project exposes system variables at runtime. |
 | Proof path | The runner explicitly selects `Prove in this browser` and waits for production capability/asset readiness before phrase entry. | Complete a real WASM proof in the Preview runtime. |
@@ -108,10 +108,10 @@ old Lace smoke command remains unacceptable merge evidence.
 | Safe-wallet step | The runner captures the populated destination and activates `Confirm destination and continue`. | Validate the real safe Lace address and draft on Preprod. |
 | Wallet mapping | Lace selection is scoped to the account-center card containing the configured wallet label; the dedicated Lace 2.1.1 profile now passes non-spending unlock and both-role switching validation, and active CIP-30 addresses are revalidated after connection and before signing. | Confirm the connected CIP-30 identities against the exact Preview during the live run. |
 | Fixture | The default mode uses a separate headless bundled-Chromium setup context and the ignored Preprod funder wallet to create one ADA-only claim through `/reclaim`; it then discovers the submitted transaction's exact outref. A single unspent fixture may be resumed after an interrupted run. | Verify the funder balance/provider configuration on the dedicated runner. |
-| Screenshots | The runner enforces the ordered nineteen-file ledger and masks phrase/password inputs. | Review the first live artifact bundle for any extension-specific sensitive surface. |
+| Screenshots | The runner enforces the ordered twenty-file ledger and masks phrase/password inputs. | Review the first live artifact bundle for any extension-specific sensitive surface. |
 | Completion | Build/submit responses, receipt hash, exact outref state, and safe destination are cross-checked; provider progress must report the outref spent. | Obtain a real transaction hash and provider confirmation. |
 | PR gate | `preprod-web-app-claim-flow-wasm-lace.yml` automatically resolves the successful Vercel deployment for a same-repository, non-draft PR head, serializes the profile, requires environment approval, and publishes one fail-closed aggregate result. | Configure runner labels/variables/secrets, exercise the automatic trigger on a real PR, and require the stable aggregate job name in `main` protection. |
-| Local PR push | `push-pr-with-local-lace-claim-flow.mjs` builds and serves the current clean commit with production Next commands, performs the same live claim against localhost, rechecks the commit, and pushes only after success. | Run the first live local invocation and retain its nineteen-screen/provider evidence as pre-push confidence, not as deployed-Preview acceptance. |
+| Local PR push | `push-pr-with-local-lace-claim-flow.mjs` builds and serves the current clean commit with production Next commands, performs the same live claim against localhost, rechecks the commit, and pushes only after success. | Run the first live local invocation and retain its twenty-screen/provider evidence as pre-push confidence, not as deployed-Preview acceptance. |
 
 The generic deterministic lane remains valuable for broad regression coverage.
 It must not be renamed or represented as this real-browser acceptance lane.
@@ -270,17 +270,18 @@ assertion.
 | `05-scanning-claims.png` | `Scanning for reclaimable funds` or equivalent in-progress state. |
 | `06-available-claims.png` | `Available claims`; exact prepared outref/value appears and is selected; activate `Continue to safe wallet`. |
 | `07-safe-wallet.png` | `Connect safe wallet`; activate the Lace option. |
-| `08-lace-safe-connect.png` | Lace connect prompt; selected account is `safe_claim_dest`; approve connection. |
-| `09-safe-destination.png` | App shows distinct safe destination; activate `Confirm destination and continue`. |
-| `10-proof-method.png` | `Choose how to create proofs`; select `Prove in this browser`; capability/preflight state is ready; activate `Continue`. |
-| `11-create-proofs-ready.png` | `Create proofs`; phrase controls are present and masked; enter the ignored test phrase and activate `Generate proofs`. |
-| `12-proofs-generating.png` | Browser-WASM generation is visibly in progress; phrase controls are cleared or masked; wait without bypassing the UI. |
-| `13-proofs-ready.png` | `Proofs ready`; proof count covers the one selected input; activate `Continue to current batch`. |
-| `14-current-batch.png` | `Claim funds`; exact input and destination summary shown; activate the UI build/review action. |
-| `15-transaction-review.png` | Built transaction review shows the expected input, safe destination, value/fees, and no unexpected signer; activate `Sign and submit claim`. |
-| `16-lace-signing.png` | Lace transaction approval surface; selected wallet is revalidated as `safe_claim_dest`; approve once. |
-| `17-submitted.png` | `Claim submitted`/pending review; transaction hash is visible and recorded. |
-| `18-recovery-complete.png` | `Recovery complete`; receipt hash matches submission and no next batch remains. |
+| `08-lace-impacted-disconnect.png` | Lace Settings → Authorized DApps lists the exact app origin under the impacted account; disconnect that origin. |
+| `09-lace-safe-connect.png` | Lace connect prompt; selected account is `safe_claim_dest`; approve connection. |
+| `10-safe-destination.png` | App shows distinct safe destination; activate `Confirm destination and continue`. |
+| `11-proof-method.png` | `Choose how to create proofs`; select `Prove in this browser`; capability/preflight state is ready; activate `Continue`. |
+| `12-create-proofs-ready.png` | `Create proofs`; phrase controls are present and masked; enter the ignored test phrase and activate `Generate proofs`. |
+| `13-proofs-generating.png` | Browser-WASM generation is visibly in progress; phrase controls are cleared or masked; wait without bypassing the UI. |
+| `14-proofs-ready.png` | `Proofs ready`; proof count covers the one selected input; activate `Continue to current batch`. |
+| `15-current-batch.png` | `Claim funds`; exact input and destination summary shown; activate the UI build/review action. |
+| `16-transaction-review.png` | Built transaction review shows the expected input, safe destination, value/fees, and no unexpected signer; activate `Sign and submit claim`. |
+| `17-lace-signing.png` | Lace transaction approval surface; selected wallet is revalidated as `safe_claim_dest`; approve once. |
+| `18-submitted.png` | `Claim submitted`/pending review; transaction hash is visible and recorded. |
+| `19-recovery-complete.png` | `Recovery complete`; receipt hash matches submission and no next batch remains. |
 
 If the UI displays a stable intermediate screen not listed here, the test must
 capture it and the ledger must be updated. The runner holds only the relevant
@@ -553,14 +554,18 @@ the production web app or used as the signing wallet.
 
 The driver unlocks and selects the compromised test wallet before creating the
 web-app tab so Lace injects its real CIP-30 provider when the page is created.
-It still selects and connects Lace through the visible claim UI afterward.
-For Lace 2.1.1, connection approval selects Source Account, chooses the wallet
-by its configured label, captures the extension review, and then authorizes.
+It first removes any stale authorization for the exact local origin through
+Lace Settings → Authorized DApps; this happens before the journey starts at
+the landing page. It still selects and connects Lace through the visible claim
+UI afterward. For Lace 2.1.1, connection approval selects Source Account,
+chooses the wallet by its configured label, captures the extension review, and
+then authorizes.
 
-If the persistent profile already authorized the origin, the driver accepts a
-missing dialog only after CIP-30 network and address checks prove that the
-active account is the requested labeled role. Screenshots 03 and 08 then
-record the visible selected impacted- or safe-account state.
+After the impacted scan, the runner follows Lace's normal multi-wallet path:
+it opens Settings → Authorized DApps, captures screenshot 08, disconnects only
+the exact app origin, switches to `safe_claim_dest`, and reconnects through
+the visible safe-wallet UI in screenshot 09. A missing approval dialog is a
+failure; the runner never silently reuses the impacted account.
 
 The app refreshes detected wallets on the Cardano initialization event, window
 focus or visibility changes, and a bounded ten-second fallback poll so a
@@ -574,7 +579,7 @@ constraint system at `proof-assets-2m.reclaim-proof.com`. Small signed
 manifests and the WASM runtime
 are served by the production Next build as they are on Vercel; the large proof
 assets stay on the remote R2-backed host. The journey still starts at the
-landing page, creates all nineteen screenshots, signs only with
+landing page, creates all twenty screenshots, signs only with
 `safe_claim_destination`, submits to Preprod, and requires provider-visible
 spent-input and safe-destination confirmation.
 
@@ -656,7 +661,7 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
   the complete web-app suite passed 402 of 402 tests across 47 files, and the
   production build passed with the provenance route in the route table.
 - The exact deployed Preview merge gate has not completed yet. Therefore there
-  is no deployed-Preview nineteen-screenshot acceptance bundle, transaction
+  is no deployed-Preview twenty-screenshot acceptance bundle, transaction
   hash, provider confirmation, or branch-protection proof at this status; local
   pre-push evidence cannot fill that gap.
 
@@ -667,7 +672,7 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
 | Static | Typecheck, lint/style where configured, manifest verification, package script exists. |
 | Unit | URL/provenance guards, state-order assertions, screenshot ledger, redaction, role/signing guards, ambiguous-submit handling. |
 | Non-spending integration | Real Lace profile launch, both role mappings, connect prompts, browser-WASM capability preflight against the exact preview. |
-| Live acceptance | Fresh fixture, all nineteen captures, real browser-WASM proof, safe Lace signature, submitted tx, final receipt, provider-visible confirmation. |
+| Live acceptance | Fresh fixture, all twenty captures, real browser-WASM proof, safe Lace signature, submitted tx, final receipt, provider-visible confirmation. |
 | Merge enforcement | Required aggregate check on the current PR merge candidate, with resolver/checkout/provenance all bound to the current PR head SHA; stale-head results are rejected. |
 
 Mocks may satisfy unit coverage only. A local production build cannot satisfy

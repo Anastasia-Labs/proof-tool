@@ -161,7 +161,7 @@ describe("real Lace profile driver", () => {
     ]);
   });
 
-  it("accepts an already-authorized safe account only after verifying the active DApp role", async () => {
+  it("disconnects the exact local origin through Lace Authorized DApps", async () => {
     const safe = deriveRoleState({
       role: "safe_claim_destination",
       mnemonic: words("delta", 12),
@@ -179,30 +179,23 @@ describe("real Lace profile driver", () => {
       userDataDir: "/tmp/profile",
       walletPassword: "test-password",
     });
-    const page = {
-      url: () => "chrome-extension://laceextensionid/expo/index.html",
-      isClosed: () => false,
-      locator() {
-        const locator = {
-          first: () => locator,
-          filter: () => locator,
-          isVisible: async () => false,
-        };
-        return locator;
-      },
-    };
-    driver.context = { pages: () => [page] };
+    const origin = "http://127.0.0.1:3917";
+    const { context, page, clicks } = fakeLaceAuthorizedDappsContext(origin);
+    driver.context = context;
     driver.extensionId = "laceextensionid";
-    const verified = [];
-    driver.assertActiveDappRole = async (_page, role) => verified.push(role);
 
-    const result = await driver.approveDappConnection("safe_claim_destination", {
-      allowAlreadyAuthorized: true,
-      dappPage: {},
+    const result = await driver.disconnectDappOrigin(`${origin}/claim`, {
+      beforeDisconnect: async () => clicks.push("before-disconnect"),
     });
 
-    expect(result).toBeNull();
-    expect(verified).toEqual(["safe_claim_destination"]);
+    expect(result).toBe(page);
+    expect(clicks).toEqual([
+      "unlock",
+      "settings",
+      "authorized-dapps",
+      "before-disconnect",
+      `disconnect:${origin}`,
+    ]);
   });
 
   it("reports a rejected persisted password as an unlock failure", async () => {
@@ -317,6 +310,99 @@ function fakeLaceDappConnectContext(accountLabel) {
       pages() {
         return [page];
       },
+    },
+  };
+}
+
+function fakeLaceAuthorizedDappsContext(origin) {
+  const clicks = [];
+  let removed = false;
+
+  function makeLocator(kind) {
+    const locator = {
+      first() {
+        return locator;
+      },
+      locator(selector) {
+        if (kind === "origin" && selector === "xpath=../..") {
+          return makeLocator("card");
+        }
+        if (kind === "card" && selector === '[data-testid="dapp-card-delete-button"]') {
+          return makeLocator("delete-marker");
+        }
+        if (kind === "delete-marker" && selector === "..") {
+          return makeLocator("delete");
+        }
+        return makeLocator("missing");
+      },
+      async isVisible() {
+        if (kind === "auth-input" || kind === "settings" || kind === "authorized-dapps" || kind === "delete") {
+          return true;
+        }
+        if (kind === "origin") {
+          return !removed;
+        }
+        return false;
+      },
+      async fill() {},
+      async click() {
+        if (kind === "auth-confirm") {
+          clicks.push("unlock");
+        }
+        if (kind === "settings") {
+          clicks.push("settings");
+        }
+        if (kind === "authorized-dapps") {
+          clicks.push("authorized-dapps");
+        }
+        if (kind === "delete") {
+          removed = true;
+          clicks.push(`disconnect:${origin}`);
+        }
+      },
+      async waitFor(options) {
+        if (kind === "auth-body" && options.state === "hidden") {
+          return;
+        }
+        if (kind === "origin" && options.state === "detached" && removed) {
+          return;
+        }
+        throw new Error(`${kind} did not reach ${options.state}`);
+      },
+    };
+    return locator;
+  }
+
+  let currentUrl = "chrome-extension://laceextensionid/expo/index.html";
+  const page = {
+    url() {
+      return currentUrl;
+    },
+    isClosed() {
+      return false;
+    },
+    async goto(url) {
+      currentUrl = url;
+    },
+    locator(selector) {
+      if (selector === '[data-testid="authentication-prompt-input-value"]') return makeLocator("auth-input");
+      if (selector === '[data-testid="authentication-prompt-body"]') return makeLocator("auth-body");
+      if (selector === '[data-testid="authentication-prompt-button-confirm"]') return makeLocator("auth-confirm");
+      if (selector === '[data-testid="settings-tab-btn"]') return makeLocator("settings");
+      if (selector === '[data-testid="option-list-item-authorized-dapps"]') return makeLocator("authorized-dapps");
+      return makeLocator("missing");
+    },
+    getByText(value, options) {
+      return value === origin && options.exact ? makeLocator("origin") : makeLocator("missing");
+    },
+    async waitForTimeout() {},
+  };
+
+  return {
+    clicks,
+    page,
+    context: {
+      pages: () => [page],
     },
   };
 }

@@ -144,7 +144,7 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
       extraHTTPHeaders: headers,
       viewport: { width: 1440, height: 1000 },
     });
-    await prepareLaceRoleBeforeNavigation(walletDriver, COMPROMISED_ROLE);
+    await prepareLaceRoleBeforeNavigation(walletDriver, COMPROMISED_ROLE, config.baseUrl);
     const page = await context.newPage();
     page.setDefaultTimeout(DEFAULT_UI_TIMEOUT_MS);
     installObservation(page, consoleEntries, networkEntries, env);
@@ -170,20 +170,12 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
 
     await expectHeading(page, "Connect impacted wallet");
     await capture("02-impacted-wallet.png", page, "impacted-wallet");
-    const impactedExtensionPage = await walletDriver.connectRole(page, COMPROMISED_ROLE, "claim-wallet-option");
+    await walletDriver.connectRole(page, COMPROMISED_ROLE, "claim-wallet-option");
     const scanBarrier = await createResponseBarrier(page, "/claim-api/reclaim-utxos");
     await page.getByRole("button", { name: "Connect impacted wallet", exact: true }).click();
-    const impactedApprovalPage = await walletDriver.approveDappConnection(COMPROMISED_ROLE, {
+    await walletDriver.approveDappConnection(COMPROMISED_ROLE, {
       beforeApprove: (extensionPage) => capture("03-lace-impacted-connect.png", extensionPage, "lace-impacted-connect"),
-      allowAlreadyAuthorized: true,
-      dappPage: page,
     });
-    if (!impactedApprovalPage) {
-      if (!impactedExtensionPage) {
-        throw new WebAppClaimFlowContractError("lace_impacted_account_page_missing", "Lace did not expose the selected impacted-account page.");
-      }
-      await capture("03-lace-impacted-connect.png", impactedExtensionPage, "lace-impacted-account-selected");
-    }
     await walletDriver.assertActiveDappRole(page, COMPROMISED_ROLE);
     await scanBarrier.waitUntilIntercepted();
     await expectHeading(page, "Available claims");
@@ -199,22 +191,18 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
 
     await expectHeading(page, "Connect safe wallet");
     await capture("07-safe-wallet.png", page, "safe-wallet");
-    const safeExtensionPage = await walletDriver.connectRole(page, SAFE_ROLE, "claim-wallet-option");
-    await page.getByRole("button", { name: "Connect safe wallet", exact: true }).click();
-    const safeApprovalPage = await walletDriver.approveDappConnection(SAFE_ROLE, {
-      beforeApprove: (extensionPage) => capture("08-lace-safe-connect.png", extensionPage, "lace-safe-connect"),
-      allowAlreadyAuthorized: true,
-      dappPage: page,
+    await walletDriver.disconnectDappOrigin(config.baseUrl, {
+      beforeDisconnect: (extensionPage) =>
+        capture("08-lace-impacted-disconnect.png", extensionPage, "lace-impacted-disconnect"),
     });
-    if (!safeApprovalPage) {
-      if (!safeExtensionPage) {
-        throw new WebAppClaimFlowContractError("lace_safe_account_page_missing", "Lace did not expose the selected safe-account page.");
-      }
-      await capture("08-lace-safe-connect.png", safeExtensionPage, "lace-safe-account-selected");
-    }
+    await walletDriver.connectRole(page, SAFE_ROLE, "claim-wallet-option");
+    await page.getByRole("button", { name: "Connect safe wallet", exact: true }).click();
+    await walletDriver.approveDappConnection(SAFE_ROLE, {
+      beforeApprove: (extensionPage) => capture("09-lace-safe-connect.png", extensionPage, "lace-safe-connect"),
+    });
     await walletDriver.assertActiveDappRole(page, SAFE_ROLE);
     await page.getByRole("button", { name: "Confirm destination and continue", exact: true }).waitFor();
-    await capture("09-safe-destination.png", page, "safe-destination");
+    await capture("10-safe-destination.png", page, "safe-destination");
     await page.getByRole("button", { name: "Confirm destination and continue", exact: true }).click();
 
     await expectHeading(page, "Create proofs");
@@ -222,50 +210,50 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     const methodDialog = page.getByRole("dialog", { name: "Choose how to create proofs" });
     await methodDialog.getByRole("radio", { name: /Prove in this browser/iu }).click();
     await methodDialog.getByText("This browser can generate proofs", { exact: true }).waitFor({ timeout: PROOF_TIMEOUT_MS });
-    await capture("10-proof-method.png", page, "proof-method-browser-ready");
+    await capture("11-proof-method.png", page, "proof-method-browser-ready");
     await methodDialog.getByRole("button", { name: "Continue", exact: true }).click();
 
     const mnemonic = await walletDriver.recoveryPhraseForBrowserUi(COMPROMISED_ROLE);
     const words = mnemonic.trim().split(/\s+/u);
     await page.getByRole("button", { name: `${words.length} words`, exact: true }).click();
     await page.getByLabel("Recovery word 1", { exact: true }).waitFor();
-    await capture("11-create-proofs-ready.png", page, "create-proofs-ready");
+    await capture("12-create-proofs-ready.png", page, "create-proofs-ready");
     for (const [index, word] of words.entries()) {
       await page.getByLabel(`Recovery word ${index + 1}`, { exact: true }).fill(word);
     }
     await page.getByRole("button", { name: "Generate proofs", exact: true }).click();
     await page.getByText("Proof generation is running in this browser", { exact: false }).waitFor({ timeout: PROOF_TIMEOUT_MS });
     await assertRecoveryInputsCleared(page);
-    await capture("12-proofs-generating.png", page, "create-proofs-generating");
+    await capture("13-proofs-generating.png", page, "create-proofs-generating");
 
     await expectHeading(page, "Proofs ready", PROOF_TIMEOUT_MS);
-    await capture("13-proofs-ready.png", page, "create-proofs-complete");
+    await capture("14-proofs-ready.png", page, "create-proofs-complete");
     await page.getByRole("button", { name: "Continue to current batch", exact: true }).click();
 
     await expectHeading(page, "Claim funds");
-    await capture("14-current-batch.png", page, "current-batch");
+    await capture("15-current-batch.png", page, "current-batch");
     await page.getByRole("button", { name: "Build transaction for review", exact: true }).click();
     const build = await buildResponse.next(DEFAULT_UI_TIMEOUT_MS);
     validateClaimBuildReview(build, expectedOutref, safe.address);
     await page.getByText("Review hash", { exact: true }).waitFor();
-    await capture("15-transaction-review.png", page, "transaction-review");
+    await capture("16-transaction-review.png", page, "transaction-review");
 
     await walletDriver.assertActiveDappRole(page, SAFE_ROLE);
     const progressBarrier = await createResponseBarrier(page, "/claim-api/progress");
     await page.getByRole("button", { name: "Sign and submit claim", exact: true }).click();
     await walletDriver.approveWalletSigning(SAFE_ROLE, "claim", {
-      beforeApprove: (extensionPage) => capture("16-lace-signing.png", extensionPage, "lace-signing"),
+      beforeApprove: (extensionPage) => capture("17-lace-signing.png", extensionPage, "lace-signing"),
     });
     const submit = await submitResponse.next(DEFAULT_UI_TIMEOUT_MS);
     validateClaimSubmit(submit, build, expectedOutref);
     await progressBarrier.waitUntilIntercepted();
     await expectHeading(page, "Claim review");
     await page.getByText("Claim submitted", { exact: true }).waitFor();
-    await capture("17-submitted.png", page, "submitted-refreshing");
+    await capture("18-submitted.png", page, "submitted-refreshing");
     await progressBarrier.release();
 
     await page.getByText("Recovery complete", { exact: true }).waitFor({ timeout: CONFIRMATION_TIMEOUT_MS });
-    await capture("18-recovery-complete.png", page, "claim-review-complete");
+    await capture("19-recovery-complete.png", page, "claim-review-complete");
     assertCompleteScreenshotLedger(run.journey.screens.map((screen) => screen.file));
 
     const progress = await waitForSpentConfirmation(fetchFn, config, headers, expectedOutref, options.sleep);
@@ -333,13 +321,18 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
   };
 }
 
-export async function prepareLaceRoleBeforeNavigation(walletDriver, role) {
-  if (!walletDriver || typeof walletDriver.switchActiveWallet !== "function") {
+export async function prepareLaceRoleBeforeNavigation(walletDriver, role, origin) {
+  if (
+    !walletDriver ||
+    typeof walletDriver.disconnectDappOrigin !== "function" ||
+    typeof walletDriver.switchActiveWallet !== "function"
+  ) {
     throw new WebAppClaimFlowContractError(
       "lace_role_preload_unavailable",
-      "The Lace driver must initialize the active wallet before the web-app page is created.",
+      "The Lace driver must reset the local DApp origin and initialize the active wallet before the web-app page is created.",
     );
   }
+  await walletDriver.disconnectDappOrigin(origin, { required: false });
   await walletDriver.switchActiveWallet(role);
 }
 
