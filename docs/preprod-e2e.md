@@ -233,8 +233,10 @@ commit's Vercel stable-pointer manifest keeps the proving key and optimized CCS
 on the approved remote R2-backed asset hosts. The ignored environment still
 supplies provider/review configuration, but cannot replace the committed
 deployment manifest. The command then performs the same real browser-WASM/Lace
-journey, nineteen screenshots, Preprod submission, and provider confirmation as the
-deployed lane.
+journey, nineteen screenshots, Preprod submission, and provider confirmation as
+the deployed lane. The Next build and server stay in production mode. Only the
+separate fixture-funding driver drops production mode from its own process; it
+is not injected into the app and Lace remains the transaction-signing wallet.
 
 The wrapper pushes the exact tested commit only after success and refuses to
 push if the branch, commit, or worktree changes while proving. It never uses a

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertLocalPrContext,
   assertRemoteProofAssets,
+  createLocalRunnerEnv,
   createLocalVercelEmulationEnv,
   pinLocalDeploymentManifest,
 } from "./local-web-app-claim-flow-wasm-lace.mjs";
@@ -81,6 +82,15 @@ describe("local production PR claim flow", () => {
     expect(env.RECLAIM_DEPLOYMENT_MANIFEST).toBeUndefined();
     expect(env.RECLAIM_DEPLOYMENT_MANIFEST_JSON).toBeUndefined();
     expect(env.RECLAIM_MANIFEST_PATH).toBeUndefined();
+  });
+
+  it("keeps the app server in production while the external fixture driver stays non-production", () => {
+    const serverEnv = {
+      NODE_ENV: "production",
+      RECLAIM_E2E_TARGET_MODE: "local-production",
+    };
+    expect(createLocalRunnerEnv(serverEnv)).toEqual({ RECLAIM_E2E_TARGET_MODE: "local-production" });
+    expect(serverEnv.NODE_ENV).toBe("production");
   });
 
   it("requires a clean named branch with an existing open PR", () => {

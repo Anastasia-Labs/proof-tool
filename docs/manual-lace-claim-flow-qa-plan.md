@@ -546,6 +546,11 @@ explicit `localPreviewEmulation: true` provenance marker. The deployed lane
 rejects that marker, while the local lane requires it. This prevents localhost
 evidence from being confused with a real Vercel Preview.
 
+The Next build and server keep production mode. The separate local test driver
+removes production mode only from its own process so the existing fixture
+funder may prepare a fresh Preprod input; that harness is never injected into
+the production web app or used as the signing wallet.
+
 The lane pins the exact commit's Vercel stable-pointer manifest at
 `public/proof-assets/reclaim-deployment.json` instead of trusting an older
 ignored manifest path. That manifest must keep browser-WASM proving enabled,
@@ -567,7 +572,7 @@ untouched.
 For diagnosis without pushing, run the local lane directly:
 
 ```bash
-pnpm --dir apps/ownership-proof-web +  test:e2e:preprod:web-app-claim-flow-wasm-lace:local-pr -- +  --live-preprod
+pnpm --dir apps/ownership-proof-web test:e2e:preprod:web-app-claim-flow-wasm-lace:local-pr -- --live-preprod
 ```
 
 Local success is strong pre-push evidence, but it cannot prove that Vercel
@@ -609,7 +614,7 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
 ### Current verification evidence
 
 - The focused resolver/provenance/contract/fixture/provider/Lace/app-server and
-  local PR-push tests pass: 40 tests across nine files.
+  local PR-push tests pass: 41 tests across nine files.
 - `pnpm typecheck`, the Next production build, Node syntax checks, YAML parsing,
   direct reclaim-manifest verification, and `git diff --check` pass for the
   current working tree.
@@ -633,7 +638,7 @@ supplying an arbitrary input SHA; the workflow explicitly rejects that shape.
   `/claim-api/build-provenance` in the route table. This is compatibility
   evidence only; PR #13's deployed Preview predates this lane.
 - After adding the local-production PR-push wrapper on PR #14, typecheck passed,
-  the complete web-app suite passed 397 of 397 tests across 47 files, and the
+  the complete web-app suite passed 398 of 398 tests across 47 files, and the
   production build passed with the provenance route in the route table.
 - The exact deployed Preview merge gate has not completed yet. Therefore there
   is no deployed-Preview nineteen-screenshot acceptance bundle, transaction

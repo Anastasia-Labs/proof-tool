@@ -81,20 +81,21 @@ export async function runLocalPrClaimFlow(options = {}) {
     [defaultManifestPath],
     LOCAL_MANIFEST_ENV,
   );
-  const pinnedEnv = pinLocalDeploymentManifest(flowEnv, manifestPath);
+  const serverEnv = pinLocalDeploymentManifest(flowEnv, manifestPath);
+  const runnerEnv = createLocalRunnerEnv(serverEnv);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   const proofAssets = assertRemoteProofAssets(
     manifest,
-    expectedProofAssetHosts(pinnedEnv),
+    expectedProofAssetHosts(serverEnv),
   );
 
   console.log(`Building the local production app for PR #${git.prNumber} at ${git.commitSha.slice(0, 12)}.`);
   console.log(`Large proof assets remain remote at ${proofAssets.pkHost} and ${proofAssets.ccsHost}; bundled runtime assets use the production Next build.`);
-  await runInherited("pnpm", ["build"], { cwd: appDir, env: pinnedEnv, spawn });
+  await runInherited("pnpm", ["build"], { cwd: appDir, env: serverEnv, spawn });
 
   const server = spawn("pnpm", ["start", "--hostname", DEFAULT_HOST, "--port", String(port)], {
     cwd: appDir,
-    env: pinnedEnv,
+    env: serverEnv,
     stdio: "inherit",
   });
   try {
@@ -104,7 +105,7 @@ export async function runLocalPrClaimFlow(options = {}) {
     });
     const result = await runWebAppClaimFlowWasmLace({
       cwd: appDir,
-      env: pinnedEnv,
+      env: runnerEnv,
       repoRoot,
     });
     return { ...result, git, proofAssets };
@@ -148,6 +149,12 @@ export function pinLocalDeploymentManifest(env, manifestPath) {
   delete next.RECLAIM_DEPLOYMENT_MANIFEST;
   delete next.RECLAIM_DEPLOYMENT_MANIFEST_JSON;
   delete next.RECLAIM_MANIFEST_PATH;
+  return next;
+}
+
+export function createLocalRunnerEnv(serverEnv) {
+  const next = { ...serverEnv };
+  delete next.NODE_ENV;
   return next;
 }
 
