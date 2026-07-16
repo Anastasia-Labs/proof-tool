@@ -15,6 +15,7 @@ import type {
   BrowserProvingCheckResult,
   DestinationProofResponse,
   GenerateDestinationProofsInput,
+  ProofProgressEvent,
   ProverPreflightResult,
   ProverProveResult,
   ProverWorkerLike,
@@ -90,7 +91,7 @@ type PreparedProverSession = {
   publicKey: string;
   client: ProverWorkerClient;
   collector: BrowserProvingDiagnosticCollector;
-  preflight: ProverPreflightResult;
+  preflight: ProverPreflightResult | null;
   workerCount: number;
   createdAt: number;
   expiry: ReturnType<typeof setTimeout>;
@@ -106,9 +107,9 @@ let preparingSession: {
   promise: Promise<PreparedProverSession>;
 } | null = null;
 
-// Full readiness performs the signed asset preflight exactly once. The
-// validated worker, CCS, and nested MSM pool remain available until proving,
-// explicit disposal, or the short expiry below.
+// Readiness initializes the local runtime without opening the large proving
+// assets. Signed asset preflight is intentionally deferred until automatic
+// credential discovery succeeds.
 export async function checkBrowserProving(
   descriptor: BrowserProvingDescriptor | null | undefined,
   expectedVkHash: string,
@@ -157,8 +158,8 @@ export async function proveDestinationInBrowser(
     throw new ProvingCancelledError();
   }
   const total = input.draft.proofRequests.length;
-  // Preparation (calibration + init + preflight) can take minutes on slow
-  // links; racing it against the abort signal keeps Cancel responsive. An
+  // Runtime preparation can take time on slow links; racing it against the
+  // abort signal keeps Cancel responsive. An
   // abandoned preparation completes in the background and parks itself as the
   // prepared session, where the expiry timer reclaims it.
   const session = await raceSessionWithAbort(
@@ -175,6 +176,36 @@ export async function proveDestinationInBrowser(
     input.signal?.addEventListener("abort", onAbort);
 
     masterXPrvHex = bytesToHex(input.masterXPrv);
+    const discovery = await client.discover(
+      buildDiscoveryRequestJson(masterXPrvHex, input.draft.proofRequests),
+      (progress) => {
+        input.onProgress?.({
+          provider: "browser-wasm",
+          stage: progress.stage ?? "find-path",
+          frac: progress.frac,
+          current: total > 0 ? 1 : 0,
+          total,
+          engine: "local-key-discovery",
+          discovery: workerDiscoveryMetrics(progress),
+        });
+      },
+    );
+    if (discovery.ok !== true) {
+      throw new Error("The browser could not locate the requested credential keys.");
+    }
+    input.onProgress?.({
+      provider: "browser-wasm",
+      stage: "open-keys",
+      frac: 0,
+      current: total > 0 ? 1 : 0,
+      total,
+      engine: "streampk-sharded-groth16",
+    });
+    await ensureProverSessionPreflight(
+      session,
+      descriptor,
+      input.expectedVkHash,
+    );
     const artifacts: Array<{
       out_ref: string;
       artifact: Record<string, unknown>;
@@ -205,14 +236,15 @@ export async function proveDestinationInBrowser(
           masterXPrvHex,
           request,
         ),
-        (stage, frac) => {
+        (progress) => {
           input.onProgress?.({
             provider: "browser-wasm",
-            stage: stage ?? "prove",
-            frac,
+            stage: progress.stage ?? "prove",
+            frac: progress.frac,
             current: index + 1,
             total,
             engine: "streampk-sharded-groth16",
+            discovery: workerDiscoveryMetrics(progress),
           });
         },
       );
@@ -351,7 +383,7 @@ async function prepareProverSession(
   }
   const inFlight = {
     publicKey,
-    promise: createProverSession(publicKey, descriptor, expectedVkHash, options),
+    promise: createProverSession(publicKey, descriptor, options),
   };
   preparingSession = inFlight;
   try {
@@ -366,7 +398,6 @@ async function prepareProverSession(
 async function createProverSession(
   publicKey: string,
   descriptor: BrowserProvingDescriptor,
-  expectedVkHash: string,
   options: BrowserWasmOptions,
 ): Promise<PreparedProverSession> {
   disposePreparedBrowserProvingSession();
@@ -388,36 +419,13 @@ async function createProverSession(
   );
   try {
     const initializationStarted = nowMS();
-    const ccsPrefetch = options.createWorker
-      ? Promise.resolve({ durationMS: 0, bytes: 0 })
-      : prefetchPublicCCS(descriptor.ccs_url);
     await client.init(descriptor);
     collector.recordInitialization(nowMS() - initializationStarted);
-    const prefetched = await ccsPrefetch;
-
-    const preflightStarted = nowMS();
-    const preflight = await client.preflight(
-      buildPreflightRequestJson(descriptor, workerCount),
-    );
-    preflight.timings = {
-      ...preflight.timings,
-      ccs_browser_prefetch_ms: prefetched.durationMS,
-      ccs_browser_prefetch_bytes: prefetched.bytes,
-    };
-    collector.recordPreflight(nowMS() - preflightStarted, preflight);
-    if (preflight.ok !== true) {
-      throw new Error("Proof assets failed verification.");
-    }
-    if (preflight.vk_hash !== expectedVkHash) {
-      throw new Error(
-        "Proof assets do not match this deployment's verifier key.",
-      );
-    }
     const session: PreparedProverSession = {
       publicKey,
       client,
       collector,
-      preflight,
+      preflight: null,
       workerCount,
       createdAt: nowMS(),
       expiry: setTimeout(() => undefined, PREPARED_PROVER_TIMEOUT_MS),
@@ -430,6 +438,36 @@ async function createProverSession(
     client.terminate();
     throw error;
   }
+}
+
+async function ensureProverSessionPreflight(
+  session: PreparedProverSession,
+  descriptor: BrowserProvingDescriptor,
+  expectedVkHash: string,
+): Promise<ProverPreflightResult> {
+  if (session.preflight) {
+    return session.preflight;
+  }
+  const ccsPrefetch = prefetchPublicCCS(descriptor.ccs_url);
+  const preflightStarted = nowMS();
+  const preflight = await session.client.preflight(
+    buildPreflightRequestJson(descriptor, session.workerCount),
+  );
+  const prefetched = await ccsPrefetch;
+  preflight.timings = {
+    ...preflight.timings,
+    ccs_browser_prefetch_ms: prefetched.durationMS,
+    ccs_browser_prefetch_bytes: prefetched.bytes,
+  };
+  session.collector.recordPreflight(nowMS() - preflightStarted, preflight);
+  if (preflight.ok !== true) {
+    throw new Error("Proof assets failed verification.");
+  }
+  if (preflight.vk_hash !== expectedVkHash) {
+    throw new Error("Proof assets do not match this deployment's verifier key.");
+  }
+  session.preflight = preflight;
+  return preflight;
 }
 
 function resetPreparedSessionExpiry(session: PreparedProverSession): void {
@@ -514,6 +552,47 @@ function buildPreflightRequestJson(
     artifacts: buildArtifactsBlock(descriptor),
     tuning: buildTuningBlock(descriptor, workerCount),
   });
+}
+
+function buildDiscoveryRequestJson(
+  masterXPrvHex: string,
+  requests: ClaimProofRequest[],
+): string {
+  return JSON.stringify({
+    master_xprv_hex: masterXPrvHex,
+    target_credentials_hex: [
+      ...new Set(requests.map((request) => request.target_credential)),
+    ],
+    search: {
+      max_account: 9,
+      max_index: 999,
+    },
+  });
+}
+
+function workerDiscoveryMetrics(
+  progress: Extract<ProverWorkerResponse, { type: "progress" }>,
+): NonNullable<ProofProgressEvent["discovery"]> | undefined {
+  const total = finiteProgressNumber(progress.candidates_total);
+  if (total <= 0) {
+    return undefined;
+  }
+  return {
+    candidatesScanned: finiteProgressNumber(progress.candidates_scanned),
+    candidatesTotal: total,
+    candidatesPerSecond: finiteProgressNumber(
+      progress.candidates_per_second,
+    ),
+    etaSeconds: finiteProgressNumber(progress.eta_seconds),
+    matched: finiteProgressNumber(progress.matched),
+    targets: finiteProgressNumber(progress.targets),
+  };
+}
+
+function finiteProgressNumber(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : 0;
 }
 
 function buildProveRequestJson(
@@ -677,7 +756,9 @@ class ProverWorkerClient {
     {
       resolve: (response: ProverWorkerResponse) => void;
       reject: (error: unknown) => void;
-      onProgress?: (stage?: string, frac?: number) => void;
+      onProgress?: (
+        progress: Extract<ProverWorkerResponse, { type: "progress" }>,
+      ) => void;
     }
   >();
   private nextId = 0;
@@ -691,7 +772,7 @@ class ProverWorkerClient {
       return;
     }
     if (data.type === "progress") {
-      entry.onProgress?.(data.stage, data.frac);
+      entry.onProgress?.(data);
       return;
     }
     this.pending.delete(data.id);
@@ -738,9 +819,24 @@ class ProverWorkerClient {
     return response.type === "preflight-result" ? response.result : {};
   }
 
+  async discover(
+    requestJson: string,
+    onProgress: (
+      progress: Extract<ProverWorkerResponse, { type: "progress" }>,
+    ) => void,
+  ) {
+    const response = await this.request(
+      { type: "discover", requestJson },
+      { expected: "discover-result", onProgress },
+    );
+    return response.type === "discover-result" ? response.result : {};
+  }
+
   async prove(
     requestJson: string,
-    onProgress: (stage?: string, frac?: number) => void,
+    onProgress: (
+      progress: Extract<ProverWorkerResponse, { type: "progress" }>,
+    ) => void,
   ): Promise<ProverProveResult> {
     const response = await this.request(
       { type: "prove", requestJson },
@@ -778,7 +874,9 @@ class ProverWorkerClient {
     options: {
       timeoutMs?: number;
       expected: ProverWorkerResponse["type"];
-      onProgress?: (stage?: string, frac?: number) => void;
+      onProgress?: (
+        progress: Extract<ProverWorkerResponse, { type: "progress" }>,
+      ) => void;
     },
   ): Promise<ProverWorkerResponse> {
     if (!this.worker) {

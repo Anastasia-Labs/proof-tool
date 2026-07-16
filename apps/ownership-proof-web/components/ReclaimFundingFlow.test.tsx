@@ -113,6 +113,107 @@ describe("ReclaimFundingFlow", () => {
     expect(screen.queryByRole("link", { name: /^Proof$/i })).not.toBeInTheDocument();
   });
 
+  it("keeps Build Transaction disabled with a visible reason until a valid credential is entered", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            available: true,
+            deployment: deployment(),
+            missing: [],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    Object.defineProperty(window, "cardano", {
+      configurable: true,
+      value: {
+        lace: {
+          name: "Lace",
+          enable: vi.fn().mockResolvedValue({
+            getNetworkId: vi.fn().mockResolvedValue(0),
+            getUsedAddresses: vi.fn().mockResolvedValue([usedWalletAddressHex]),
+            getChangeAddress: vi.fn().mockResolvedValue(walletAddressHex),
+            signTx: vi.fn(),
+          }),
+        },
+      },
+    });
+
+    render(<ReclaimFundingFlow />);
+    await screen.findByText("Preprod deployment ready");
+
+    const credentialInput = screen.getByLabelText("Payment key credential");
+    expect(credentialInput).toBeRequired();
+    expect(credentialInput).toHaveAttribute("placeholder", "Paste the 56-character payment key hash");
+
+    const buildButton = screen.getByRole("button", { name: /build transaction/i });
+    expect(buildButton).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Connect the funding wallet to continue.");
+
+    fireEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
+    await screen.findByText("2 CIP-30 wallet addresses loaded");
+    fireEvent.change(screen.getByLabelText("ADA amount"), { target: { value: "1.5" } });
+
+    expect(buildButton).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Enter the compromised credential to continue.");
+    expect(screen.getAllByText("Enter the compromised credential to continue.").length).toBe(2);
+    expect(screen.getByText("Awaiting requirements")).toBeInTheDocument();
+    expect(screen.queryByText("Ready to build")).not.toBeInTheDocument();
+
+    fireEvent.change(credentialInput, { target: { value: credential } });
+
+    expect(buildButton).toBeEnabled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText("Enter the compromised credential to continue.")).not.toBeInTheDocument();
+    expect(screen.getByText("Ready to build")).toBeInTheDocument();
+    expect(screen.queryByText("Awaiting requirements")).not.toBeInTheDocument();
+  });
+
+  it("explains an invalid credential beside the disabled build button", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            available: true,
+            deployment: deployment(),
+            missing: [],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    Object.defineProperty(window, "cardano", {
+      configurable: true,
+      value: {
+        lace: {
+          name: "Lace",
+          enable: vi.fn().mockResolvedValue({
+            getNetworkId: vi.fn().mockResolvedValue(0),
+            getUsedAddresses: vi.fn().mockResolvedValue([usedWalletAddressHex]),
+            getChangeAddress: vi.fn().mockResolvedValue(walletAddressHex),
+            signTx: vi.fn(),
+          }),
+        },
+      },
+    });
+
+    render(<ReclaimFundingFlow />);
+    await screen.findByText("Preprod deployment ready");
+    fireEvent.click(screen.getByRole("button", { name: /connect wallet/i }));
+    await screen.findByText("2 CIP-30 wallet addresses loaded");
+    fireEvent.change(screen.getByLabelText("ADA amount"), { target: { value: "1.5" } });
+    fireEvent.change(screen.getByLabelText("Payment key credential"), { target: { value: "bad-credential" } });
+
+    const buildButton = screen.getByRole("button", { name: /build transaction/i });
+    expect(buildButton).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Use a 28-byte hex payment credential.");
+    expect(screen.queryByText("Ready to build")).not.toBeInTheDocument();
+  });
+
   it("builds a multi-asset transaction and submits wallet witnesses", async () => {
     const signTx = vi.fn().mockResolvedValue("witness-cbor");
     const getUnusedAddresses = vi.fn().mockResolvedValue([walletAddressHex]);

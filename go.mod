@@ -3,6 +3,7 @@ module proof-tool
 go 1.26.0
 
 require (
+	filippo.io/edwards25519 v1.2.0
 	github.com/consensys/gnark v0.15.0
 	github.com/consensys/gnark-crypto v0.20.1
 	github.com/tyler-smith/go-bip39 v1.1.0

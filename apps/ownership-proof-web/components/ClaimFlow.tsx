@@ -66,6 +66,7 @@ import {
   hasBrowserProvingDiagnostic,
 } from "../lib/proving/diagnostic";
 import {
+  DesktopHelperCancelledError,
   preflightDestinationViaHelper,
   proveDestinationViaHelper,
 } from "../lib/proving/desktop-helper";
@@ -340,7 +341,7 @@ type ClaimFlowRuntime = {
   browserProvingDetail: string;
   refreshBrowserProvingStatus: () => Promise<boolean>;
   proofProgress: ProofProgressEvent | null;
-  cancelBrowserProving: () => void;
+  cancelLocalProving: () => void;
   generateClaimProofs: () => void;
   build: ClaimBuildResponse | null;
   buildError: string;
@@ -1085,7 +1086,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     return () => window.removeEventListener("beforeunload", guard);
   }, [unloadGuardActive]);
 
-  const cancelBrowserProving = useCallback(() => {
+  const cancelLocalProving = useCallback(() => {
     proofAbortRef.current?.abort();
   }, []);
 
@@ -1561,7 +1562,10 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
 
       const seedPhrase = readAndClearRecoveryPhrase();
       changeScreen("create-proofs-generating");
+      setProofProgress(null);
       let masterBytes: Uint8Array | null = null;
+      const abortController = new AbortController();
+      proofAbortRef.current = abortController;
       try {
         const workerResponse = await deriveMasterXPrv(seedPhrase, createWorker);
         if (workerResponse.type === "error") {
@@ -1574,22 +1578,37 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
           draft,
           helperUrl,
           helperToken,
+          signal: abortController.signal,
+          onProgress: setProofProgress,
         });
         const artifacts = validateDestinationProofResponse(helperResponse, draft, deployment.deployment.verifierVkHash);
         applyProofRunSuccess(runId, artifacts);
       } catch (error) {
+        if (error instanceof DesktopHelperCancelledError) {
+          if (proofRunIdRef.current === runId) {
+            setProofArtifacts([]);
+            setProofError("");
+            if (screenRef.current === "create-proofs-generating") {
+              setScreen("create-proofs-ready");
+            }
+          }
+          return;
+        }
         applyProofRunFailure(runId, sanitizeRecoverableError(error, "The helper could not generate destination-bound proofs."));
       } finally {
         masterBytes?.fill(0);
+        proofAbortRef.current = null;
+        setProofProgress(null);
       }
     } finally {
       proofRunInFlightRef.current = false;
     }
   };
 
-  // Browser provider path: capability + asset preflight re-runs and must pass
-  // BEFORE the phrase is read from the DOM — if this browser cannot prove, no
-  // seed material may exist in page memory.
+  // Browser provider path: runtime capability is confirmed before the phrase
+  // is read. The dedicated local worker then discovers credential keys before it
+  // opens the large signed proof assets; seed material never leaves the local
+  // worker boundary.
   const generateClaimProofsInBrowser = async (expectedVkHash: string, runId: number) => {
     if (!draft || !browserProvingDescriptor) {
       setProofError("Browser proving is not enabled for this build yet.");
@@ -2150,7 +2169,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
             browserProvingDetail,
             refreshBrowserProvingStatus,
             proofProgress,
-            cancelBrowserProving,
+            cancelLocalProving,
             generateClaimProofs,
             build,
             buildError,
@@ -2385,7 +2404,7 @@ function renderScreen(
           browserProvingDetail={runtime.browserProvingDetail}
           onRecheckBrowserProving={runtime.refreshBrowserProvingStatus}
           proofProgress={runtime.proofProgress}
-          onCancelProving={runtime.cancelBrowserProving}
+          onCancelProving={runtime.cancelLocalProving}
           onNext={runtime.generateClaimProofs}
           onBack={goBack}
         />
@@ -2410,7 +2429,7 @@ function renderScreen(
           browserProvingDetail={runtime.browserProvingDetail}
           onRecheckBrowserProving={runtime.refreshBrowserProvingStatus}
           proofProgress={runtime.proofProgress}
-          onCancelProving={runtime.cancelBrowserProving}
+          onCancelProving={runtime.cancelLocalProving}
           onNext={runtime.generateClaimProofs}
           onBack={goBack}
         />
@@ -2435,7 +2454,7 @@ function renderScreen(
           browserProvingDetail={runtime.browserProvingDetail}
           onRecheckBrowserProving={runtime.refreshBrowserProvingStatus}
           proofProgress={runtime.proofProgress}
-          onCancelProving={runtime.cancelBrowserProving}
+          onCancelProving={runtime.cancelLocalProving}
           onNext={runtime.generateClaimProofs}
           onBack={goBack}
         />
@@ -2460,7 +2479,7 @@ function renderScreen(
           browserProvingDetail={runtime.browserProvingDetail}
           onRecheckBrowserProving={runtime.refreshBrowserProvingStatus}
           proofProgress={runtime.proofProgress}
-          onCancelProving={runtime.cancelBrowserProving}
+          onCancelProving={runtime.cancelLocalProving}
           onNext={runtime.generateClaimProofs}
           onBack={goBack}
         />
@@ -2485,7 +2504,7 @@ function renderScreen(
           browserProvingDetail={runtime.browserProvingDetail}
           onRecheckBrowserProving={runtime.refreshBrowserProvingStatus}
           proofProgress={runtime.proofProgress}
-          onCancelProving={runtime.cancelBrowserProving}
+          onCancelProving={runtime.cancelLocalProving}
           onNext={runtime.goToCurrentBatch}
           onBack={goBack}
         />
@@ -3659,17 +3678,18 @@ function CreateProofsGenerating({
   const queueRows = draft ? proofGenerationRows(draft) : fixtureMode ? claimFixtureData().proofQueue : [];
   const browserMode = proofMethod === "browser";
   const current = proofProgress?.current ?? 0;
-  const completed = current > 0 ? current - 1 : 0;
+  const completed = browserMode ? (current > 0 ? current - 1 : 0) : current;
   const stageLabel = proofProgress ? formatProofStage(proofProgress.stage) : "Starting";
   const stagePercent = proofProgress?.frac !== undefined ? Math.round(clampFraction(proofProgress.frac) * 100) : null;
+  const discovery = proofProgress?.discovery;
   const engineLabel = browserMode ? "Proving in this browser" : "The helper is running locally.";
   // Overall ETA (C35): the browser path is estimated at ~2 minutes per proof.
   const remainingMinutes =
-    browserMode && total > 0
+    browserMode && total > 0 && !discovery
       ? Math.max(1, Math.ceil((total - completed - (stagePercent ?? 0) / 100) * 2))
       : null;
-  // Elapsed counter for the helper path (C35): the helper does not stream
-  // per-proof progress yet, so at least show that time is passing.
+  // Elapsed time remains useful for old published helpers that return one JSON
+  // response and do not implement the opt-in progress stream.
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   useEffect(() => {
     if (browserMode) {
@@ -3681,7 +3701,7 @@ function CreateProofsGenerating({
     }, 1000);
     return () => clearInterval(timer);
   }, [browserMode]);
-  const ringPercentKnown = browserMode && stagePercent !== null;
+  const ringPercentKnown = stagePercent !== null;
   return (
     <ClaimScreenFrame
       title="Create proofs"
@@ -3690,10 +3710,10 @@ function CreateProofsGenerating({
           ? "Proof generation is running in this browser. Keep this tab open."
           : "Proof generation is running locally. Keep this tab and the Proof Helper open."
       }
-      backLabel={browserMode ? "Cancel" : "Back"}
+      backLabel="Cancel"
       nextLabel="Generating proofs"
       nextIcon={RefreshCw}
-      onBack={browserMode && onCancelProving ? onCancelProving : onBack}
+      onBack={onCancelProving ?? onBack}
       onNext={onNext}
       nextDisabled
     >
@@ -3733,29 +3753,44 @@ function CreateProofsGenerating({
               <div>
                 <h3>Generating {total} destination-bound proof{total === 1 ? "" : "s"}</h3>
                 <p>{engineLabel}</p>
-                {browserMode ? (
-                  <>
-                    <p className="claim-muted" role="status" aria-live="polite">
-                      {current > 0 ? `Proof ${current} of ${total}` : "Preparing proof assets"} -{" "}
-                      <span title={proofProgress?.stage}>{stageLabel}</span>
-                      {stagePercent !== null ? ` (${stagePercent}%)` : ""}
-                      {remainingMinutes !== null ? ` · ~${remainingMinutes} min remaining` : ""}
-                    </p>
-                    <p className="claim-muted">Keep this tab open - refreshing will restart proof generation.</p>
-                    {onCancelProving ? (
-                      <button className="claim-secondary-button" type="button" onClick={onCancelProving}>
-                        <X size={16} aria-hidden="true" /> Cancel proof generation
-                      </button>
-                    ) : null}
-                  </>
-                ) : (
-                  <>
-                    <p className="claim-muted" role="status" aria-live="polite">
-                      Running for {formatElapsedTime(elapsedSeconds)}
-                    </p>
-                    <p className="claim-muted">Per-proof progress will appear here when the helper exposes a streaming status channel.</p>
-                  </>
-                )}
+                <p className="claim-muted" role="status" aria-live="polite">
+                  {proofProgress
+                    ? browserMode
+                      ? current > 0
+                        ? `Proof ${current} of ${total}`
+                        : "Preparing proof assets"
+                      : current > 0
+                        ? `${current} of ${total} proofs complete`
+                        : "Preparing local proof work"
+                    : browserMode
+                      ? "Preparing proof assets"
+                      : `Running for ${formatElapsedTime(elapsedSeconds)}`} -{" "}
+                  <span title={proofProgress?.stage}>{stageLabel}</span>
+                  {stagePercent !== null ? ` (${stagePercent}%)` : ""}
+                  {remainingMinutes !== null ? ` · ~${remainingMinutes} min remaining` : ""}
+                </p>
+                {discovery ? (
+                  <p className="claim-muted">
+                    Checked {Math.round(discovery.candidatesScanned).toLocaleString()} of{" "}
+                    {Math.round(discovery.candidatesTotal).toLocaleString()} possible credentials
+                    {discovery.candidatesPerSecond > 0
+                      ? ` · ${Math.round(discovery.candidatesPerSecond).toLocaleString()}/sec`
+                      : ""}
+                    {discovery.etaSeconds > 0 ? ` · ${formatDiscoveryETA(discovery.etaSeconds)} remaining` : ""}
+                  </p>
+                ) : null}
+                <p className="claim-muted">
+                  {browserMode
+                    ? "Keep this tab open - refreshing will restart proof generation."
+                    : proofProgress
+                      ? "Progress is streaming from Proof Helper on this device."
+                      : "This Proof Helper version does not report detailed progress; the request is still running locally."}
+                </p>
+                {onCancelProving ? (
+                  <button className="claim-secondary-button" type="button" onClick={onCancelProving}>
+                    <X size={16} aria-hidden="true" /> Cancel proof generation
+                  </button>
+                ) : null}
                 <div className="claim-chip-row">
                   <span>Local only</span>
                   <span>Destination bound</span>
@@ -3787,11 +3822,7 @@ function CreateProofsGenerating({
             { icon: ShieldCheck, title: "Recovery phrase stays local", body: "Your recovery phrase never leaves your device and is never shared." },
             browserMode
               ? { icon: PauseCircle, title: "You can cancel if needed", body: "Cancel to stop proving and return to the previous step." }
-              : {
-                  icon: PauseCircle,
-                  title: "Leaving does not pause the helper",
-                  body: "Leaving this screen does not stop the helper — proofs continue in the background. You can return to this step to see the result.",
-                },
+              : { icon: PauseCircle, title: "You can cancel if needed", body: "Cancel closes the local request and stops key discovery or proving cooperatively." },
             { icon: Shield, title: "Proofs are destination-bound", body: "They can only be used to reclaim funds to your connected safe wallet." },
           ]}
         />
@@ -3808,8 +3839,9 @@ function formatProofStage(stage: string): string {
     "decode-inputs": "Preparing proving data",
     "open-keys": "Preparing proving data",
     "open-ccs": "Preparing proving data",
-    "find-path": "Locating your key",
-    probe: "Locating your key",
+    "find-path": "Locating your keys",
+    "locating-keys": "Locating your keys",
+    probe: "Locating your keys",
     prove: "Generating proof",
     verify: "Double-checking proof",
     done: "Done",
@@ -3821,6 +3853,14 @@ function formatProofStage(stage: string): string {
     return "Generating proof";
   }
   return "Working";
+}
+
+function formatDiscoveryETA(seconds: number): string {
+  const rounded = Math.max(1, Math.round(seconds));
+  if (rounded < 60) {
+    return `about ${rounded} sec`;
+  }
+  return `about ${Math.ceil(rounded / 60)} min`;
 }
 
 function formatElapsedTime(totalSeconds: number): string {

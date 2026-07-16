@@ -108,7 +108,7 @@ async function assertWrongNetworkBlocksReclaimPage(page, baseUrl, fundingRole) {
 async function assertWrongNetworkBlocksClaimPage(page, baseUrl, compromisedRole) {
   await page.goto(new URL("/claim", baseUrl).toString(), { waitUntil: "domcontentloaded" });
   await forceWalletNetwork(page, compromisedRole, WRONG_NETWORK_ID);
-  await page.getByRole("button", { name: /I reviewed deployment/iu }).click();
+  await page.getByRole("button", { name: /^Continue$/iu }).click();
   await page.getByRole("heading", { name: "Connect impacted wallet" }).waitFor();
   await page.getByRole("button", { name: walletButtonName(compromisedRole) }).click();
   await page.getByRole("button", { name: /Connect impacted wallet/iu }).click();

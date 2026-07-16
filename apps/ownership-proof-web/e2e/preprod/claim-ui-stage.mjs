@@ -6,6 +6,8 @@ export const CLAIM_UI_ACCEPTANCE_STAGE_NAME = "claim-ui-acceptance";
 export const COMPROMISED_WALLET_ROLE = "compromised_user";
 export const SAFE_WALLET_ROLE = "safe_claim_destination";
 
+const CLAIM_FLOW_RESUME_STORAGE_KEY = "proof-tool.claim-flow.resume.v1";
+
 export class PreprodClaimUiStageError extends Error {
   constructor(code, message) {
     super(message);
@@ -29,13 +31,15 @@ export async function runClaimUiAcceptanceStage(options = {}) {
   const artifactPath = path.join(outputDir, "claim-ui-acceptance.json");
 
   const claimUrl = new URL("/claim", appTarget.baseUrl);
-  claimUrl.hash = new URLSearchParams({
+  const helperPairingUrl = new URL(claimUrl);
+  helperPairingUrl.hash = new URLSearchParams({
     helper: helperTarget.helperUrl,
     pair: helperTarget.token,
   }).toString();
 
+  await page.addInitScript((storageKey) => globalThis.localStorage.removeItem(storageKey), CLAIM_FLOW_RESUME_STORAGE_KEY);
   await page.goto(claimUrl.toString(), { waitUntil: "domcontentloaded" });
-  await clickByRoleIfVisible(page, "button", "I reviewed deployment");
+  await clickByRole(page, "button", "Continue");
   await selectClaimRole(page, walletHarness, COMPROMISED_WALLET_ROLE);
   await clickByRole(page, "button", "Connect impacted wallet");
   await approveWalletConnection(walletHarness, COMPROMISED_WALLET_ROLE);
@@ -44,29 +48,35 @@ export async function runClaimUiAcceptanceStage(options = {}) {
   await selectClaimRole(page, walletHarness, SAFE_WALLET_ROLE);
   await clickByRole(page, "button", "Connect safe wallet");
   await approveWalletConnection(walletHarness, SAFE_WALLET_ROLE);
+  await waitForText(page, "Current draft", 180_000);
+  await clickByRole(page, "button", "Confirm destination and continue");
+  await page.getByRole("button", { name: "Choose method" }).waitFor({ timeout: 180_000 });
+  await pairHelperThroughCourier(page, helperPairingUrl.toString());
+  await chooseDesktopProofMethod(page);
+  await allowDesktopConnectionIfRequested(page);
 
   let batches = 0;
   for (; batches < maxBatches; batches += 1) {
-    if (await hasText(page, "Recovery complete")) {
+    if (await isRecoveryComplete(page)) {
       break;
     }
-    await waitForText(page, "Create proofs");
+    await waitForHeading(page, "Create proofs");
     await fillRecoveryPhrase(page, recoveryPhrase);
     await clickByRole(page, "button", "Generate proofs");
     await waitForText(page, "Proofs ready", 900_000);
     await clickByRole(page, "button", "Continue to current batch");
     await waitForText(page, "Claim funds");
-    await clickByRole(page, "button", "Build claim review");
+    await clickByRole(page, "button", "Build transaction for review");
     await waitForText(page, "Review hash", 180_000);
     await clickByRole(page, "button", "Sign and submit claim");
     await approveWalletSigning(walletHarness, SAFE_WALLET_ROLE, "claim");
-    await waitForAnyText(page, ["Recovery complete", "Create proofs"], 240_000);
-    if (await hasText(page, "Recovery complete")) {
+    await waitForClaimBatchOutcome(page, 240_000);
+    if (await isRecoveryComplete(page)) {
       break;
     }
   }
 
-  if (!(await hasText(page, "Recovery complete"))) {
+  if (!(await isRecoveryComplete(page))) {
     throw new PreprodClaimUiStageError("claim_ui_acceptance_incomplete", "Claim UI did not reach the final receipt.");
   }
 
@@ -108,6 +118,39 @@ export async function runClaimUiAcceptanceStage(options = {}) {
   };
 }
 
+async function pairHelperThroughCourier(page, pairingUrl) {
+  const context = page.context?.();
+  if (!context || typeof context.newPage !== "function") {
+    throw new PreprodClaimUiStageError("claim_ui_pairing_context_missing", "Claim UI helper pairing requires a browser context.");
+  }
+  const courierPage = await context.newPage();
+  try {
+    await courierPage.goto(pairingUrl, { waitUntil: "domcontentloaded" });
+    await courierPage.getByText("Proof Helper paired", { exact: false }).waitFor({ timeout: 120_000 });
+  } finally {
+    await courierPage.close();
+  }
+}
+
+async function chooseDesktopProofMethod(page) {
+  await clickByRole(page, "button", "Choose method");
+  await page.getByRole("radio", { name: /Proof Helper Desktop/iu }).click({ timeout: 180_000 });
+  await clickByRole(page, "button", "Continue to desktop app");
+  await clickByRole(page, "button", "Close installer chooser");
+}
+
+async function allowDesktopConnectionIfRequested(page) {
+  const permissionButton = page.getByRole("button", {
+    name: /Allow desktop connection|Check permission again|Check helper again/iu,
+  });
+  try {
+    await permissionButton.waitFor({ state: "visible", timeout: 10_000 });
+  } catch {
+    return;
+  }
+  await permissionButton.click({ timeout: 180_000 });
+}
+
 async function recoveryPhraseForUi(walletHarness, role) {
   if (typeof walletHarness.recoveryPhraseForBrowserUi === "function") {
     const phrase = await walletHarness.recoveryPhraseForBrowserUi(role);
@@ -132,13 +175,6 @@ async function fillRecoveryPhrase(page, phrase) {
   }
 }
 
-async function clickByRoleIfVisible(page, role, name) {
-  const locator = page.getByRole(role, { name });
-  if (await locator.isVisible()) {
-    await locator.click();
-  }
-}
-
 async function clickByRole(page, role, name) {
   await page.getByRole(role, { name }).click({ timeout: 180_000 });
 }
@@ -147,23 +183,38 @@ async function waitForText(page, text, timeout = 120_000) {
   await page.getByText(text, { exact: false }).first().waitFor({ timeout });
 }
 
-async function waitForAnyText(page, labels, timeout = 120_000) {
+async function waitForHeading(page, name, timeout = 120_000) {
+  await page.getByRole("heading", { name }).waitFor({ timeout });
+}
+
+async function waitForClaimBatchOutcome(page, timeout = 120_000) {
   const deadline = Date.now() + timeout;
-  let lastError = null;
   while (Date.now() < deadline) {
-    for (const label of labels) {
-      if (await hasText(page, label)) {
-        return label;
-      }
+    if (await isRecoveryComplete(page)) {
+      return "recovery-complete";
+    }
+    if (await isHeadingVisible(page, "Create proofs")) {
+      return "next-batch";
     }
     await page.waitForTimeout(500);
   }
-  throw lastError ?? new PreprodClaimUiStageError("claim_ui_wait_timeout", `Timed out waiting for ${labels.join(" or ")}.`);
+  throw new PreprodClaimUiStageError(
+    "claim_ui_wait_timeout",
+    "Timed out waiting for the final recovery receipt or the next Create proofs screen.",
+  );
 }
 
-async function hasText(page, text) {
+async function isRecoveryComplete(page) {
+  return isLocatorVisible(page.getByText("Recovery complete", { exact: false }).first());
+}
+
+async function isHeadingVisible(page, name) {
+  return isLocatorVisible(page.getByRole("heading", { name }));
+}
+
+async function isLocatorVisible(locator) {
   try {
-    return (await page.getByText(text, { exact: false }).count()) > 0;
+    return await locator.isVisible();
   } catch {
     return false;
   }

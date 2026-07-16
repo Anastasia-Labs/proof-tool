@@ -12,11 +12,17 @@ afterEach(() => {
   }
 });
 
-it("continues when deployment review was already accepted in the browser context", async () => {
+it("clears resumable state and starts a fresh browser claim flow", async () => {
   const outputDir = mkdtempSync(path.join(tmpdir(), "proof-tool-claim-ui-"));
   tempDirs.push(outputDir);
   const calls = [];
   const page = {
+    async addInitScript(_callback, storageKey) {
+      calls.push(["addInitScript", storageKey]);
+    },
+    context() {
+      return fakeBrowserContext(calls);
+    },
     async goto(url) {
       calls.push(["goto", url]);
     },
@@ -24,7 +30,10 @@ it("continues when deployment review was already accepted in the browser context
       return {
         async isVisible() {
           calls.push(["isVisible", role, name]);
-          return name !== "I reviewed deployment";
+          return name !== "Continue";
+        },
+        async waitFor(options) {
+          calls.push(["waitForRole", role, name, options?.timeout ?? null]);
         },
         async click() {
           calls.push(["click", role, name]);
@@ -38,10 +47,10 @@ it("continues when deployment review was already accepted in the browser context
             async waitFor() {
               calls.push(["waitForText", text]);
             },
+            async isVisible() {
+              return text === "Recovery complete";
+            },
           };
-        },
-        async count() {
-          return text === "Recovery complete" ? 1 : 0;
         },
       };
     },
@@ -71,8 +80,8 @@ it("continues when deployment review was already accepted in the browser context
   });
 
   expect(result.ok).toBe(true);
-  expect(calls).toContainEqual(["isVisible", "button", "I reviewed deployment"]);
-  expect(calls).not.toContainEqual(["click", "button", "I reviewed deployment"]);
+  expect(calls).toContainEqual(["addInitScript", "proof-tool.claim-flow.resume.v1"]);
+  expect(calls).toContainEqual(["click", "button", "Continue"]);
   const artifact = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
   expect(artifact.helper.token).toBe("[redacted]");
 });
@@ -83,11 +92,20 @@ it("waits for exact recovery-word inputs and enabled claim actions", async () =>
   const calls = [];
   let submitted = false;
   const page = {
+    async addInitScript(_callback, storageKey) {
+      calls.push(["addInitScript", storageKey]);
+    },
+    context() {
+      return fakeBrowserContext(calls);
+    },
     async goto() {},
     getByRole(role, { name }) {
       return {
         async isVisible() {
           return true;
+        },
+        async waitFor(options) {
+          calls.push(["waitForRole", role, name, options?.timeout ?? null]);
         },
         async click(options) {
           calls.push(["click", role, name, options?.timeout ?? null]);
@@ -104,10 +122,10 @@ it("waits for exact recovery-word inputs and enabled claim actions", async () =>
             async waitFor({ timeout }) {
               calls.push(["waitForText", text, timeout]);
             },
+            async isVisible() {
+              return text === "Recovery complete" && submitted;
+            },
           };
-        },
-        async count() {
-          return text === "Recovery complete" && submitted ? 1 : 0;
         },
       };
     },
@@ -149,6 +167,36 @@ it("waits for exact recovery-word inputs and enabled claim actions", async () =>
   expect(calls).toContainEqual(["waitForLabel", "Recovery word 1", true, 180_000]);
   expect(calls).toContainEqual(["fill", "Recovery word 1", true]);
   expect(calls).toContainEqual(["fill", "Recovery word 10", true]);
+  expect(calls).toContainEqual(["waitForRole", "heading", "Create proofs", 120_000]);
+  expect(calls.some((call) => call[0] === "waitForText" && call[1] === "Create proofs")).toBe(false);
   expect(calls).toContainEqual(["click", "button", "Continue to safe wallet", 180_000]);
+  expect(calls).toContainEqual(["waitForText", "Current draft", 180_000]);
+  expect(calls).toContainEqual(["click", "button", "Confirm destination and continue", 180_000]);
+  expect(calls).toContainEqual(["click", "button", "Continue to desktop app", 180_000]);
+  expect(calls).toContainEqual(["click", "button", "Close installer chooser", 180_000]);
+  expect(calls.some((call) => call[0] === "click" && String(call[2]).includes("Allow desktop connection"))).toBe(true);
   expect(calls).toContainEqual(["approveSigning", "safe_claim_destination", "claim"]);
 });
+
+function fakeBrowserContext(calls) {
+  return {
+    async newPage() {
+      calls.push(["newPage"]);
+      return {
+        async goto(url) {
+          calls.push(["courierGoto", url]);
+        },
+        getByText(text) {
+          return {
+            async waitFor({ timeout }) {
+              calls.push(["courierWaitForText", text, timeout]);
+            },
+          };
+        },
+        async close() {
+          calls.push(["courierClose"]);
+        },
+      };
+    },
+  };
+}

@@ -13,8 +13,9 @@ const CALIBRATION_RESERVED_THREADS = 2;
 
 // Capability preflight for browser proving. Every check here runs before the
 // browser method is enabled, and again immediately before proving — always
-// before the recovery phrase is read. The asset preflight (signed manifests,
-// vk_hash pin) is separate: see checkBrowserProving in browser-wasm.ts.
+// before the recovery phrase is read. The large signed-asset preflight and
+// vk_hash pin are intentionally deferred until local key discovery succeeds;
+// see proveDestinationInBrowser in browser-wasm.ts.
 export async function checkBrowserProvingCapability(
   descriptor: BrowserProvingDescriptor | null | undefined,
 ): Promise<BrowserCapabilityReport> {

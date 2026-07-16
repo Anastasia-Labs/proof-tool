@@ -32,7 +32,7 @@ describe("claim discovery preprod browser stage", () => {
     expect(result.ok).toBe(true);
     expect(page.calls).toEqual([
       ["goto", "http://127.0.0.1:3917/claim"],
-      ["click", "/I reviewed deployment/iu"],
+      ["click", "/^Continue$/iu"],
       ["waitFor", "heading", "Connect impacted wallet"],
       ["click", "/Proof Tool Preprod compromised user/iu"],
       ["click", "/Connect impacted wallet/iu"],

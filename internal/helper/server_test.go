@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 const (
 	testOrigin = "http://localhost:3000"
 	testToken  = "test-pairing-token"
+	testMaster = "c065afd2832cd8b087c4d9ab7011f481ee1e0721e78ea5dd609f3ab3f156d245d176bd8fd4ec60b4731c3918a2a72a0226c0cd119ec35b47e4d55884667f552a23f7fdcd4a10c6cd2c7393ac61d877873e248f417634aa3d812af327ffe9d620"
 )
 
 type fakeGenerator struct {
@@ -45,6 +47,20 @@ type fakeDestinationGenerator struct {
 	input  ProveDestinationInput
 }
 
+type contextDestinationGenerator struct {
+	started chan struct{}
+}
+
+func (g *contextDestinationGenerator) GenerateProof(_ context.Context, _ ProveInput) (artifact.ProofArtifact, error) {
+	return validArtifact(), nil
+}
+
+func (g *contextDestinationGenerator) GenerateDestinationProofs(ctx context.Context, _ ProveDestinationInput) ([]DestinationProofArtifactItem, error) {
+	close(g.started)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func (f *fakeDestinationGenerator) GenerateProof(_ context.Context, _ ProveInput) (artifact.ProofArtifact, error) {
 	return validArtifact(), nil
 }
@@ -52,6 +68,20 @@ func (f *fakeDestinationGenerator) GenerateProof(_ context.Context, _ ProveInput
 func (f *fakeDestinationGenerator) GenerateDestinationProofs(_ context.Context, input ProveDestinationInput) ([]DestinationProofArtifactItem, error) {
 	f.called = true
 	f.input = input
+	if input.Progress != nil {
+		input.Progress(LocalProofProgress{
+			Stage: "locating-keys",
+			Discovery: &ownership.DiscoveryProgress{
+				Scanned:             64,
+				Total:               30_000,
+				Matched:             1,
+				Targets:             1,
+				CandidatesPerSecond: 1_250,
+				ETA:                 23 * time.Second,
+			},
+		})
+		input.Progress(LocalProofProgress{Stage: "prove", Current: 1, Total: 1})
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -323,10 +353,19 @@ func TestHelperStatusListsWildcardOrigins(t *testing.T) {
 }
 
 func TestProductionGeneratorFailsClosedWhenKeysAreMissing(t *testing.T) {
+	master, err := hex.DecodeString(testMaster)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := ownership.DecodeCredentialHex("19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4")
+	if err != nil {
+		t.Fatal(err)
+	}
 	generator := &OwnershipGenerator{KeysDir: t.TempDir()}
-	_, err := generator.GenerateProof(context.Background(), ProveInput{
-		MasterXPrv:       make([]byte, 96),
-		TargetCredential: make([]byte, 28),
+	_, err = generator.GenerateProof(context.Background(), ProveInput{
+		MasterXPrv:       master,
+		TargetCredential: target,
+		Search:           ownership.SearchOptions{Account: -1, Role: -1, Index: -1, MaxAccount: 9, MaxIndex: 999},
 	})
 	if err == nil {
 		t.Fatal("missing production key bundle did not fail")
@@ -337,7 +376,13 @@ func TestProductionGeneratorFailsClosedWhenKeysAreMissing(t *testing.T) {
 }
 
 func TestProductionDestinationGeneratorFailsClosedWhenKeysAreMissing(t *testing.T) {
-	input, err := BuildDestinationInput(validProveDestinationRequest())
+	req := validProveDestinationRequest()
+	master, err := hex.DecodeString(testMaster)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.MasterXPrvBase64 = base64.StdEncoding.EncodeToString(master)
+	input, err := BuildDestinationInput(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,6 +537,120 @@ func TestProveDestinationResponseStripsPathAndPreservesOrder(t *testing.T) {
 		if item.Artifact.Path != nil || len(item.Artifact.Paths) != 0 {
 			t.Fatalf("artifact[%d] leaked path metadata: %+v", i, item.Artifact)
 		}
+	}
+}
+
+func TestProveDestinationStreamsAggregateProgressAndTerminalResult(t *testing.T) {
+	req := validProveDestinationRequest()
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpReq := httptest.NewRequest(http.MethodPost, "/prove-destination", bytes.NewReader(body))
+	httpReq.Header.Set("Origin", testOrigin)
+	httpReq.Header.Set(TokenHeader, testToken)
+	httpReq.Header.Set("Accept", destinationProgressContentType)
+	rr := httptest.NewRecorder()
+	NewServer(&fakeDestinationGenerator{}, testToken, []string{testOrigin}).Handler().ServeHTTP(rr, httpReq)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Type"); got != destinationProgressContentType {
+		t.Fatalf("content type = %q", got)
+	}
+	lines := strings.Split(strings.TrimSpace(rr.Body.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("events = %d body = %s", len(lines), rr.Body.String())
+	}
+	var events []DestinationProgressEvent
+	for _, line := range lines {
+		var event DestinationProgressEvent
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, event)
+	}
+	discovery := events[0]
+	if discovery.Type != "progress" || discovery.Stage != "locating-keys" || discovery.Discovery == nil {
+		t.Fatalf("discovery event = %+v", discovery)
+	}
+	if discovery.Discovery.CandidatesScanned != 64 || discovery.Discovery.CandidatesTotal != 30_000 || discovery.Discovery.ETASeconds != 23 {
+		t.Fatalf("discovery progress = %+v", discovery.Discovery)
+	}
+	if strings.Contains(lines[0], req.MasterXPrvBase64) || strings.Contains(lines[0], req.Requests[0].TargetCredential) || strings.Contains(lines[0], "account") || strings.Contains(lines[0], "role") || strings.Contains(lines[0], "index") {
+		t.Fatalf("progress leaked secret or path metadata: %s", lines[0])
+	}
+	terminal := events[len(events)-1]
+	if terminal.Type != "result" || terminal.Result == nil || len(terminal.Result.Artifacts) != 1 {
+		t.Fatalf("terminal event = %+v", terminal)
+	}
+	if terminal.Result.Artifacts[0].Artifact.Path != nil {
+		t.Fatalf("terminal result leaked path: %+v", terminal.Result.Artifacts[0].Artifact.Path)
+	}
+}
+
+func TestProveDestinationStreamEndsWithSanitizedError(t *testing.T) {
+	req := validProveDestinationRequest()
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpReq := httptest.NewRequest(http.MethodPost, "/prove-destination", bytes.NewReader(body))
+	httpReq.Header.Set("Origin", testOrigin)
+	httpReq.Header.Set(TokenHeader, testToken)
+	httpReq.Header.Set("Accept", destinationProgressContentType)
+	rr := httptest.NewRecorder()
+	NewServer(&fakeDestinationGenerator{err: ErrPathNotFound}, testToken, []string{testOrigin}).Handler().ServeHTTP(rr, httpReq)
+	lines := strings.Split(strings.TrimSpace(rr.Body.String()), "\n")
+	var terminal DestinationProgressEvent
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &terminal); err != nil {
+		t.Fatal(err)
+	}
+	if terminal.Type != "error" || terminal.Code != "path_not_found" || terminal.Error == "" {
+		t.Fatalf("terminal error = %+v", terminal)
+	}
+	if strings.Contains(lines[len(lines)-1], req.Requests[0].TargetCredential) || strings.Contains(lines[len(lines)-1], req.MasterXPrvBase64) {
+		t.Fatalf("terminal error leaked request material: %s", lines[len(lines)-1])
+	}
+}
+
+func TestProveDestinationStreamPropagatesRequestCancellation(t *testing.T) {
+	req := validProveDestinationRequest()
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	httpReq := httptest.NewRequest(http.MethodPost, "/prove-destination", bytes.NewReader(body)).WithContext(ctx)
+	httpReq.Header.Set("Origin", testOrigin)
+	httpReq.Header.Set(TokenHeader, testToken)
+	httpReq.Header.Set("Accept", destinationProgressContentType)
+	rr := httptest.NewRecorder()
+	generator := &contextDestinationGenerator{started: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		NewServer(generator, testToken, []string{testOrigin}).Handler().ServeHTTP(rr, httpReq)
+		close(done)
+	}()
+	select {
+	case <-generator.started:
+	case <-time.After(time.Second):
+		t.Fatal("generator did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not stop after cancellation")
+	}
+	lines := strings.Split(strings.TrimSpace(rr.Body.String()), "\n")
+	var terminal DestinationProgressEvent
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &terminal); err != nil {
+		t.Fatal(err)
+	}
+	if terminal.Type != "error" || terminal.Code != "request_cancelled" {
+		t.Fatalf("terminal cancellation = %+v", terminal)
 	}
 }
 

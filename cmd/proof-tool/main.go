@@ -134,13 +134,13 @@ func cmdProve(args []string) error {
 	if err != nil {
 		return err
 	}
-	path, err := ownership.FindPath(master, target, ownership.SearchOptions{
+	path, err := ownership.DiscoverCredentialPath(context.Background(), master, target, ownership.DiscoveryOptions{Search: ownership.SearchOptions{
 		Account:    *account,
 		Role:       *role,
 		Index:      *index,
 		MaxAccount: uint32(*maxAccount),
 		MaxIndex:   uint32(*maxIndex),
-	})
+	}}, nil)
 	if err != nil {
 		return err
 	}
@@ -235,13 +235,13 @@ func cmdProveDestination(args []string) error {
 	if err != nil {
 		return err
 	}
-	path, err := ownership.FindPath(master, target, ownership.SearchOptions{
+	path, err := ownership.DiscoverCredentialPath(context.Background(), master, target, ownership.DiscoveryOptions{Search: ownership.SearchOptions{
 		Account:    *account,
 		Role:       *role,
 		Index:      *index,
 		MaxAccount: uint32(*maxAccount),
 		MaxIndex:   uint32(*maxIndex),
-	})
+	}}, nil)
 	if err != nil {
 		return err
 	}

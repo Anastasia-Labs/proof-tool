@@ -3,6 +3,8 @@ package ownership
 import (
 	"encoding/hex"
 	"testing"
+
+	"proof-tool/internal/circuit/ckd"
 )
 
 const (
@@ -18,6 +20,19 @@ func TestMasterXPrvFromSeedPhraseGolden(t *testing.T) {
 	}
 	if hex.EncodeToString(got) != knownMaster {
 		t.Fatalf("master xprv mismatch:\n got  %x\n want %s", got, knownMaster)
+	}
+}
+
+func TestCIP11StakeRoleGolden(t *testing.T) {
+	master, err := MasterXPrvFromSeedPhrase("prevent company field green slot measure chief hero apple task eagle sunset endorse dress seed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := ckd.DeriveRef(master, 0, 2, 0)
+	got := append(append(append(make([]byte, 0, 96), leaf.KL[:]...), leaf.KR[:]...), leaf.CC[:]...)
+	const want = "b8ab42f1aacbcdb3ae858e3a3df88142b3ed27a2d3f432024e0d943fc1e597442d57545d84c8db2820b11509d944093bc605350e60c533b8886a405bd59eed6dcf356648fe9e9219d83e989c8ff5b5b337e2897b6554c1ab4e636de791fe5427"
+	if hex.EncodeToString(got) != want {
+		t.Fatalf("CIP-11 role-2 child mismatch:\n got  %x\n want %s", got, want)
 	}
 }
 

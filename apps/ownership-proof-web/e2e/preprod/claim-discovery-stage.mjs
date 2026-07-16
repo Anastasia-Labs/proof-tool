@@ -50,7 +50,7 @@ export async function runClaimDiscoveryStage(options = {}) {
   await page.goto(claimUrl, {
     waitUntil: "domcontentloaded",
   });
-  await page.getByRole("button", { name: /I reviewed deployment/iu }).click();
+  await page.getByRole("button", { name: /^Continue$/iu }).click();
   await page.getByRole("heading", { name: "Connect impacted wallet" }).waitFor();
   await selectClaimRole(page, walletHarness, compromisedRole);
   await page.getByRole("button", { name: /Connect impacted wallet/iu }).click();
