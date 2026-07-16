@@ -104,7 +104,10 @@ type LockFundsStep = {
   icon: LucideIcon;
 };
 
-const targetPlaceholder = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
+const credentialPlaceholder = "Paste the 56-character payment key hash";
+const credentialEmptyHint = "Enter the compromised credential to continue.";
+const credentialFormatHint = "Use a 28-byte hex payment credential.";
+const fixtureCompromisedCredential = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
 const HEX_RE = /^[0-9a-f]+$/iu;
 
 const lockFundsSteps: LockFundsStep[] = [
@@ -187,11 +190,27 @@ export function ReclaimFundingFlow() {
     flowState,
     failure,
   });
+  const buildBlockedReason = canBuild
+    ? ""
+    : lockBuildBlockedReason({
+        deployment,
+        deploymentLoading,
+        walletApi,
+        walletNetworkId,
+        changeAddress,
+        walletAddresses,
+        compromisedCredential,
+        normalizedCredential,
+        adaAmount,
+        nativeTokens,
+        requestedAssets,
+      });
   const heading = lockFundsHeading(viewState);
   const summaryTiles = lockFundsSummaryTiles({
     deployment,
     deploymentLoading,
     canUseWallet,
+    canBuild,
     walletName: selectedWalletName,
     flowState,
     requestedAssets,
@@ -447,7 +466,8 @@ export function ReclaimFundingFlow() {
   }
 
   const controlsDisabled = deploymentLoading || !deploymentAvailable;
-  const credentialInvalid = compromisedCredential.trim() !== "" && !isPaymentCredential(normalizedCredential);
+  const credentialEmpty = compromisedCredential.trim() === "";
+  const credentialInvalid = !credentialEmpty && !isPaymentCredential(normalizedCredential);
   const addressSourceText =
     walletAddresses.length === 0
       ? "Connect wallet to load CIP-30 addresses"
@@ -590,22 +610,36 @@ export function ReclaimFundingFlow() {
           </ReclaimPanel>
 
           <ReclaimPanel title="Compromised credential" icon={KeyRound}>
-            <label className="lock-field">
-              <span>Payment key credential</span>
+            <div className="lock-field">
+              <div className="lock-field-label">
+                <label htmlFor="lock-compromised-credential">Payment key credential</label>
+                <em className="lock-required-flag">Required</em>
+              </div>
               <input
+                id="lock-compromised-credential"
                 value={compromisedCredential}
                 onChange={(event) => {
                   setCompromisedCredential(event.target.value);
                   resetReviewedTransaction();
                 }}
-                placeholder={targetPlaceholder}
+                placeholder={credentialPlaceholder}
                 disabled={controlsDisabled}
+                required
+                aria-invalid={credentialInvalid || undefined}
+                autoComplete="off"
+                spellCheck={false}
               />
-            </label>
+            </div>
+            {credentialEmpty ? (
+              <p className="lock-field-hint" aria-live="polite">
+                <KeyRound size={16} aria-hidden="true" />
+                {credentialEmptyHint}
+              </p>
+            ) : null}
             <p className="claim-muted">Funds locked for recovery using proof of ownership for this payment key credential.</p>
             {credentialInvalid ? (
               <ReclaimNotice icon={ShieldAlert} title="Credential format" tone="bad">
-                Use a 28-byte hex payment credential.
+                {credentialFormatHint}
               </ReclaimNotice>
             ) : null}
           </ReclaimPanel>
@@ -699,11 +733,23 @@ export function ReclaimFundingFlow() {
                 <Plus size={20} aria-hidden="true" />
                 Token
               </button>
-              <button className="claim-primary-button lock-build-button" type="button" onClick={buildTx} disabled={!canBuild || flowState === "building"}>
+              <button
+                className="claim-primary-button lock-build-button"
+                type="button"
+                onClick={buildTx}
+                disabled={!canBuild || flowState === "building"}
+                aria-describedby={buildBlockedReason ? "lock-build-blocked-reason" : undefined}
+              >
                 {flowState === "building" ? <Loader2 className="spin" size={20} aria-hidden="true" /> : <Coins size={20} aria-hidden="true" />}
                 Build Transaction
               </button>
             </div>
+            {buildBlockedReason ? (
+              <p className="lock-build-hint" id="lock-build-blocked-reason" role="status">
+                <CircleAlert size={16} aria-hidden="true" />
+                {buildBlockedReason}
+              </p>
+            ) : null}
           </ReclaimPanel>
 
             </div>
@@ -837,7 +883,7 @@ function createLockFundsFixture(state: LockFundsVisualState): LockFundsFixture {
       ? "not-a-28-byte-payment-credential"
       : state === "ready-idle" || state === "wallet-connected"
         ? ""
-        : targetPlaceholder;
+        : fixtureCompromisedCredential;
   const hasAssets =
     state === "assets-loaded" ||
     state === "building-transaction" ||
@@ -956,7 +1002,7 @@ function fixtureBuiltTx(): BuildReclaimTxResponse {
       changeAddress: fixtureWalletAddress,
       walletAddresses: [fixtureWalletAddress, fixtureUsedWalletAddress],
       reclaimBaseAddress: deployment.deployment.reclaimBaseAddress,
-      compromisedCredential: targetPlaceholder,
+      compromisedCredential: fixtureCompromisedCredential,
       datumCbor: "d8799f581c19e07fbcff",
       assets: {
         [LOVELACE_UNIT]: "1500000",
@@ -1181,6 +1227,7 @@ function lockFundsSummaryTiles({
   deployment,
   deploymentLoading,
   canUseWallet,
+  canBuild,
   walletName,
   flowState,
   requestedAssets,
@@ -1191,6 +1238,7 @@ function lockFundsSummaryTiles({
   deployment: DeploymentResponse | null;
   deploymentLoading: boolean;
   canUseWallet: boolean;
+  canBuild: boolean;
   walletName: string;
   flowState: FlowState;
   requestedAssets: AssetMap | null;
@@ -1210,9 +1258,11 @@ function lockFundsSummaryTiles({
           ? "Ready for wallet signature"
           : flowState === "building"
             ? "Building unsigned tx"
-            : requestedAssets
+            : canBuild
               ? "Ready to build"
-              : "ReclaimBase";
+              : requestedAssets
+                ? "Awaiting requirements"
+                : "ReclaimBase";
 
   return [
     {
@@ -1232,10 +1282,76 @@ function lockFundsSummaryTiles({
       icon: failure || flowState === "failed" ? CircleAlert : FileText,
       label: "Transaction",
       value: transactionValue,
-      detail: submittedTxHash ? "Receipt available" : builtTx ? "Unsigned transaction built" : "Lock flow",
+      detail: submittedTxHash
+        ? "Receipt available"
+        : builtTx
+          ? "Unsigned transaction built"
+          : canBuild
+            ? "All requirements met"
+            : requestedAssets
+              ? "Complete the remaining steps"
+              : "Lock flow",
       emphasis: Boolean(builtTx || submittedTxHash),
     },
   ];
+}
+
+// Mirrors the canBuild predicate: the first unmet prerequisite becomes the
+// user-facing reason the Build Transaction button is disabled.
+function lockBuildBlockedReason({
+  deployment,
+  deploymentLoading,
+  walletApi,
+  walletNetworkId,
+  changeAddress,
+  walletAddresses,
+  compromisedCredential,
+  normalizedCredential,
+  adaAmount,
+  nativeTokens,
+  requestedAssets,
+}: {
+  deployment: DeploymentResponse | null;
+  deploymentLoading: boolean;
+  walletApi: CardanoWalletApi | null;
+  walletNetworkId: number | undefined;
+  changeAddress: string;
+  walletAddresses: string[];
+  compromisedCredential: string;
+  normalizedCredential: string;
+  adaAmount: string;
+  nativeTokens: NativeTokenRow[];
+  requestedAssets: AssetMap | null;
+}): string {
+  if (deploymentLoading) {
+    return "Waiting for the deployment check to finish.";
+  }
+  if (deployment?.available !== true) {
+    return "Reclaim deployment is unavailable.";
+  }
+  if (!walletApi) {
+    return "Connect the funding wallet to continue.";
+  }
+  if (walletNetworkId !== deployment.deployment.networkId) {
+    return `Switch the wallet to the ${deployment.deployment.network} network.`;
+  }
+  if (changeAddress.trim() === "" || walletAddresses.length === 0) {
+    return "Reconnect the wallet to load its CIP-30 addresses.";
+  }
+  if (compromisedCredential.trim() === "") {
+    return credentialEmptyHint;
+  }
+  if (!isPaymentCredential(normalizedCredential)) {
+    return credentialFormatHint;
+  }
+  if (requestedAssets === null) {
+    const hasAssetInput =
+      adaAmount.trim() !== "" || nativeTokens.some((token) => token.unit.trim() !== "" || token.quantity.trim() !== "");
+    return hasAssetInput
+      ? "Enter valid asset amounts: a positive ADA amount, and a unit plus whole-number quantity for each token."
+      : "Add an ADA amount or native token to lock.";
+  }
+  return "";
 }
 
 function inventorySummaryText(inventory: WalletAssetsResponse | null): string {

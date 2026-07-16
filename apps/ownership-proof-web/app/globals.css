@@ -2114,7 +2114,10 @@ button:disabled {
 }
 
 .lock-context-grid.compact .claim-muted,
-.lock-context-grid.compact .lock-readout {
+.lock-context-grid.compact .lock-readout,
+.lock-context-grid.compact .lock-field-hint,
+.lock-context-grid.compact .lock-build-hint,
+.lock-context-grid.compact .lock-required-flag {
   display: none;
 }
 
@@ -2202,6 +2205,49 @@ button:disabled {
 .lock-field input:disabled,
 .lock-field select:disabled {
   opacity: 0.6;
+}
+
+.lock-field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lock-field-label label {
+  color: #172239;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.lock-required-flag {
+  border: 1px solid var(--claim-line);
+  border-radius: 999px;
+  background: #fbfcfd;
+  padding: 2px 10px;
+  color: var(--claim-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.lock-field-hint,
+.lock-build-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -2px 0 0;
+  color: var(--claim-muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.lock-field-hint svg,
+.lock-build-hint svg {
+  flex: none;
+  color: var(--claim-teal);
 }
 
 .lock-panel-action,
