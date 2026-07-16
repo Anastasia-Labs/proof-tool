@@ -17,7 +17,7 @@ bootstrap script, and `scripts/check-vendor-drift.sh` to verify.
 Optional but recommended (CI enforces it either way):
 
 ```bash
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.6.2
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 ```
 
 ## Everyday commands
