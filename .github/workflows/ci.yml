@@ -219,6 +219,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # cardano-crypto-class needs libsodium, libsecp256k1 (with schnorrsig),
+      # and libblst via pkg-config — the standard cardano-node prerequisites.
+      - name: Cardano crypto system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libsodium-dev pkg-config autoconf automake libtool
+          git clone --depth 1 --branch v0.3.2 https://github.com/bitcoin-core/secp256k1
+          cd secp256k1
+          ./autogen.sh
+          ./configure --enable-module-schnorrsig --enable-experimental
+          make -j"$(nproc)"
+          sudo make install
+          cd ..
+          git clone --depth 1 --branch v0.3.14 https://github.com/supranational/blst
+          cd blst
+          ./build.sh
+          sudo install -m644 libblst.a /usr/local/lib/
+          sudo install -m644 bindings/blst.h bindings/blst_aux.h /usr/local/include/
+          sudo mkdir -p /usr/local/lib/pkgconfig
+          printf 'prefix=/usr/local\nexec_prefix=${prefix}\nlibdir=${exec_prefix}/lib\nincludedir=${prefix}/include\n\nName: libblst\nDescription: Multilingual BLS12-381 signature library\nVersion: 0.3.14\nLibs: -L${libdir} -lblst\nCflags: -I${includedir}\n' | sudo tee /usr/local/lib/pkgconfig/libblst.pc >/dev/null
+          sudo ldconfig
+
       - uses: haskell-actions/setup@v2
         id: haskell
         with:
