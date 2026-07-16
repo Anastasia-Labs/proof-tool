@@ -168,6 +168,7 @@ it("waits for exact recovery-word inputs and enabled claim actions", async () =>
   expect(calls).toContainEqual(["fill", "Recovery word 1", true]);
   expect(calls).toContainEqual(["fill", "Recovery word 10", true]);
   expect(calls).toContainEqual(["click", "button", "Continue to safe wallet", 180_000]);
+  expect(calls).toContainEqual(["waitForText", "Current draft", 180_000]);
   expect(calls).toContainEqual(["click", "button", "Confirm destination and continue", 180_000]);
   expect(calls.some((call) => call[0] === "click" && String(call[2]).includes("Allow desktop connection"))).toBe(true);
   expect(calls).toContainEqual(["approveSigning", "safe_claim_destination", "claim"]);
