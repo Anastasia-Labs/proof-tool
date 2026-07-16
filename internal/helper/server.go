@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"proof-tool/internal/artifact"
@@ -17,6 +18,8 @@ import (
 )
 
 const TokenHeader = "X-Proof-Tool-Token"
+
+const destinationProgressContentType = "application/x-ndjson"
 
 type Server struct {
 	Generator      Generator
@@ -41,6 +44,29 @@ type originPattern struct {
 type ErrorResponse struct {
 	Code  string `json:"code"`
 	Error string `json:"error"`
+}
+
+// DestinationProgressEvent is the opt-in streaming protocol for a local
+// destination proof request. Progress is aggregate-only; result is populated
+// only on the terminal result event.
+type DestinationProgressEvent struct {
+	Type      string                        `json:"type"`
+	Stage     string                        `json:"stage,omitempty"`
+	Current   uint64                        `json:"current,omitempty"`
+	Total     uint64                        `json:"total,omitempty"`
+	Discovery *DestinationDiscoveryProgress `json:"discovery,omitempty"`
+	Result    *ProveDestinationResponse     `json:"result,omitempty"`
+	Code      string                        `json:"code,omitempty"`
+	Error     string                        `json:"error,omitempty"`
+}
+
+type DestinationDiscoveryProgress struct {
+	CandidatesScanned   uint64  `json:"candidates_scanned"`
+	CandidatesTotal     uint64  `json:"candidates_total"`
+	CandidatesPerSecond float64 `json:"candidates_per_second"`
+	ETASeconds          float64 `json:"eta_seconds"`
+	Matched             uint64  `json:"matched"`
+	Targets             uint64  `json:"targets"`
 }
 
 type StatusResponse struct {
@@ -220,6 +246,7 @@ func (s *Server) handleProve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	defer clear(input.MasterXPrv)
 	proofArtifact, err := s.Generator.GenerateProof(r.Context(), input)
 	if err != nil {
 		status, code, message := errorMapping(err)
@@ -279,12 +306,21 @@ func (s *Server) handleProveDestination(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	defer clear(input.MasterXPrv)
+	if acceptsDestinationProgress(r) {
+		s.streamDestinationProofs(w, r, generator, input)
+		return
+	}
 	results, err := generator.GenerateDestinationProofs(r.Context(), input)
 	if err != nil {
 		status, code, message := errorMapping(err)
 		writeError(w, status, code, message)
 		return
 	}
+	writeJSON(w, http.StatusOK, destinationProofResponse(input, results))
+}
+
+func destinationProofResponse(input ProveDestinationInput, results []DestinationProofArtifactItem) ProveDestinationResponse {
 	response := ProveDestinationResponse{
 		Profile:   input.Profile,
 		Artifacts: make([]DestinationProofArtifactItem, 0, len(results)),
@@ -299,7 +335,100 @@ func (s *Server) handleProveDestination(w http.ResponseWriter, r *http.Request) 
 			Artifact: proofArtifact,
 		})
 	}
-	writeJSON(w, http.StatusOK, response)
+	return response
+}
+
+func acceptsDestinationProgress(r *http.Request) bool {
+	for _, value := range strings.Split(r.Header.Get("Accept"), ",") {
+		mediaType := strings.TrimSpace(strings.SplitN(value, ";", 2)[0])
+		if mediaType == destinationProgressContentType {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) streamDestinationProofs(
+	w http.ResponseWriter,
+	r *http.Request,
+	generator DestinationGenerator,
+	input ProveDestinationInput,
+) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "streaming_unavailable", "The local helper cannot stream proof progress on this connection.")
+		return
+	}
+	w.Header().Set("Content-Type", destinationProgressContentType)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	stream := &destinationProgressWriter{encoder: json.NewEncoder(w), flusher: flusher}
+	input.Progress = func(progress LocalProofProgress) {
+		if err := stream.write(localProofProgressEvent(progress)); err != nil {
+			cancel()
+		}
+	}
+	results, err := generator.GenerateDestinationProofs(ctx, input)
+	if err != nil {
+		if stream.failed() {
+			return
+		}
+		_, code, message := errorMapping(err)
+		_ = stream.write(DestinationProgressEvent{Type: "error", Code: code, Error: message})
+		return
+	}
+	response := destinationProofResponse(input, results)
+	_ = stream.write(DestinationProgressEvent{Type: "result", Result: &response})
+}
+
+type destinationProgressWriter struct {
+	mu      sync.Mutex
+	encoder *json.Encoder
+	flusher http.Flusher
+	err     error
+}
+
+func (w *destinationProgressWriter) failed() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.err != nil
+}
+
+func (w *destinationProgressWriter) write(event DestinationProgressEvent) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.err != nil {
+		return w.err
+	}
+	w.err = w.encoder.Encode(event)
+	if w.err == nil {
+		w.flusher.Flush()
+	}
+	return w.err
+}
+
+func localProofProgressEvent(progress LocalProofProgress) DestinationProgressEvent {
+	event := DestinationProgressEvent{
+		Type:    "progress",
+		Stage:   progress.Stage,
+		Current: progress.Current,
+		Total:   progress.Total,
+	}
+	if progress.Discovery != nil {
+		event.Discovery = &DestinationDiscoveryProgress{
+			CandidatesScanned:   progress.Discovery.Scanned,
+			CandidatesTotal:     progress.Discovery.Total,
+			CandidatesPerSecond: progress.Discovery.CandidatesPerSecond,
+			ETASeconds:          progress.Discovery.ETA.Seconds(),
+			Matched:             progress.Discovery.Matched,
+			Targets:             progress.Discovery.Targets,
+		}
+	}
+	return event
 }
 
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {

@@ -2,11 +2,13 @@
 
 ## Claim Boundary
 
-The core proof establishes that a 28-byte Cardano payment key credential is
-derivable from a 96-byte master XPrv at a CIP-1852 account/role/index path. It
-does not prove ownership of a wallet, address, stake credential, balance, UTxO,
-or script credential. Destination and multi-credential profiles add only the
-bindings described below.
+The core proof establishes that a 28-byte Cardano key credential is derivable
+from a 96-byte master XPrv at a CIP-1852 account/role/index path accepted by
+the circuit. The deployed V2 circuit accepts external payment role 0, internal
+payment role 1, and staking role 2. It does not accept DRep role 3 and does not
+prove ownership of a wallet, address, balance, UTxO, or script credential.
+Destination and multi-credential profiles add only the bindings described
+below.
 
 Seed phrases, master XPrvs, derived paths, and witness values are local-only.
 The browser may send a master XPrv to the loopback helper or move it into a
@@ -116,6 +118,12 @@ Proof and shutdown calls require an exact allowed `Origin` and
 Chrome Private Network Access preflight for allowed origins. Destination
 responses omit path metadata unless an explicit local debug request sets
 `include_debug_path`.
+
+Destination proving supports an opt-in `Accept: application/x-ndjson`
+response. It streams aggregate key-discovery and per-proof progress followed
+by one terminal result or sanitized error event. Closing or aborting the
+loopback request cancels the Go request context. Existing clients that request
+ordinary JSON retain the original one-response protocol.
 
 ## Hosted Verifier Boundary
 

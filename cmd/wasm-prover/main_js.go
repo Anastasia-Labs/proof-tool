@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -46,6 +47,22 @@ type proveRequest struct {
 	Artifacts           artifactRequest `json:"artifacts"`
 	Tuning              tuningRequest   `json:"tuning,omitempty"`
 	IncludeDebugPath    bool            `json:"include_debug_path,omitempty"`
+}
+
+type discoverRequest struct {
+	MasterXPrvHex       string        `json:"master_xprv_hex"`
+	TargetCredentialHex []string      `json:"target_credentials_hex"`
+	Search              searchRequest `json:"search"`
+}
+
+type discoverResult struct {
+	OK                  bool    `json:"ok"`
+	Matched             uint64  `json:"matched"`
+	Targets             uint64  `json:"targets"`
+	CandidatesScanned   uint64  `json:"candidates_scanned"`
+	CandidatesTotal     uint64  `json:"candidates_total"`
+	CandidatesPerSecond float64 `json:"candidates_per_second"`
+	ElapsedMS           float64 `json:"elapsed_ms"`
 }
 
 type searchRequest struct {
@@ -122,6 +139,11 @@ type preparedProverSession struct {
 var (
 	preparedMu      sync.Mutex
 	preparedSession *preparedProverSession
+	discoveryCache  = struct {
+		sync.Mutex
+		masterKey [32]byte
+		paths     map[[28]byte]ownership.Path
+	}{}
 )
 
 func preparedSessionKey(artifacts artifactRequest, tuning tuningRequest) (string, error) {
@@ -192,6 +214,7 @@ type memSnapshot struct {
 
 func main() {
 	js.Global().Set("proveDestination", js.FuncOf(proveDestination))
+	js.Global().Set("discoverCredentialPaths", js.FuncOf(discoverCredentialPathsJS))
 	js.Global().Set("preflightProofAssets", js.FuncOf(preflightProofAssets))
 	js.Global().Set("probeMSMEngine", js.FuncOf(probeMSMEngineJS))
 	capabilities, err := toJS(map[string]any{
@@ -204,6 +227,78 @@ func main() {
 	js.Global().Set("__wasmProverCapabilities", capabilities)
 	js.Global().Set("__wasmProverReady", true)
 	select {}
+}
+
+func discoverCredentialPathsJS(_ js.Value, args []js.Value) any {
+	requestJSON := ""
+	if len(args) > 0 {
+		requestJSON = args[0].String()
+	}
+	var progressCB js.Value
+	if len(args) > 1 {
+		progressCB = args[1]
+	}
+	handler := js.FuncOf(func(_ js.Value, promiseArgs []js.Value) any {
+		resolve, reject := promiseArgs[0], promiseArgs[1]
+		go func() {
+			result, err := discoverCredentialPaths(requestJSON, progressCB)
+			if err != nil {
+				reject.Invoke(js.Global().Get("Error").New(err.Error()))
+				return
+			}
+			resolve.Invoke(result)
+		}()
+		return nil
+	})
+	return js.Global().Get("Promise").New(handler)
+}
+
+func discoverCredentialPaths(requestJSON string, progressCB js.Value) (js.Value, error) {
+	var req discoverRequest
+	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
+		return js.Undefined(), fmt.Errorf("parse discovery request json: %w", err)
+	}
+	master, err := ownership.DecodeMasterXPrvHex(req.MasterXPrvHex)
+	if err != nil {
+		return js.Undefined(), err
+	}
+	defer clear(master)
+	if len(req.TargetCredentialHex) == 0 {
+		return js.Undefined(), errors.New("discovery request has no target credentials")
+	}
+	targets := make([][]byte, 0, len(req.TargetCredentialHex))
+	for _, encoded := range req.TargetCredentialHex {
+		target, err := ownershipdest.DecodeCredentialHex(encoded)
+		if err != nil {
+			return js.Undefined(), err
+		}
+		targets = append(targets, target)
+	}
+
+	var last ownership.DiscoveryProgress
+	paths, err := ownership.DiscoverCredentialPaths(
+		context.Background(),
+		master,
+		targets,
+		ownership.DiscoveryOptions{Search: searchOptions(req.Search)},
+		func(update ownership.DiscoveryProgress) {
+			last = update
+			discoveryProgress(progressCB, update)
+		},
+	)
+	if err != nil {
+		return js.Undefined(), err
+	}
+	cacheDiscoveryPaths(master, paths)
+	return toJS(discoverResult{
+		OK:                  true,
+		Matched:             last.Matched,
+		Targets:             last.Targets,
+		CandidatesScanned:   last.Scanned,
+		CandidatesTotal:     last.Total,
+		CandidatesPerSecond: last.CandidatesPerSecond,
+		ElapsedMS:           float64(last.Elapsed) / float64(time.Millisecond),
+	})
 }
 
 func proveDestination(_ js.Value, args []js.Value) any {
@@ -462,11 +557,26 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 
 	progress(progressCB, "find-path", 0.20)
 	endFindPath := trace.span("find-path", nil)
-	path, err := ownership.FindPath(master, target, searchOptions(req.Search))
-	if err != nil {
-		return js.Undefined(), err
+	path, discoveryCacheHit := cachedDiscoveryPath(master, target)
+	if !discoveryCacheHit {
+		paths, discoverErr := ownership.DiscoverCredentialPaths(
+			context.Background(),
+			master,
+			[][]byte{target},
+			ownership.DiscoveryOptions{Search: searchOptions(req.Search)},
+			func(update ownership.DiscoveryProgress) {
+				discoveryProgress(progressCB, update)
+			},
+		)
+		if discoverErr != nil {
+			return js.Undefined(), discoverErr
+		}
+		var credential [28]byte
+		copy(credential[:], target)
+		path = paths[credential]
+		cacheDiscoveryPaths(master, paths)
 	}
-	endFindPath(nil)
+	endFindPath(map[string]any{"cache_hit": discoveryCacheHit})
 
 	endWitness := trace.span("witness creation", nil)
 	publicInput, err := ownershipdest.PublicInputForCredentialDestination(target, destination)
@@ -1639,6 +1749,72 @@ func progress(cb js.Value, stage string, frac float64) {
 	event.Set("stage", stage)
 	event.Set("frac", frac)
 	cb.Invoke(event)
+}
+
+func discoveryProgress(cb js.Value, update ownership.DiscoveryProgress) {
+	if cb.IsUndefined() || cb.IsNull() {
+		return
+	}
+	frac := 0.0
+	if update.Total > 0 {
+		frac = float64(update.Scanned) / float64(update.Total)
+	}
+	event := js.Global().Get("Object").New()
+	event.Set("stage", "find-path")
+	event.Set("frac", frac)
+	event.Set("candidates_scanned", float64(update.Scanned))
+	event.Set("candidates_total", float64(update.Total))
+	event.Set("candidates_per_second", update.CandidatesPerSecond)
+	event.Set("eta_seconds", update.ETA.Seconds())
+	event.Set("matched", float64(update.Matched))
+	event.Set("targets", float64(update.Targets))
+	cb.Invoke(event)
+}
+
+func discoveryMasterKey(master []byte) [32]byte {
+	hasher := sha256.New()
+	_, _ = hasher.Write([]byte("proof-tool/local-credential-discovery-cache/v1\x00"))
+	_, _ = hasher.Write(master)
+	var key [32]byte
+	copy(key[:], hasher.Sum(nil))
+	return key
+}
+
+func cacheDiscoveryPaths(master []byte, paths map[[28]byte]ownership.Path) {
+	discoveryCache.Lock()
+	defer discoveryCache.Unlock()
+	clearDiscoveryCacheLocked()
+	discoveryCache.masterKey = discoveryMasterKey(master)
+	discoveryCache.paths = make(map[[28]byte]ownership.Path, len(paths))
+	for credential, path := range paths {
+		discoveryCache.paths[credential] = path
+	}
+}
+
+func cachedDiscoveryPath(master, target []byte) (ownership.Path, bool) {
+	if len(target) != 28 {
+		return ownership.Path{}, false
+	}
+	key := discoveryMasterKey(master)
+	var credential [28]byte
+	copy(credential[:], target)
+	discoveryCache.Lock()
+	defer discoveryCache.Unlock()
+	if key != discoveryCache.masterKey {
+		clearDiscoveryCacheLocked()
+		return ownership.Path{}, false
+	}
+	path, ok := discoveryCache.paths[credential]
+	return path, ok
+}
+
+func clearDiscoveryCacheLocked() {
+	clear(discoveryCache.masterKey[:])
+	for credential := range discoveryCache.paths {
+		discoveryCache.paths[credential] = ownership.Path{}
+		delete(discoveryCache.paths, credential)
+	}
+	discoveryCache.paths = nil
 }
 
 func toJS(value any) (js.Value, error) {

@@ -39,11 +39,11 @@ demo convenience.
 
 ## General Approach
 
-Keep the claim precise: the core proof establishes derivability of a 28-byte
-Cardano payment key credential from a master XPrv at a CIP-1852 path. Do not
-broaden that into proof of a wallet, balance, UTxO entitlement, stake
-credential, script credential, or full address unless the circuit and contracts
-actually prove it.
+Keep the claim precise: the deployed circuit establishes derivability of a
+28-byte Cardano key credential from a master XPrv at a CIP-1852 path using
+roles 0, 1, or 2. This includes stake-key derivation, but not DRep role 3. Do
+not broaden that into proof of a wallet, balance, UTxO entitlement, script
+credential, full address, or an unsupported role.
 
 Seed phrases and master XPrvs must stay local. Do not send them to hosted
 services, URLs, logs, analytics, local/session storage, production command

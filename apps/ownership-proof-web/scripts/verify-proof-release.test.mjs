@@ -20,7 +20,7 @@ describe("proof release coherence verifier", () => {
     })).resolves.toMatchObject({
       ok: true,
       mode: "local",
-      release: "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-runtime-opt-r2",
+      release: "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-key-discovery-r1",
     });
   });
 

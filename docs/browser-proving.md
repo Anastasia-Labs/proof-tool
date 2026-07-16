@@ -13,8 +13,9 @@ contract semantics.
 
 ## Runtime Map
 
-- `cmd/wasm-prover`: main Go WASM entrypoint. Registers `proveDestination`,
-  `preflightProofAssets`, and `__wasmProverReady`.
+- `cmd/wasm-prover`: main Go WASM entrypoint. Registers
+  `discoverCredentialPaths`, `proveDestination`, `preflightProofAssets`, and
+  `__wasmProverReady`.
 - `cmd/msmworker`: Go WASM MSM kernel used by nested workers.
 - `internal/streampk`: proving-key section index and file/HTTP range source.
 - `internal/streamprove`: streaming Groth16 adapter.
@@ -35,16 +36,25 @@ contract semantics.
 
 ## Execution Flow
 
-The claim UI checks capability and signed assets before reading the recovery
-phrase. The prover worker loads `wasm_exec.js` and `proof-destination.wasm`, then
-the Go preflight validates:
+The claim UI checks runtime capability before reading the recovery phrase. The
+prover worker loads `wasm_exec.js` and `proof-destination.wasm`, then performs
+automatic local credential discovery for all distinct proof targets in one
+pass. Only after every target is found does the browser open or prefetch the
+large proof assets. The Go preflight then validates:
 
 - key-manifest schema, signature, key version, circuit ID, and VK identity;
 - chunk-manifest signature and coherence with the key/deployment manifests;
 - CCS, VK, PK index, runtime WASM, worker JS, and worker WASM hashes/sizes;
 - deployment ID and final `vk_hash` equality with the claim deployment.
 
-During proving, the main worker derives/searches locally and sends scalar
+Discovery derives the hardened purpose, coin, and account prefixes once,
+traverses the soft role/index subtree from extended public keys, and
+canonically re-derives every match privately before it is cached for the
+current worker. It searches roles 0, 1, and 2 in staged index-major order over
+accounts 0 through 9 and indexes 0 through 999. Aggregate candidates, rate,
+and ETA may reach the UI; credentials and paths may not.
+
+During proving, the main worker uses the cached local path and sends scalar
 material plus signed section/range descriptors to nested MSM workers. Workers
 fetch public PK chunks, verify SHA-256 and BLAKE2b-256, decode pinned on-curve
 points, compute partial MSMs, zero scalar buffers, and return only partial
@@ -53,7 +63,8 @@ provider returns an artifact.
 
 Proof requests in a claim batch run sequentially in one long-lived worker.
 Parallel proofs would exceed reasonable memory. Cancellation terminates the Go
-worker because an individual WASM MSM is not cooperatively cancellable.
+worker; discovery itself checks cancellation between candidates, while an
+individual WASM MSM is not cooperatively cancellable.
 
 ## Secret Boundary
 
@@ -91,6 +102,14 @@ completed in 115.770 seconds / 1.4627 GiB under substantially heavier
 concurrent load; it confirms coherence rather than replacing the accepted G1
 performance result. The old 111.461-second / 2.316-GiB O4/O2 run remains the
 ideal-host pre-optimization reference only.
+
+Credential-discovery release evidence uses immutable release
+`proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-key-discovery-r1`.
+Its signed runtime/chunk/deployment manifests passed the local release verifier,
+and a cold Chromium proof for account 3, role 2, index 0 completed in 90.534
+seconds with 0.833 GiB peak main-WASM heap and `verified_locally=true`. Heavy
+unrelated host work contaminated the timing sample, so it qualifies the full
+discovery-to-proof path and artifact coherence, not a new performance record.
 
 These are browser-prover source defaults and proof-runtime measurements. They
 do not change claim batching by themselves. Until the statement-bound V2
@@ -132,6 +151,10 @@ Run correctness checks:
 
 ```bash
 go test ./internal/msmengine ./internal/streampk ./internal/streamprove ./internal/proofassets
+PROOF_WASM=dist/proof-runtime/proof-destination.wasm \
+  WASM_EXEC_JS=dist/proof-runtime/wasm_exec.js \
+  node experiments/wasm-prover/tests/key-discovery.mjs
+node experiments/wasm-prover/scripts/key-discovery-browser-benchmark.mjs
 GOROOT="$(go env GOROOT)" N=2000 WORKERS=4 \
   node experiments/wasm-prover/web/node-msm-check/run.mjs
 node experiments/wasm-prover/scripts/verify-tamper.mjs \

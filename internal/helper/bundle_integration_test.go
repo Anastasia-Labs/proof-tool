@@ -8,6 +8,7 @@ import (
 
 	"proof-tool/internal/circuit/ownership"
 	"proof-tool/internal/circuit/ownershipdest"
+	"proof-tool/internal/prover"
 )
 
 // TestGenerateDestinationProofsAgainstInstalledBundle exercises the full
@@ -33,7 +34,11 @@ func TestGenerateDestinationProofsAgainstInstalledBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode golden destination: %v", err)
 	}
-	credential, err := ownership.DeriveCredential(master, ownership.Path{Account: 0, Role: 0, Index: 0})
+	// Exercise automatic discovery for the highest currently deployed role and
+	// the account that triggered the production report. Role 2 is the CIP-1852
+	// staking chain, and is a valid lock credential for the V2 circuit.
+	wantPath := ownership.Path{Account: 3, Role: 2, Index: 0}
+	credential, err := ownership.DeriveCredential(master, wantPath)
 	if err != nil {
 		t.Fatalf("derive golden credential: %v", err)
 	}
@@ -48,7 +53,10 @@ func TestGenerateDestinationProofsAgainstInstalledBundle(t *testing.T) {
 			DestinationAddressEncoding: ownershipdest.DestinationAddressEncoding,
 			DestinationAddress:         destination,
 		}},
-		Search: ownership.SearchOptions{Account: 0, Role: 0, Index: 0},
+		Search: ownership.SearchOptions{
+			Account: -1, Role: -1, Index: -1,
+			MaxAccount: 9, MaxIndex: 999,
+		},
 	}
 
 	coldStart := time.Now()
@@ -60,6 +68,7 @@ func TestGenerateDestinationProofsAgainstInstalledBundle(t *testing.T) {
 	if len(first) != 1 {
 		t.Fatalf("cold run returned %d artifacts, want 1", len(first))
 	}
+	verifyInstalledBundleArtifact(t, bundleDir, first[0], credential[:], destination, wantPath)
 
 	warmStart := time.Now()
 	second, err := g.GenerateDestinationProofs(context.Background(), input)
@@ -70,6 +79,7 @@ func TestGenerateDestinationProofsAgainstInstalledBundle(t *testing.T) {
 	if len(second) != 1 {
 		t.Fatalf("warm run returned %d artifacts, want 1", len(second))
 	}
+	verifyInstalledBundleArtifact(t, bundleDir, second[0], credential[:], destination, wantPath)
 
 	t.Logf("cold (load bundle + frozen ccs + prove): %s", cold)
 	t.Logf("warm (cached bundle + prove):            %s", warm)
@@ -82,5 +92,37 @@ func TestGenerateDestinationProofsAgainstInstalledBundle(t *testing.T) {
 	g.mu.Unlock()
 	if !cached {
 		t.Fatal("destination prover cache is empty after requests")
+	}
+}
+
+func verifyInstalledBundleArtifact(
+	t *testing.T,
+	bundleDir string,
+	item DestinationProofArtifactItem,
+	credential []byte,
+	destination []byte,
+	wantPath ownership.Path,
+) {
+	t.Helper()
+	if item.Artifact.Path == nil {
+		t.Fatal("local debug artifact omitted its discovered path")
+	}
+	if got := *item.Artifact.Path; got.Account != wantPath.Account || got.Role != wantPath.Role || got.Index != wantPath.Index {
+		t.Fatalf("discovered path = %+v, want %+v", got, wantPath)
+	}
+	publicInput, err := ownershipdest.PublicInputForCredentialDestination(credential, destination)
+	if err != nil {
+		t.Fatalf("recompute public input: %v", err)
+	}
+	proof, err := prover.UnmarshalProof(item.Artifact.Proof)
+	if err != nil {
+		t.Fatalf("decode generated proof: %v", err)
+	}
+	verifier, err := prover.LoadOwnershipDestinationVerifier(bundleDir)
+	if err != nil {
+		t.Fatalf("load installed verifier: %v", err)
+	}
+	if err := prover.VerifyProof(verifier.VerifyingKey, proof, &ownershipdest.Circuit{Pub: publicInput}); err != nil {
+		t.Fatalf("verify generated proof: %v", err)
 	}
 }

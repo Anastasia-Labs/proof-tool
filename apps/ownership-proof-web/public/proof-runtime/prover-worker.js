@@ -8,6 +8,10 @@
 //   in : { id, type:'preflight', requestJson }
 //   out: { id, type:'preflight-result', result } | { id, type:'error', message }
 //
+//   in : { id, type:'discover', requestJson }
+//   out: { id, type:'progress', stage, frac, aggregate discovery measurements }
+//        { id, type:'discover-result', result } | { id, type:'error', message }
+//
 //   in : { id, type:'prove', requestJson }
 //   out: { id, type:'progress', stage, frac }   (repeated)
 //        { id, type:'prove-result', result } | { id, type:'error', message }
@@ -18,7 +22,8 @@
 //
 // SECRETS: requestJson contains the master extended private key. It must never
 // be logged or echoed back; error replies carry only a plain message string,
-// progress replies carry only { stage, frac }. No console logging in this file.
+// progress replies carry only aggregate numeric measurements. No console
+// logging in this file.
 //
 // Termination is handled by the page via worker.terminate(); there is no
 // shutdown message.
@@ -36,6 +41,27 @@ function errorMessage(err) {
 // them via JSON.parse), but tolerate a JSON string in case that changes.
 function normalizeResult(result) {
   return typeof result === 'string' ? JSON.parse(result) : result;
+}
+
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function postProgress(id, progress) {
+  const p = progress && typeof progress === 'object' ? progress : {};
+  self.postMessage({
+    id,
+    type: 'progress',
+    stage: String(p.stage || ''),
+    frac: finiteNumber(p.frac),
+    candidates_scanned: finiteNumber(p.candidates_scanned),
+    candidates_total: finiteNumber(p.candidates_total),
+    candidates_per_second: finiteNumber(p.candidates_per_second),
+    eta_seconds: finiteNumber(p.eta_seconds),
+    matched: finiteNumber(p.matched),
+    targets: finiteNumber(p.targets),
+  });
 }
 
 async function compileMSMWorkerModule(url) {
@@ -133,11 +159,13 @@ self.onmessage = async (event) => {
       self.postMessage({ id, type: 'preflight-result', result: normalizeResult(result) });
       return;
     }
+    if (msg.type === 'discover') {
+      const result = await self.discoverCredentialPaths(msg.requestJson, (progress) => postProgress(id, progress));
+      self.postMessage({ id, type: 'discover-result', result: normalizeResult(result) });
+      return;
+    }
     if (msg.type === 'prove') {
-      const result = await self.proveDestination(msg.requestJson, (progress) => {
-        const p = progress && typeof progress === 'object' ? progress : {};
-        self.postMessage({ id, type: 'progress', stage: String(p.stage || ''), frac: Number(p.frac) || 0 });
-      });
+      const result = await self.proveDestination(msg.requestJson, (progress) => postProgress(id, progress));
       self.postMessage({ id, type: 'prove-result', result: normalizeResult(result) });
       return;
     }

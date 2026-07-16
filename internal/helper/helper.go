@@ -47,7 +47,20 @@ type ProveInput struct {
 	TargetCredential []byte
 	Search           ownership.SearchOptions
 	IncludeDebugPath bool
+	Progress         LocalProofProgressFunc
 }
+
+// LocalProofProgress is deliberately aggregate-only. It crosses the local
+// helper's loopback boundary and must never grow credential, path, or key
+// fields.
+type LocalProofProgress struct {
+	Stage     string
+	Current   uint64
+	Total     uint64
+	Discovery *ownership.DiscoveryProgress
+}
+
+type LocalProofProgressFunc func(LocalProofProgress)
 
 type ProveResponse struct {
 	Artifact      artifact.ProofArtifact  `json:"artifact"`
@@ -86,6 +99,7 @@ type ProveDestinationInput struct {
 	Requests         []DestinationProofInput
 	Search           ownership.SearchOptions
 	IncludeDebugPath bool
+	Progress         LocalProofProgressFunc
 }
 
 type DestinationProofInput struct {
@@ -318,21 +332,32 @@ func (g *OwnershipGenerator) GenerateProof(ctx context.Context, input ProveInput
 	if err := ctx.Err(); err != nil {
 		return artifact.ProofArtifact{}, err
 	}
+	paths, err := ownership.DiscoverCredentialPaths(
+		ctx,
+		input.MasterXPrv,
+		[][]byte{input.TargetCredential},
+		ownership.DiscoveryOptions{Search: input.Search},
+		discoveryProgressAdapter(input.Progress),
+	)
+	if err != nil {
+		if errors.Is(err, ownership.ErrCredentialsNotFound) {
+			return artifact.ProofArtifact{}, ErrPathNotFound
+		}
+		return artifact.ProofArtifact{}, err
+	}
+	credentialKey, err := paymentCredentialKey(input.TargetCredential)
+	if err != nil {
+		return artifact.ProofArtifact{}, err
+	}
+	path := paths[credentialKey]
+	emitLocalProofProgress(input.Progress, LocalProofProgress{Stage: "open-keys", Total: 1})
+
 	var bundle *prover.OwnershipBundle
-	var err error
 	if !g.AllowCreateKeys {
 		bundle, err = prover.LoadOwnershipProver(g.KeysDir)
 		if err != nil {
 			return artifact.ProofArtifact{}, err
 		}
-	}
-
-	path, err := ownership.FindPath(input.MasterXPrv, input.TargetCredential, input.Search)
-	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return artifact.ProofArtifact{}, ErrPathNotFound
-		}
-		return artifact.ProofArtifact{}, err
 	}
 
 	publicInput, err := ownership.PublicInputForCredential(input.TargetCredential)
@@ -353,10 +378,12 @@ func (g *OwnershipGenerator) GenerateProof(ctx context.Context, input ProveInput
 	if err != nil {
 		return artifact.ProofArtifact{}, err
 	}
+	emitLocalProofProgress(input.Progress, LocalProofProgress{Stage: "prove", Total: 1})
 	proof, err := prover.Prove(ccs, bundle.ProvingKey, assignment)
 	if err != nil {
 		return artifact.ProofArtifact{}, err
 	}
+	emitLocalProofProgress(input.Progress, LocalProofProgress{Stage: "prove", Current: 1, Total: 1})
 	encodedProof, err := prover.MarshalProof(proof)
 	if err != nil {
 		return artifact.ProofArtifact{}, err
@@ -385,22 +412,43 @@ func (g *OwnershipGenerator) GenerateDestinationProofs(ctx context.Context, inpu
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	targets := make([][]byte, 0, len(input.Requests))
+	for _, request := range input.Requests {
+		targets = append(targets, request.TargetCredential)
+	}
+	paths, err := ownership.DiscoverCredentialPaths(
+		ctx,
+		input.MasterXPrv,
+		targets,
+		ownership.DiscoveryOptions{Search: input.Search},
+		discoveryProgressAdapter(input.Progress),
+	)
+	if err != nil {
+		if errors.Is(err, ownership.ErrCredentialsNotFound) {
+			return nil, ErrPathNotFound
+		}
+		return nil, err
+	}
+
+	total := uint64(len(input.Requests))
+	emitLocalProofProgress(input.Progress, LocalProofProgress{Stage: "open-keys", Total: total})
 	bundle, ccs, err := g.acquireDestinationProver()
 	if err != nil {
 		return nil, err
 	}
 
 	results := make([]DestinationProofArtifactItem, 0, len(input.Requests))
-	for _, request := range input.Requests {
+	for i, request := range input.Requests {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		path, err := ownership.FindPath(input.MasterXPrv, request.TargetCredential, input.Search)
+		credentialKey, err := paymentCredentialKey(request.TargetCredential)
 		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				return nil, ErrPathNotFound
-			}
 			return nil, err
+		}
+		path, ok := paths[credentialKey]
+		if !ok {
+			return nil, ErrPathNotFound
 		}
 		publicInput, err := ownershipdest.PublicInputForCredentialDestination(request.TargetCredential, request.DestinationAddress)
 		if err != nil {
@@ -410,6 +458,7 @@ func (g *OwnershipGenerator) GenerateDestinationProofs(ctx context.Context, inpu
 		if err != nil {
 			return nil, err
 		}
+		emitLocalProofProgress(input.Progress, LocalProofProgress{Stage: "prove", Current: uint64(i), Total: total})
 		proof, err := prover.Prove(ccs, bundle.ProvingKey, assignment)
 		if err != nil {
 			return nil, err
@@ -446,8 +495,35 @@ func (g *OwnershipGenerator) GenerateDestinationProofs(ctx context.Context, inpu
 				},
 			},
 		})
+		emitLocalProofProgress(input.Progress, LocalProofProgress{Stage: "prove", Current: uint64(i + 1), Total: total})
 	}
+	emitLocalProofProgress(input.Progress, LocalProofProgress{Stage: "done", Current: total, Total: total})
 	return results, nil
+}
+
+func discoveryProgressAdapter(callback LocalProofProgressFunc) ownership.DiscoveryProgressFunc {
+	if callback == nil {
+		return nil
+	}
+	return func(progress ownership.DiscoveryProgress) {
+		copy := progress
+		callback(LocalProofProgress{Stage: "locating-keys", Discovery: &copy})
+	}
+}
+
+func emitLocalProofProgress(callback LocalProofProgressFunc, progress LocalProofProgress) {
+	if callback != nil {
+		callback(progress)
+	}
+}
+
+func paymentCredentialKey(raw []byte) ([28]byte, error) {
+	if len(raw) != 28 {
+		return [28]byte{}, fmt.Errorf("target credential is %d bytes, want 28", len(raw))
+	}
+	var key [28]byte
+	copy(key[:], raw)
+	return key, nil
 }
 
 func (g *OwnershipGenerator) KeyStatus() KeyStatus {

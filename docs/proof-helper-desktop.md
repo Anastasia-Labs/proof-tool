@@ -17,6 +17,13 @@ The boundaries are deliberate:
 - The Go helper in `internal/helper` performs derivation/path search/proving and
   serves only loopback HTTP.
 
+The destination endpoint accepts an opt-in NDJSON response for aggregate key
+discovery, key-open, and per-proof progress. The web client requests it when
+available and falls back to the ordinary JSON response used by already
+published helper versions. Aborting the fetch closes the loopback request and
+cancels the helper's Go context; decoded master-key bytes are cleared when the
+handler returns.
+
 The default UI is the non-technical product shell. Diagnostics are available
 without exposing raw helper secrets. Developer-only source paths, fixture mode,
 sidecar overrides, and local key controls require
@@ -110,6 +117,18 @@ The Tauri IPC smoke starts and stops a real sidecar when
 ```bash
 PROOF_HELPER_SIDECAR_PATH="$PWD/apps/proof-helper-desktop/src-tauri/binaries/proof-tool-x86_64-unknown-linux-gnu" \
   cargo test --manifest-path apps/proof-helper-desktop/src-tauri/Cargo.toml
+```
+
+The credential-discovery integration check uses the installed signed V2
+bundle, automatic account/role/index search, and an account-3 role-2 fixture.
+It produced and verified real destination proofs in 20.154 seconds cold and
+4.378 seconds with the bundle/CCS cache warm. Run it explicitly because the
+bundle is too large for ordinary CI:
+
+```bash
+PROOF_TOOL_BUNDLE_DIR=/path/to/installed/ownership-destination-v2 \
+  go test ./internal/helper \
+  -run '^TestGenerateDestinationProofsAgainstInstalledBundle$' -count=1 -v
 ```
 
 ## Release Boundary

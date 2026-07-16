@@ -21,6 +21,7 @@ const EXPECTED_VK_HASH =
 type WorkerScript = {
   init?: (message: Record<string, unknown>) => ProverWorkerResponse[];
   preflight?: (message: Record<string, unknown>) => ProverWorkerResponse[];
+  discover?: (message: Record<string, unknown>) => ProverWorkerResponse[];
   prove?: (message: Record<string, unknown>) => ProverWorkerResponse[];
 };
 
@@ -35,7 +36,15 @@ class FakeProverWorker implements ProverWorkerLike {
     const handler = this.script[message.type as keyof WorkerScript];
     const responses: ProverWorkerResponse[] = handler
       ? handler(message)
-      : [{ id: message.id as string, type: "error", message: "unhandled" }];
+      : message.type === "discover"
+        ? [
+            {
+              id: message.id as string,
+              type: "discover-result",
+              result: { ok: true, matched: 1, targets: 1 },
+            },
+          ]
+        : [{ id: message.id as string, type: "error", message: "unhandled" }];
     queueMicrotask(() => {
       for (const response of responses) {
         this.dispatch({
@@ -378,6 +387,25 @@ describe("proveDestinationInBrowser", () => {
     const progressEvents: unknown[] = [];
     const worker = new FakeProverWorker({
       init: (m) => [{ id: m.id as string, type: "ready" }],
+      discover: (m) => [
+        {
+          id: m.id as string,
+          type: "progress",
+          stage: "find-path",
+          frac: 0.5,
+          candidates_scanned: 200,
+          candidates_total: 400,
+          candidates_per_second: 50,
+          eta_seconds: 4,
+          matched: 0,
+          targets: 1,
+        },
+        {
+          id: m.id as string,
+          type: "discover-result",
+          result: { ok: true, matched: 1, targets: 1 },
+        },
+      ],
       preflight: (m) => [
         {
           id: m.id as string,
@@ -410,14 +438,46 @@ describe("proveDestinationInBrowser", () => {
       { createWorker: () => worker },
     );
 
-    // The prove message carries the hex; the serialized progress stream must not.
+    // Discovery and proving carry the hex only inside the dedicated worker;
+    // the serialized progress stream must not.
+    const discoveryMessage = worker.seen.find((m) => m.type === "discover");
     const proveMessage = worker.seen.find((m) => m.type === "prove");
+    expect(
+      String((discoveryMessage as { requestJson: string }).requestJson),
+    ).toContain("master_xprv_hex");
     expect(
       String((proveMessage as { requestJson: string }).requestJson),
     ).toContain("master_xprv_hex");
     const serializedProgress = JSON.stringify(progressEvents);
     expect(serializedProgress).not.toContain("master_xprv");
     expect(serializedProgress).not.toMatch(/[0-9a-f]{32,}/u);
+  });
+
+  it("discovers all distinct credentials in one local traversal", async () => {
+    const worker = new FakeProverWorker({
+      init: (m) => [{ id: m.id as string, type: "ready" }],
+      preflight: (m) => readyPreflight().map((response) => ({ ...response, id: m.id as string })),
+      prove: (m) => [{
+        id: m.id as string,
+        type: "prove-result",
+        result: { verified_locally: true, artifact: proveArtifact() },
+      }],
+    });
+    await proveDestinationInBrowser(
+      {
+        masterXPrv,
+        draft: draftWith(3),
+        expectedVkHash: EXPECTED_VK_HASH,
+        browserProving: descriptor(),
+      },
+      { createWorker: () => worker },
+    );
+
+    const discoveryMessages = worker.seen.filter((message) => message.type === "discover");
+    expect(discoveryMessages).toHaveLength(1);
+    const request = JSON.parse(String(discoveryMessages[0]?.requestJson));
+    expect(request.target_credentials_hex).toHaveLength(3);
+    expect(request).not.toHaveProperty("artifacts");
   });
 
   it("sends acknowledged W1/W2/W3/W5/W6/W7 options to both preflight and prove", async () => {
@@ -629,6 +689,32 @@ describe("proveDestinationInBrowser", () => {
     expect(worker.terminated).toBe(true);
   });
 
+  it("cancels discovery before proof assets are opened", async () => {
+    const controller = new AbortController();
+    const worker = new FakeProverWorker({
+      init: (m) => [{ id: m.id as string, type: "ready" }],
+      discover: () => [],
+    });
+    const promise = proveDestinationInBrowser(
+      {
+        masterXPrv,
+        draft: draftWith(2),
+        expectedVkHash: EXPECTED_VK_HASH,
+        browserProving: descriptor(),
+        signal: controller.signal,
+      },
+      { createWorker: () => worker },
+    );
+    await vi.waitFor(() =>
+      expect(worker.seen.some((message) => message.type === "discover")).toBe(true),
+    );
+    controller.abort();
+    await expect(promise).rejects.toBeInstanceOf(ProvingCancelledError);
+    expect(worker.seen.some((message) => message.type === "preflight")).toBe(false);
+    expect(worker.seen.some((message) => message.type === "prove")).toBe(false);
+    expect(worker.terminated).toBe(true);
+  });
+
   it("cancel during session preparation rejects promptly and parks the worker for reuse", async () => {
     const controller = new AbortController();
     const worker = new FakeProverWorker({
@@ -748,12 +834,18 @@ describe("prepared browser prover session", () => {
   });
 });
 
-describe("checkBrowserProving asset preflight", () => {
-  it("reports asset-error when the preflight vk_hash mismatches", async () => {
-    // Force the capability gate to pass so the asset preflight is reached.
+describe("discovery-before-assets sequencing", () => {
+  it("initializes without opening assets, then rejects a vk mismatch only after discovery", async () => {
     stubCapableEnvironment();
     const worker = new FakeProverWorker({
       init: (m) => [{ id: m.id as string, type: "ready" }],
+      discover: (m) => [
+        {
+          id: m.id as string,
+          type: "discover-result",
+          result: { ok: true, matched: 1, targets: 1 },
+        },
+      ],
       preflight: (m) => [
         {
           id: m.id as string,
@@ -762,12 +854,26 @@ describe("checkBrowserProving asset preflight", () => {
         },
       ],
     });
-    const result = await checkBrowserProving(descriptor(), EXPECTED_VK_HASH, {
-      createWorker: () => worker,
-    });
-    expect(result.status).toBe("asset-error");
-    expect(result.capability.failures.some((f) => f.check === "vk-hash")).toBe(
-      true,
+    const provingDescriptor = descriptor();
+    const options = { createWorker: () => worker };
+    await expect(
+      checkBrowserProving(provingDescriptor, EXPECTED_VK_HASH, options),
+    ).resolves.toMatchObject({ status: "ready", preflight: null });
+    expect(worker.seen.map((message) => message.type)).toEqual(["init"]);
+
+    await expect(
+      proveDestinationInBrowser(
+        {
+          masterXPrv,
+          draft: draftWith(1),
+          expectedVkHash: EXPECTED_VK_HASH,
+          browserProving: provingDescriptor,
+        },
+        options,
+      ),
+    ).rejects.toThrow("do not match this deployment");
+    expect(worker.seen.map((message) => message.type)).toEqual(
+      ["init", "discover", "preflight"],
     );
   });
 

@@ -20,6 +20,14 @@ export type ProofProgressEvent = {
   current?: number;
   total?: number;
   engine?: string;
+  discovery?: {
+    candidatesScanned: number;
+    candidatesTotal: number;
+    candidatesPerSecond: number;
+    etaSeconds: number;
+    matched: number;
+    targets: number;
+  };
 };
 
 export type BrowserProvingStatus = "unknown" | "checking" | "ready" | "unsupported" | "asset-error";
@@ -111,18 +119,41 @@ export type ProverProveResult = {
   trace?: unknown;
 };
 
+export type ProverDiscoverResult = {
+  ok?: boolean;
+  matched?: number;
+  targets?: number;
+  candidates_scanned?: number;
+  candidates_total?: number;
+  candidates_per_second?: number;
+  elapsed_ms?: number;
+};
+
 // postMessage protocol with public/proof-runtime/prover-worker.js. The request
 // JSON crossing this boundary contains master_xprv_hex; nothing that carries it
 // may be logged, thrown, or surfaced outside the provider modules.
 export type ProverWorkerRequest =
   | { id: string; type: "init"; wasmUrl: string; wasmExecUrl: string; msmWorkerWasmUrl: string; gogc: number; gomemlimit: string }
   | { id: string; type: "preflight"; requestJson: string }
+  | { id: string; type: "discover"; requestJson: string }
   | { id: string; type: "prove"; requestJson: string };
 
 export type ProverWorkerResponse =
   | { id: string; type: "ready" }
   | { id: string; type: "preflight-result"; result: ProverPreflightResult }
-  | { id: string; type: "progress"; stage?: string; frac?: number }
+  | { id: string; type: "discover-result"; result: ProverDiscoverResult }
+  | {
+      id: string;
+      type: "progress";
+      stage?: string;
+      frac?: number;
+      candidates_scanned?: number;
+      candidates_total?: number;
+      candidates_per_second?: number;
+      eta_seconds?: number;
+      matched?: number;
+      targets?: number;
+    }
   | { id: string; type: "prove-result"; result: ProverProveResult }
   | { id: string; type: "error"; message?: string };
 
