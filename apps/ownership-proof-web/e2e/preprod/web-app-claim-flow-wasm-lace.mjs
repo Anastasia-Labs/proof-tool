@@ -18,8 +18,10 @@ import {
   browserContextHeaders,
   loadWebAppClaimFlowConfig,
   redactedProvenanceArtifact,
+  requestContainsRecoveryPhraseMaterial,
   validateBrowserWasmClaimDeployment,
   validateClaimBuildReview,
+  validateClaimTransactionSafety,
   validateClaimSubmit,
   validatePreviewProvenance,
 } from "./web-app-claim-flow-contract.mjs";
@@ -77,6 +79,7 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
   persistRun(runPath, run);
 
   let context;
+  let recoveryPhraseEgressGuard;
   try {
     if (typeof fetchFn !== "function") {
       throw new WebAppClaimFlowContractError("fetch_unavailable", "fetch is required for Preview and provider verification.");
@@ -98,6 +101,16 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
         "The PR acceptance lane requires Playwright's bundled Chromium channel.",
       );
     }
+    if (
+      typeof walletDriver.installSigningObserver !== "function"
+      || typeof walletDriver.assertSigningObserverReady !== "function"
+      || typeof walletDriver.assertPendingSigningTransaction !== "function"
+    ) {
+      throw new WebAppClaimFlowContractError(
+        "lace_signing_observer_unavailable",
+        "The trusted Lace harness must observe the exact CBOR supplied to CIP-30 signTx.",
+      );
+    }
     const compromised = requireRole(walletDriver, COMPROMISED_ROLE);
     const safe = requireRole(walletDriver, SAFE_ROLE);
     if (!compromised.paymentCredential || !safe.paymentCredential || compromised.paymentCredential === safe.paymentCredential) {
@@ -106,6 +119,7 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     if (compromised.canSign === true || safe.canSign !== true) {
       throw new WebAppClaimFlowContractError("lace_role_signing_policy_invalid", "Only the safe Lace role may sign the claim transaction.");
     }
+    const compromisedMnemonic = await walletDriver.recoveryPhraseForBrowserUi(COMPROMISED_ROLE);
     const confirmationProvider = await providerLoader(env);
     if (!confirmationProvider || typeof confirmationProvider.getUtxos !== "function") {
       throw new WebAppClaimFlowContractError("provider_confirmation_unavailable", "A read-capable Preprod provider is required.");
@@ -144,9 +158,11 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
       extraHTTPHeaders: headers,
       viewport: { width: 1440, height: 1000 },
     });
+    recoveryPhraseEgressGuard = await installRecoveryPhraseEgressGuard(context, compromisedMnemonic);
     await prepareLaceRoleBeforeNavigation(walletDriver, COMPROMISED_ROLE, config.baseUrl);
     const page = await context.newPage();
     page.setDefaultTimeout(DEFAULT_UI_TIMEOUT_MS);
+    await walletDriver.installSigningObserver(page);
     installObservation(page, consoleEntries, networkEntries, env);
 
     const capture = createScreenshotRecorder({ run, runPath, screenshotsDir, artifacts });
@@ -160,6 +176,7 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     });
     await page.reload({ waitUntil: "domcontentloaded" });
     await expectHeading(page, "Recover funds from a compromised Cardano wallet");
+    await walletDriver.assertSigningObserverReady(page);
     await capture("00-landing.png", page, "landing");
     await page.getByRole("link", { name: /Claim funds/iu }).click();
     await page.waitForURL((url) => url.origin === config.baseUrl && url.pathname === "/claim");
@@ -213,8 +230,7 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     await capture("11-proof-method.png", page, "proof-method-browser-ready");
     await methodDialog.getByRole("button", { name: "Continue", exact: true }).click();
 
-    const mnemonic = await walletDriver.recoveryPhraseForBrowserUi(COMPROMISED_ROLE);
-    const words = mnemonic.trim().split(/\s+/u);
+    const words = compromisedMnemonic.trim().split(/\s+/u);
     await page.getByRole("button", { name: `${words.length} words`, exact: true }).click();
     await page.getByLabel("Recovery word 1", { exact: true }).waitFor();
     await capture("12-create-proofs-ready.png", page, "create-proofs-ready");
@@ -224,23 +240,28 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     await page.getByRole("button", { name: "Generate proofs", exact: true }).click();
     await page.getByText("Proof generation is running in this browser", { exact: false }).waitFor({ timeout: PROOF_TIMEOUT_MS });
     await assertRecoveryInputsCleared(page);
+    recoveryPhraseEgressGuard.assertClear();
     await capture("13-proofs-generating.png", page, "create-proofs-generating");
 
     await expectHeading(page, "Proofs ready", PROOF_TIMEOUT_MS);
+    recoveryPhraseEgressGuard.assertClear();
     await capture("14-proofs-ready.png", page, "create-proofs-complete");
     await page.getByRole("button", { name: "Continue to current batch", exact: true }).click();
 
     await expectHeading(page, "Claim funds");
     await capture("15-current-batch.png", page, "current-batch");
+    const safeWalletUtxos = await loadSafeWalletUtxos(confirmationProvider, safe.address);
     await page.getByRole("button", { name: "Build transaction for review", exact: true }).click();
     const build = await buildResponse.next(DEFAULT_UI_TIMEOUT_MS);
     validateClaimBuildReview(build, expectedOutref, safe.address);
+    validateClaimTransactionSafety(build, expectedOutref, safe.address, safeWalletUtxos);
     await page.getByText("Review hash", { exact: true }).waitFor();
     await capture("16-transaction-review.png", page, "transaction-review");
 
     await walletDriver.assertActiveDappRole(page, SAFE_ROLE);
     const progressBarrier = await createResponseBarrier(page, "/claim-api/progress");
     await page.getByRole("button", { name: "Sign and submit claim", exact: true }).click();
+    await walletDriver.assertPendingSigningTransaction(page, build.txCbor);
     await walletDriver.approveWalletSigning(SAFE_ROLE, "claim", {
       beforeApprove: (extensionPage) => capture("17-lace-signing.png", extensionPage, "lace-signing"),
     });
@@ -253,6 +274,8 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     await progressBarrier.release();
 
     await page.getByText("Recovery complete", { exact: true }).waitFor({ timeout: CONFIRMATION_TIMEOUT_MS });
+    await walletDriver.assertPendingSigningTransaction(page, build.txCbor);
+    recoveryPhraseEgressGuard.assertClear();
     await capture("19-recovery-complete.png", page, "claim-review-complete");
     assertCompleteScreenshotLedger(run.journey.screens.map((screen) => screen.file));
 
@@ -290,11 +313,17 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     };
     persistRun(runPath, run);
   } catch (error) {
+    let reportedError = error;
+    try {
+      recoveryPhraseEgressGuard?.assertClear();
+    } catch (egressError) {
+      reportedError = egressError;
+    }
     run.status = "failed";
     run.failedAt = now().toISOString();
-    run.failure = sanitizeFailure(error);
+    run.failure = sanitizeFailure(reportedError);
     persistRun(runPath, run);
-    throw error;
+    throw reportedError;
   } finally {
     writeFileSync(consolePath, consoleEntries.map((entry) => JSON.stringify(entry)).join("\n") + (consoleEntries.length ? "\n" : ""), "utf8");
     writeFileSync(networkPath, `${JSON.stringify(networkEntries, null, 2)}\n`, "utf8");
@@ -336,6 +365,37 @@ export async function prepareLaceRoleBeforeNavigation(walletDriver, role, origin
   await walletDriver.switchActiveWallet(role);
 }
 
+async function installRecoveryPhraseEgressGuard(context, mnemonic) {
+  if (!context || typeof context.route !== "function") {
+    throw new WebAppClaimFlowContractError(
+      "recovery_phrase_egress_guard_unavailable",
+      "The browser context must support request interception before the claim page opens.",
+    );
+  }
+  let blockedRequest = null;
+  await context.route("**/*", async (route) => {
+    const request = route.request();
+    const url = request.url();
+    if (/^https?:/iu.test(url) && requestContainsRecoveryPhraseMaterial(url, request.postData(), mnemonic)) {
+      const parsed = new URL(url);
+      blockedRequest = { method: request.method(), origin: parsed.origin, path: parsed.pathname };
+      await route.abort("blockedbyclient");
+      return;
+    }
+    await route.continue();
+  });
+  return Object.freeze({
+    assertClear() {
+      if (blockedRequest) {
+        throw new WebAppClaimFlowContractError(
+          "recovery_phrase_network_egress_blocked",
+          `Blocked recovery-phrase material from leaving the browser through ${blockedRequest.method} ${blockedRequest.origin}${blockedRequest.path}.`,
+        );
+      }
+    },
+  });
+}
+
 function createScreenshotRecorder({ run, runPath, screenshotsDir, artifacts }) {
   return async (file, page, state) => {
     if (run.journey.screens.some((screen) => screen.file === file)) {
@@ -364,6 +424,25 @@ function createScreenshotRecorder({ run, runPath, screenshotsDir, artifacts }) {
     artifacts.push(screenshotPath);
     persistRun(runPath, run);
   };
+}
+
+async function loadSafeWalletUtxos(provider, safeAddress) {
+  let utxos;
+  try {
+    utxos = await provider.getUtxos(safeAddress);
+  } catch {
+    throw new WebAppClaimFlowContractError(
+      "transaction_safety_preflight_unavailable",
+      "The provider could not enumerate safe-wallet inputs before transaction review.",
+    );
+  }
+  if (!Array.isArray(utxos) || utxos.length === 0) {
+    throw new WebAppClaimFlowContractError(
+      "transaction_safety_preflight_unavailable",
+      "The safe Lace wallet must expose at least one provider-visible UTxO before signing.",
+    );
+  }
+  return utxos;
 }
 
 async function verifyExactPreparedFixture(fetchFn, config, headers, paymentCredential, expectedOutref) {

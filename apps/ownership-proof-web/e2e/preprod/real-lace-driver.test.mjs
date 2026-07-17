@@ -127,6 +127,60 @@ describe("real Lace profile driver", () => {
     });
   });
 
+  it("requires Lace to receive exactly the reviewed partial-sign CBOR", async () => {
+    const safe = deriveRoleState({
+      role: "safe_claim_destination",
+      mnemonic: words("delta", 12),
+      label: "safe_claim_dest",
+    });
+    const driver = new RealLaceProfileDriver({
+      browserChannel: "chromium",
+      extensionDir: "/tmp/lace",
+      extensionRoute: "popup.html",
+      manifestPath: "/tmp/lace/manifest.json",
+      providerId: "lace",
+      providerName: "Lace",
+      roleLabels: { safe_claim_destination: "safe_claim_dest" },
+      roleStates: new Map([["safe_claim_destination", safe]]),
+      userDataDir: "/tmp/profile",
+      walletPassword: "test-password",
+    });
+    const initScripts = [];
+    const observed = {
+      providerId: "lace",
+      wrapped: true,
+      error: null,
+      calls: [{ txCbor: "84a0", partialSign: true }],
+    };
+    const page = {
+      async addInitScript(script, argument) {
+        initScripts.push({ script, argument });
+      },
+      async evaluate() {
+        return observed;
+      },
+      async waitForFunction() {
+        return {
+          async dispose() {},
+          async jsonValue() {
+            return observed;
+          },
+        };
+      },
+    };
+
+    await driver.installSigningObserver(page);
+    await driver.assertSigningObserverReady(page);
+    await expect(driver.assertPendingSigningTransaction(page, "84A0")).resolves.toBeUndefined();
+    expect(initScripts).toHaveLength(1);
+    expect(initScripts[0].argument).toMatchObject({ providerId: "lace" });
+
+    observed.calls.push({ txCbor: "84a0", partialSign: true });
+    await expect(driver.assertPendingSigningTransaction(page, "84a0")).rejects.toMatchObject({
+      code: "lace_signing_transaction_mismatch",
+    });
+  });
+
   it("approves the Lace 2.1.1 Cardano signing review and authenticates it", async () => {
     const safe = deriveRoleState({
       role: "safe_claim_destination",

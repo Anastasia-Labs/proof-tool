@@ -218,20 +218,13 @@ function requireString(value, field) {
 
 async function main(env = process.env) {
   const expectedHostPrefix = env.RECLAIM_E2E_VERCEL_PROJECT_HOST_PREFIX || DEFAULT_HOST_PREFIX;
-  const suppliedPreview = String(env.RECLAIM_E2E_PREVIEW_URL ?? "").trim();
-  const result = suppliedPreview
-    ? {
-        deploymentId: "manual-dispatch",
-        sha: validateCommitSha(env.RECLAIM_E2E_EXPECTED_COMMIT_SHA),
-        url: validateVercelPreviewOrigin(suppliedPreview, expectedHostPrefix),
-      }
-    : await resolveGitHubVercelPreview({
-        repository: env.GITHUB_REPOSITORY,
-        sha: env.RECLAIM_E2E_EXPECTED_COMMIT_SHA,
-        token: env.GITHUB_TOKEN,
-        expectedHostPrefix,
-        timeoutMs: Number(env.RECLAIM_E2E_PREVIEW_RESOLVE_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
-      });
+  const result = await resolveGitHubVercelPreview({
+    repository: env.GITHUB_REPOSITORY,
+    sha: env.RECLAIM_E2E_EXPECTED_COMMIT_SHA,
+    token: env.GITHUB_TOKEN,
+    expectedHostPrefix,
+    timeoutMs: Number(env.RECLAIM_E2E_PREVIEW_RESOLVE_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
+  });
 
   writeGitHubOutput(env.GITHUB_OUTPUT, "preview_url", result.url);
   writeGitHubOutput(env.GITHUB_OUTPUT, "deployment_id", result.deploymentId);

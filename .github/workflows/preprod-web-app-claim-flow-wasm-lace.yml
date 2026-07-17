@@ -1,27 +1,11 @@
 name: Preprod web-app claim flow (WASM + Lace)
 
 on:
-  pull_request:
+  # This workflow deliberately runs from the protected base branch. The
+  # wallet-bearing runner must never execute a pull request's workflow or
+  # checkout; it treats only the deployed Preview as untrusted input.
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
-  workflow_dispatch:
-    inputs:
-      preview_url:
-        description: Exact immutable Vercel Preview deployment URL.
-        required: true
-        type: string
-      expected_sha:
-        description: Full PR-head commit SHA. Dispatch this workflow with --ref set to that PR branch.
-        required: true
-        type: string
-      pr_number:
-        description: Pull request number reported by the Vercel deployment.
-        required: true
-        type: string
-      claim_outref:
-        description: Optional existing ADA-only outref; leave blank for lane-managed fixture preparation.
-        required: false
-        default: ""
-        type: string
 
 permissions:
   contents: read
@@ -39,6 +23,7 @@ jobs:
     timeout-minutes: 12
     outputs:
       expected_sha: ${{ steps.bind.outputs.expected_sha }}
+      harness_sha: ${{ steps.bind.outputs.harness_sha }}
       pr_number: ${{ steps.bind.outputs.pr_number }}
       preview_url: ${{ steps.preview.outputs.preview_url }}
     steps:
@@ -46,38 +31,30 @@ jobs:
         id: bind
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_SHA: ${{ github.sha }}
-          INPUT_EXPECTED_SHA: ${{ inputs.expected_sha }}
-          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            if [[ "$PR_DRAFT" == "true" ]]; then
-              echo "::error::The live Lace gate does not run for a draft pull request. Mark it ready for review to trigger the gate."
-              exit 1
-            fi
-            if [[ "$PR_HEAD_REPOSITORY" != "$REPOSITORY" ]]; then
-              echo "::error::Fork pull requests cannot reach the secret-bearing Lace runner. A maintainer must reproduce the change on a trusted same-repository branch."
-              exit 1
-            fi
-            expected_sha="$PR_HEAD_SHA"
-            pr_number="$PR_NUMBER"
-          else
-            expected_sha="$INPUT_EXPECTED_SHA"
-            pr_number="$INPUT_PR_NUMBER"
-            if [[ "$EVENT_SHA" != "$expected_sha" ]]; then
-              echo "::error::The workflow dispatch ref must resolve to expected_sha."
-              exit 1
-            fi
+          if [[ "$PR_DRAFT" == "true" ]]; then
+            echo "::error::The live Lace gate does not run for a draft pull request. Mark it ready for review to trigger the gate."
+            exit 1
           fi
-
+          if [[ "$PR_HEAD_REPOSITORY" != "$REPOSITORY" ]]; then
+            echo "::error::Fork pull requests cannot reach the wallet-bearing Lace runner. A maintainer must reproduce the change on a reviewed same-repository branch."
+            exit 1
+          fi
+          expected_sha="$PR_HEAD_SHA"
+          harness_sha="$BASE_SHA"
+          pr_number="$PR_NUMBER"
           if [[ ! "$expected_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
             echo "::error::The expected PR-head commit must be a full Git SHA."
+            exit 1
+          fi
+          if [[ ! "$harness_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::The trusted base-branch harness must be a full Git SHA."
             exit 1
           fi
           if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
@@ -85,11 +62,13 @@ jobs:
             exit 1
           fi
           echo "expected_sha=${expected_sha,,}" >> "$GITHUB_OUTPUT"
+          echo "harness_sha=${harness_sha,,}" >> "$GITHUB_OUTPUT"
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v4
+      - name: Check out the trusted base-branch harness
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ steps.bind.outputs.expected_sha }}
+          ref: ${{ steps.bind.outputs.harness_sha }}
           persist-credentials: false
 
       - name: Resolve successful deployment for the exact PR head
@@ -99,38 +78,40 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RECLAIM_E2E_EXPECTED_COMMIT_SHA: ${{ steps.bind.outputs.expected_sha }}
           RECLAIM_E2E_PREVIEW_RESOLVE_TIMEOUT_MS: "600000"
-          RECLAIM_E2E_PREVIEW_URL: ${{ inputs.preview_url }}
           RECLAIM_E2E_VERCEL_PROJECT_HOST_PREFIX: ${{ vars.RECLAIM_E2E_VERCEL_PROJECT_HOST_PREFIX }}
         run: node e2e/preprod/resolve-github-vercel-preview.mjs
 
   execute-claim-flow:
     name: Execute Preprod claim with browser WASM and Lace
     needs: resolve-preview
-    runs-on: [self-hosted, proof-tool-preprod-lace]
+    # The matching agent must be registered with GitHub's --ephemeral mode and
+    # this dedicated label only after environment approval.
+    runs-on: [self-hosted, proof-tool-preprod-lace-ephemeral]
     environment: preprod-lace-e2e
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out the trusted base-branch harness
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ needs.resolve-preview.outputs.expected_sha }}
+          ref: ${{ needs.resolve-preview.outputs.harness_sha }}
           persist-credentials: false
 
-      - name: Verify the protected runner checked out the bound commit
+      - name: Verify the protected runner checked out only the trusted harness
         shell: bash
         env:
-          EXPECTED_SHA: ${{ needs.resolve-preview.outputs.expected_sha }}
+          EXPECTED_HARNESS_SHA: ${{ needs.resolve-preview.outputs.harness_sha }}
         run: |
           actual_sha="$(git rev-parse HEAD)"
-          if [[ "$actual_sha" != "$EXPECTED_SHA" ]]; then
-            echo "::error::The protected runner checkout does not match the resolved PR head."
+          if [[ "$actual_sha" != "$EXPECTED_HARNESS_SHA" ]]; then
+            echo "::error::The protected runner checkout does not match the trusted base-branch harness."
             exit 1
           fi
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           version: 10.18.3
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: pnpm
@@ -142,21 +123,37 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm exec playwright install chromium
 
+      - name: Create a run-isolated Lace profile
+        shell: bash
+        env:
+          PROFILE_TEMPLATE_DIR: ${{ vars.RECLAIM_E2E_LACE_PROFILE_DIR }}
+        run: |
+          if [[ -z "$PROFILE_TEMPLATE_DIR" || ! -d "$PROFILE_TEMPLATE_DIR" ]]; then
+            echo "::error::RECLAIM_E2E_LACE_PROFILE_DIR must identify the protected read-only profile template."
+            exit 1
+          fi
+          run_profile_dir="$RUNNER_TEMP/proof-tool-lace-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [[ -e "$run_profile_dir" ]]; then
+            echo "::error::The isolated Lace profile path already exists."
+            exit 1
+          fi
+          mkdir -p "$run_profile_dir"
+          cp -a "$PROFILE_TEMPLATE_DIR/." "$run_profile_dir/"
+          chmod -R u+rwX,go-rwx "$run_profile_dir"
+          echo "PW_USER_DATA_DIR=$run_profile_dir" >> "$GITHUB_ENV"
+
       - name: Run full Vercel Preview claim journey
         working-directory: apps/ownership-proof-web
         env:
           RECLAIM_E2E_PREVIEW_URL: ${{ needs.resolve-preview.outputs.preview_url }}
           RECLAIM_E2E_EXPECTED_COMMIT_SHA: ${{ needs.resolve-preview.outputs.expected_sha }}
           RECLAIM_E2E_EXPECTED_PR_NUMBER: ${{ needs.resolve-preview.outputs.pr_number }}
-          RECLAIM_E2E_PR_MERGE_SHA: ${{ github.event_name == 'pull_request' && github.sha || '' }}
-          RECLAIM_E2E_CLAIM_OUTREF: ${{ github.event_name == 'workflow_dispatch' && inputs.claim_outref || '' }}
-          RECLAIM_E2E_FIXTURE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.claim_outref != '' && 'existing' || 'prepare' }}
+          RECLAIM_E2E_FIXTURE_MODE: prepare
           RECLAIM_E2E_SUBMIT_TRANSACTIONS: "1"
           RECLAIM_E2E_LACE_EXTENSION_DIR: ${{ vars.RECLAIM_E2E_LACE_EXTENSION_DIR }}
           RECLAIM_E2E_LACE_ROLE_LABELS_JSON: ${{ vars.RECLAIM_E2E_LACE_ROLE_LABELS_JSON }}
           RECLAIM_E2E_LACE_WALLET_PASSWORD: ${{ secrets.RECLAIM_E2E_LACE_WALLET_PASSWORD }}
           RECLAIM_E2E_VERCEL_BYPASS_SECRET: ${{ secrets.RECLAIM_E2E_VERCEL_BYPASS_SECRET }}
-          PW_USER_DATA_DIR: ${{ vars.RECLAIM_E2E_LACE_PROFILE_DIR }}
           PREPROD_TEST_WALLETS_FILE: ${{ vars.RECLAIM_E2E_WALLET_FILE }}
           RECLAIM_PROVIDER: ${{ vars.RECLAIM_PROVIDER }}
           RECLAIM_KOIOS_URL: ${{ vars.RECLAIM_KOIOS_URL }}
@@ -166,12 +163,21 @@ jobs:
           RECLAIM_E2E_OUTPUT_DIR: output/preprod-web-app-claim-flow-wasm-lace
         run: pnpm test:e2e:preprod:web-app-claim-flow-wasm-lace
 
+      - name: Remove the run-isolated Lace profile
+        if: always()
+        shell: bash
+        run: |
+          case "${PW_USER_DATA_DIR:-}" in
+            "$RUNNER_TEMP"/proof-tool-lace-*) rm -rf -- "$PW_USER_DATA_DIR" ;;
+            *) echo "::error::Refusing to remove an unexpected Lace profile path."; exit 1 ;;
+          esac
+
       # The runner publishes evidence only after the command's secret scan
       # succeeds. Failed or quarantined runs retain evidence on the dedicated
       # machine for maintainer inspection instead of uploading it.
       - name: Upload approved claim-flow evidence
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: preprod-web-app-claim-flow-wasm-lace-${{ needs.resolve-preview.outputs.expected_sha }}
           path: apps/ownership-proof-web/output/preprod-web-app-claim-flow-wasm-lace/

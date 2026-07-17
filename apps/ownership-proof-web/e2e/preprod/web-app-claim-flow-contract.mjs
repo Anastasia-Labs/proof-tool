@@ -1,4 +1,5 @@
 import path from "node:path";
+import { CML } from "@lucid-evolution/lucid";
 import { TRANSACTION_APPROVAL_ENV } from "./run.mjs";
 import {
   LACE_EXTENSION_DIR_ENV,
@@ -346,6 +347,94 @@ export function validateClaimBuildReview(build, expectedOutref, safeAddress) {
   return build;
 }
 
+export function validateClaimTransactionSafety(build, expectedOutref, safeAddress, safeWalletUtxos) {
+  validateClaimBuildReview(build, expectedOutref, safeAddress);
+  let transaction;
+  try {
+    transaction = CML.Transaction.from_cbor_hex(String(build.txCbor ?? ""));
+  } catch {
+    throw new WebAppClaimFlowContractError(
+      "transaction_safety_mismatch",
+      "The reviewed transaction is not valid Cardano transaction CBOR.",
+    );
+  }
+  const body = transaction.body();
+  if (CML.hash_transaction(body).to_hex() !== build.txHash) {
+    throw new WebAppClaimFlowContractError(
+      "transaction_safety_mismatch",
+      "The reviewed transaction CBOR does not hash to the build transaction hash.",
+    );
+  }
+
+  const spendInputs = cmlOutrefs(body.inputs());
+  if (spendInputs.filter((outref) => outref === expectedOutref).length !== 1) {
+    throw new WebAppClaimFlowContractError(
+      "transaction_safety_mismatch",
+      "The transaction body does not spend exactly the prepared claim input.",
+    );
+  }
+  const safeInputs = new Set(
+    (Array.isArray(safeWalletUtxos) ? safeWalletUtxos : [])
+      .filter((utxo) => utxo?.address === safeAddress)
+      .map(providerOutref)
+      .filter(Boolean),
+  );
+  const unexpectedSpendInputs = spendInputs.filter((outref) => outref !== expectedOutref && !safeInputs.has(outref));
+  if (unexpectedSpendInputs.length > 0) {
+    throw new WebAppClaimFlowContractError(
+      "transaction_safety_mismatch",
+      "The transaction body contains a spending input outside the prepared claim and verified safe wallet.",
+    );
+  }
+  const collateralInputs = body.collateral_inputs();
+  if (collateralInputs && cmlOutrefs(collateralInputs).some((outref) => !safeInputs.has(outref))) {
+    throw new WebAppClaimFlowContractError(
+      "transaction_safety_mismatch",
+      "The transaction body contains collateral outside the verified safe wallet.",
+    );
+  }
+
+  const outputs = body.outputs();
+  const destinationIndex = build.review.destinationOutputStartIndex;
+  if (!Number.isSafeInteger(destinationIndex) || destinationIndex < 0 || destinationIndex >= outputs.len()) {
+    throw new WebAppClaimFlowContractError(
+      "transaction_safety_mismatch",
+      "The reviewed destination output index is absent from the transaction body.",
+    );
+  }
+  for (let index = 0; index < outputs.len(); index += 1) {
+    const output = outputs.get(index);
+    if (output.address().to_bech32() !== safeAddress || output.datum() || output.script_ref()) {
+      throw new WebAppClaimFlowContractError(
+        "transaction_safety_mismatch",
+        "Every transaction output must be a plain output to the verified safe Lace address.",
+      );
+    }
+  }
+  const reviewedValue = normalizeAssetMap(build.review.destinationOutputs[0].value);
+  const destinationValue = cmlValueToAssetMap(outputs.get(destinationIndex).amount());
+  if (!assetMapsEqual(destinationValue, reviewedValue)) {
+    throw new WebAppClaimFlowContractError(
+      "transaction_safety_mismatch",
+      "The transaction body's safe-destination value does not match the reviewed value.",
+    );
+  }
+  const collateralReturn = body.collateral_return();
+  if (collateralReturn && collateralReturn.address().to_bech32() !== safeAddress) {
+    throw new WebAppClaimFlowContractError(
+      "transaction_safety_mismatch",
+      "The transaction's collateral return does not use the verified safe Lace address.",
+    );
+  }
+  if (body.mint() || body.certs() || body.proposal_procedures() || body.voting_procedures() || body.donation()) {
+    throw new WebAppClaimFlowContractError(
+      "transaction_safety_mismatch",
+      "The claim transaction must not mint, register certificates, propose, vote, or donate.",
+    );
+  }
+  return build;
+}
+
 export function validateClaimSubmit(submit, build, expectedOutref) {
   if (submit?.txHash !== build.txHash || submit?.selectedOutrefs?.length !== 1 || submit.selectedOutrefs[0] !== expectedOutref) {
     throw new WebAppClaimFlowContractError("receipt_transaction_mismatch", "The submitted transaction does not match the reviewed build and prepared outref.");
@@ -363,12 +452,90 @@ export function redactedProvenanceArtifact(provenance) {
   };
 }
 
+export function requestContainsRecoveryPhraseMaterial(url, postData, mnemonic) {
+  const words = String(mnemonic ?? "").trim().toLowerCase().split(/\s+/u).filter(Boolean);
+  if (words.length < 12) {
+    throw new WebAppClaimFlowContractError(
+      "recovery_phrase_guard_invalid",
+      "The browser egress guard requires the complete test recovery phrase.",
+    );
+  }
+  let raw = `${String(url ?? "")} ${String(postData ?? "")}`.toLowerCase();
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    // Malformed URL encoding remains searchable in its original form.
+  }
+  const normalized = raw.replace(/[^a-z]+/gu, " ").trim().replace(/\s+/gu, " ");
+  if (normalized.includes(words.join(" "))) {
+    return true;
+  }
+  const payloadWords = new Set(normalized.split(" ").filter(Boolean));
+  const uniquePhraseWords = [...new Set(words)];
+  return uniquePhraseWords.filter((word) => payloadWords.has(word)).length >= Math.min(3, uniquePhraseWords.length);
+}
+
 function normalizeVercelHost(value) {
   const normalized = String(value ?? "").trim().toLowerCase().replace(/^https?:\/\//u, "").replace(/\/$/u, "");
   if (!normalized || normalized.includes("/") || normalized.includes("?") || normalized.includes("#")) {
     return null;
   }
   return normalized;
+}
+
+function cmlOutrefs(inputs) {
+  const outrefs = [];
+  for (let index = 0; index < inputs.len(); index += 1) {
+    const input = inputs.get(index);
+    outrefs.push(`${input.transaction_id().to_hex()}#${input.index().toString()}`);
+  }
+  return outrefs;
+}
+
+function providerOutref(utxo) {
+  const txHash = String(utxo?.txHash ?? "").toLowerCase();
+  const outputIndex = Number(utxo?.outputIndex);
+  return /^[0-9a-f]{64}$/u.test(txHash) && Number.isSafeInteger(outputIndex) && outputIndex >= 0
+    ? `${txHash}#${outputIndex}`
+    : null;
+}
+
+function cmlValueToAssetMap(value) {
+  const result = { lovelace: value.coin().toString() };
+  const multiAsset = value.multi_asset();
+  if (!multiAsset) {
+    return result;
+  }
+  const policies = multiAsset.keys();
+  for (let policyIndex = 0; policyIndex < policies.len(); policyIndex += 1) {
+    const policy = policies.get(policyIndex);
+    const names = multiAsset.get_assets(policy)?.keys();
+    if (!names) {
+      continue;
+    }
+    for (let nameIndex = 0; nameIndex < names.len(); nameIndex += 1) {
+      const name = names.get(nameIndex);
+      result[`${policy.to_hex()}${name.to_hex()}`] = multiAsset.get(policy, name).toString();
+    }
+  }
+  return normalizeAssetMap(result);
+}
+
+function normalizeAssetMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([unit, quantity]) => [unit, String(quantity)])
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function assetMapsEqual(left, right) {
+  const leftEntries = Object.entries(left);
+  const rightEntries = Object.entries(right);
+  return leftEntries.length === rightEntries.length && rightEntries.every(([unit, quantity]) => left[unit] === quantity);
 }
 
 function required(value, field) {

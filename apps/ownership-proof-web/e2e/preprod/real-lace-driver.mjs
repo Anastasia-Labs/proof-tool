@@ -31,6 +31,7 @@ const EXTENSION_TIMEOUT_MS = 30_000;
 const PREPROD_NETWORK_ID = 0;
 const LACE_CARDANO_SIGN_SELECTOR =
   'body:has([data-testid="sign-tx-origin"]) [data-testid="dapp-connector-primary-button"]';
+const LACE_SIGNING_OBSERVER_KEY = "__proofToolLaceSigningObserverV1";
 
 export class PreprodRealLaceDriverError extends Error {
   constructor(code, message) {
@@ -139,6 +140,51 @@ export class RealLaceProfileDriver {
 
   async installOnPage() {
     // Lace injects its provider through the browser extension.
+  }
+
+  async installSigningObserver(page) {
+    if (!page || typeof page.addInitScript !== "function") {
+      throw new PreprodRealLaceDriverError(
+        "lace_signing_observer_unavailable",
+        "The app page must support an initialization script before Lace is connected.",
+      );
+    }
+    await page.addInitScript(installLaceSigningObserverInPage, {
+      key: LACE_SIGNING_OBSERVER_KEY,
+      providerId: this.providerId,
+    });
+  }
+
+  async assertSigningObserverReady(page) {
+    const state = await waitForSigningObserverState(page, (value) => value?.wrapped === true);
+    if (state?.error || state?.providerId !== this.providerId) {
+      throw new PreprodRealLaceDriverError(
+        "lace_signing_observer_unavailable",
+        "The acceptance harness could not wrap the expected Lace signing API.",
+      );
+    }
+  }
+
+  async assertPendingSigningTransaction(page, expectedTxCbor) {
+    const expected = String(expectedTxCbor ?? "").toLowerCase();
+    if (!/^[0-9a-f]+$/u.test(expected) || expected.length % 2 !== 0) {
+      throw new PreprodRealLaceDriverError(
+        "lace_signing_transaction_invalid",
+        "The reviewed Lace transaction must be even-length CBOR hex.",
+      );
+    }
+    const state = await waitForSigningObserverState(page, (value) => Array.isArray(value?.calls) && value.calls.length > 0);
+    const calls = Array.isArray(state?.calls) ? state.calls : [];
+    if (
+      calls.length !== 1
+      || String(calls[0]?.txCbor ?? "").toLowerCase() !== expected
+      || calls[0]?.partialSign !== true
+    ) {
+      throw new PreprodRealLaceDriverError(
+        "lace_signing_transaction_mismatch",
+        "Lace was asked to sign a transaction other than the single reviewed partial-sign CBOR.",
+      );
+    }
   }
 
   async launchBrowserContext(browserLauncher, { headless = false, extraHTTPHeaders, viewport } = {}) {
@@ -343,6 +389,111 @@ export class RealLaceProfileDriver {
       throw new PreprodRealLaceDriverError("lace_wallet_role_unknown", `Unknown Lace wallet role: ${role}.`);
     }
     return state;
+  }
+}
+
+function installLaceSigningObserverInPage({ key, providerId }) {
+  const marker = `${key}:wrapped`;
+  const state = {
+    schema: "proof-tool-lace-signing-observer-v1",
+    providerId,
+    wrapped: false,
+    calls: [],
+    error: null,
+  };
+  globalThis[key] = state;
+
+  const wrapProvider = () => {
+    const provider = globalThis.cardano?.[providerId];
+    if (!provider || typeof provider.enable !== "function") {
+      return;
+    }
+    if (provider.enable[marker] === true) {
+      state.wrapped = true;
+      return;
+    }
+    const originalEnable = provider.enable;
+    const wrappedEnable = async (...args) => {
+      const api = await originalEnable.apply(provider, args);
+      if (!api || typeof api.signTx !== "function") {
+        return api;
+      }
+      return new Proxy(api, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver);
+          if (property === "signTx" && typeof value === "function") {
+            return (txCbor, partialSign, ...rest) => {
+              state.calls.push({ txCbor: String(txCbor ?? ""), partialSign: partialSign === true });
+              return value.call(target, txCbor, partialSign, ...rest);
+            };
+          }
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    };
+    Object.defineProperty(wrappedEnable, marker, { value: true });
+    try {
+      provider.enable = wrappedEnable;
+      if (provider.enable !== wrappedEnable) {
+        Object.defineProperty(provider, "enable", {
+          configurable: true,
+          value: wrappedEnable,
+          writable: true,
+        });
+      }
+      state.wrapped = provider.enable === wrappedEnable;
+      if (!state.wrapped) {
+        state.error = "provider_enable_not_wrappable";
+      }
+    } catch {
+      state.error = "provider_enable_not_wrappable";
+    }
+  };
+
+  wrapProvider();
+  globalThis.addEventListener("cardano#initialized", wrapProvider);
+  const timer = globalThis.setInterval(() => {
+    wrapProvider();
+    if (state.wrapped || state.error) {
+      globalThis.clearInterval(timer);
+    }
+  }, 25);
+}
+
+async function waitForSigningObserverState(page, predicate) {
+  if (!page || typeof page.waitForFunction !== "function") {
+    throw new PreprodRealLaceDriverError(
+      "lace_signing_observer_unavailable",
+      "The app page cannot report the Lace signing observer state.",
+    );
+  }
+  let handle;
+  try {
+    handle = await page.waitForFunction(
+      ({ key }) => {
+        const state = globalThis[key];
+        return state?.error || state?.wrapped ? state : false;
+      },
+      { key: LACE_SIGNING_OBSERVER_KEY },
+      { timeout: EXTENSION_TIMEOUT_MS, polling: 50 },
+    );
+    let state = await handle.jsonValue();
+    const deadline = Date.now() + EXTENSION_TIMEOUT_MS;
+    while (!predicate(state) && !state?.error && Date.now() < deadline) {
+      await sleep(EXTENSION_POLL_MS);
+      state = await page.evaluate((key) => globalThis[key] ?? null, LACE_SIGNING_OBSERVER_KEY);
+    }
+    if (!predicate(state)) {
+      throw new Error(state?.error ?? "observer condition not reached");
+    }
+    return state;
+  } catch {
+    throw new PreprodRealLaceDriverError(
+      "lace_signing_observer_unavailable",
+      "Timed out while verifying the Lace signing observer.",
+    );
+  } finally {
+    await handle?.dispose?.().catch(() => undefined);
   }
 }
 

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { CML } from "@lucid-evolution/lucid";
 import {
   CLAIM_FLOW_SCREENSHOTS,
   assertCompleteScreenshotLedger,
   browserContextHeaders,
   loadWebAppClaimFlowConfig,
+  requestContainsRecoveryPhraseMaterial,
   validateBrowserWasmClaimDeployment,
   validateClaimBuildReview,
+  validateClaimTransactionSafety,
   validateClaimSubmit,
   validateLocalProductionUrl,
   validatePreviewProvenance,
@@ -204,12 +207,50 @@ describe("web-app claim flow contract", () => {
     );
   });
 
+  it("inspects the actual transaction body before Lace may sign", () => {
+    const safeAddress = "addr_test1qq8ac7qqy0vtulyl7wntmsxc6wex80gvcyjy33qffrhm7sh927ysx5sftuw0dlft05dz3c7revpf7jx0xnlcjz3g69mqkt5dmn";
+    const safeInputHash = "c".repeat(64);
+    const build = transactionBuild({
+      inputOutrefs: [outref, `${safeInputHash}#1`],
+      outputAddresses: [safeAddress],
+      safeAddress,
+    });
+    const safeUtxos = [{ address: safeAddress, outputIndex: 1, txHash: safeInputHash }];
+
+    expect(validateClaimTransactionSafety(build, outref, safeAddress, safeUtxos)).toBe(build);
+
+    const maliciousOutput = transactionBuild({
+      inputOutrefs: [outref, `${safeInputHash}#1`],
+      outputAddresses: ["addr_test1qzttdu6d96klw8xvme7ctwuv0jg7xns0vm35ksv4l722aupyayzk39uascqj78hynwh3ax5w8ch5n9062k0vpnj3dlpsjt6afz"],
+      safeAddress,
+    });
+    expect(() => validateClaimTransactionSafety(maliciousOutput, outref, safeAddress, safeUtxos)).toThrowError(
+      expect.objectContaining({ code: "transaction_safety_mismatch" }),
+    );
+
+    const foreignInput = transactionBuild({
+      inputOutrefs: [outref, `${"d".repeat(64)}#2`],
+      outputAddresses: [safeAddress],
+      safeAddress,
+    });
+    expect(() => validateClaimTransactionSafety(foreignInput, outref, safeAddress, safeUtxos)).toThrowError(
+      expect.objectContaining({ code: "transaction_safety_mismatch" }),
+    );
+  });
+
   it("uses headers, never URL parameters, for Vercel automation bypass", () => {
     expect(browserContextHeaders({ bypassSecret: "test-bypass-secret" })).toEqual({
       "x-vercel-protection-bypass": "test-bypass-secret",
       "x-vercel-set-bypass-cookie": "true",
     });
     expect(browserContextHeaders({ bypassSecret: "" })).toEqual({});
+  });
+
+  it("detects recovery-phrase material before a browser request is released", () => {
+    const mnemonic = "abandon ability able about above absent absorb abstract absurd abuse access accident";
+    expect(requestContainsRecoveryPhraseMaterial("https://preview.vercel.app/collect", JSON.stringify({ mnemonic }), mnemonic)).toBe(true);
+    expect(requestContainsRecoveryPhraseMaterial("https://preview.vercel.app/collect?one=abandon&two=ability&three=able", null, mnemonic)).toBe(true);
+    expect(requestContainsRecoveryPhraseMaterial("https://preview.vercel.app/claim-api/build", JSON.stringify({ proof: "00ff" }), mnemonic)).toBe(false);
   });
 });
 
@@ -225,5 +266,35 @@ function validEnv() {
     RECLAIM_E2E_LACE_WALLET_PASSWORD: "test-password",
     PW_USER_DATA_DIR: "/tmp/lace-profile",
     PREPROD_TEST_WALLETS_FILE: "/tmp/preprod-wallets.local.json",
+  };
+}
+
+function transactionBuild({ inputOutrefs, outputAddresses, safeAddress }) {
+  const inputs = CML.TransactionInputList.new();
+  for (const value of inputOutrefs) {
+    const [txHash, outputIndex] = value.split("#");
+    inputs.add(CML.TransactionInput.new(CML.TransactionHash.from_hex(txHash), BigInt(outputIndex)));
+  }
+  const outputs = CML.TransactionOutputList.new();
+  for (const address of outputAddresses) {
+    outputs.add(
+      CML.TransactionOutput.new(
+        CML.Address.from_bech32(address),
+        CML.Value.from_coin(2_000_000n),
+        undefined,
+        undefined,
+      ),
+    );
+  }
+  const body = CML.TransactionBody.new(inputs, outputs, 170_000n);
+  const transaction = CML.Transaction.new(body, CML.TransactionWitnessSet.new(), true, undefined);
+  return {
+    txCbor: transaction.to_cbor_hex(),
+    txHash: CML.hash_transaction(body).to_hex(),
+    review: {
+      selectedOutrefs: [outref],
+      destinationOutputStartIndex: 0,
+      destinationOutputs: [{ address: safeAddress, value: { lovelace: "2000000" } }],
+    },
   };
 }
