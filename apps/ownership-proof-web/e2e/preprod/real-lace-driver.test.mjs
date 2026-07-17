@@ -238,7 +238,7 @@ describe("real Lace profile driver", () => {
       "before-sign",
       "sign",
       "password:test-password",
-      "authenticate",
+      "authenticate:auto-waited",
     ]);
     expect(driver.roleState("safe_claim_destination").signAttempts).toBe(1);
   });
@@ -450,7 +450,7 @@ function fakeLaceSignContext() {
           clicks.push(`password:${value}`);
         }
       },
-      async click() {
+      async click(options) {
         if (kind === "sign") {
           signClicked = true;
           authVisible = true;
@@ -458,7 +458,7 @@ function fakeLaceSignContext() {
         }
         if (kind === "auth-confirm") {
           authVisible = false;
-          clicks.push("authenticate");
+          clicks.push(options?.force === true ? "authenticate:forced" : "authenticate:auto-waited");
         }
       },
       async waitFor(options) {

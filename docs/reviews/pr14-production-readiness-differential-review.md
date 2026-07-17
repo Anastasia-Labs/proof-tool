@@ -254,6 +254,15 @@ The observer was subsequently changed to the passive transport-compatible
 implementation above; its focused compatibility test passes. A fresh live run
 against the final commit remains the acceptance condition.
 
+The next attempt against `884fc75` confirmed that compatibility fix by reaching
+the exact Lace transaction-review screen and recording 18 of 20 checkpoints.
+It then failed closed before signing because the driver force-clicked Lace's
+password confirmation instead of waiting for the control to become enabled.
+The dedicated profile and both configured roles still validate. The driver now
+uses Playwright's normal actionable click for authentication, and its focused
+test rejects a regression back to a forced click. No claim submission occurred
+in either failed attempt.
+
 ## Blast radius
 
 - Product runtime change is limited to bounded CIP-30 wallet rediscovery in

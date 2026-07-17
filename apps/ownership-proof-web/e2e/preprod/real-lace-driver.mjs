@@ -841,7 +841,17 @@ async function submitVisibleLaceAuthentication(page, password) {
     );
   }
   await input.fill(password);
-  await confirm.click({ force: true });
+  try {
+    // Let Playwright wait for Lace to enable the confirmation after React has
+    // processed the password input. A forced click can race that state change
+    // and leave the authentication prompt open even with the correct secret.
+    await confirm.click();
+  } catch {
+    throw new PreprodRealLaceDriverError(
+      "lace_signing_auth_confirm_unavailable",
+      "Lace did not enable the signing authentication confirmation.",
+    );
+  }
   const dismissed = await page
     .locator('[data-testid="authentication-prompt-body"]')
     .first()
@@ -922,7 +932,7 @@ export async function unlockLacePage(page, password) {
       throw new PreprodRealLaceDriverError("lace_wallet_password_missing", `${LACE_WALLET_PASSWORD_ENV} is required to unlock Lace.`);
     }
     await authInput.fill(password);
-    await page.locator('[data-testid="authentication-prompt-button-confirm"]').first().click({ force: true });
+    await page.locator('[data-testid="authentication-prompt-button-confirm"]').first().click();
     const dismissed = await page
       .locator('[data-testid="authentication-prompt-body"]')
       .first()
