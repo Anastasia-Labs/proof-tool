@@ -11,8 +11,25 @@ export async function runPrPushWithLocalClaimFlow(options = {}) {
   const capture = options.capture ?? createCapture(defaultExecFile);
   const spawn = options.spawn ?? defaultSpawn;
   const localRunner = options.localRunner ?? runLocalPrClaimFlow;
+  const initialBranch = (await capture(
+    "git",
+    ["-C", repoRoot, "symbolic-ref", "--short", "HEAD"],
+  )).trim();
+  try {
+    await runInherited(
+      "git",
+      buildPushArgs({ branch: initialBranch, dryRun: true, remote: parsed.remote, repoRoot }),
+      { spawn },
+    );
+  } catch {
+    throw new LocalPrClaimFlowError(
+      "local_push_preflight_failed",
+      `Git cannot update ${parsed.remote}/${initialBranch}; fix authentication, permissions, or a non-fast-forward branch before spending Preprod funds.`,
+    );
+  }
   const result = await localRunner({
     livePreprod: parsed.livePreprod,
+    remote: parsed.remote,
     repoRoot,
   });
 
@@ -35,7 +52,7 @@ export async function runPrPushWithLocalClaimFlow(options = {}) {
 
   await runInherited(
     "git",
-    ["-C", repoRoot, "push", parsed.remote, `HEAD:refs/heads/${afterBranch}`],
+    buildPushArgs({ branch: afterBranch, dryRun: false, remote: parsed.remote, repoRoot }),
     { spawn },
   );
   return {
@@ -45,6 +62,17 @@ export async function runPrPushWithLocalClaimFlow(options = {}) {
     remote: parsed.remote,
     transactionHash: result.result.transactionHash,
   };
+}
+
+export function buildPushArgs({ branch, dryRun, remote, repoRoot }) {
+  return [
+    "-C",
+    repoRoot,
+    "push",
+    ...(dryRun ? ["--dry-run", "--no-verify"] : []),
+    remote,
+    `HEAD:refs/heads/${branch}`,
+  ];
 }
 
 export function parsePrPushArgs(argv) {

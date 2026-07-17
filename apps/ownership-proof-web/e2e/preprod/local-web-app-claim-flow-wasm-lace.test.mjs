@@ -4,7 +4,9 @@ import {
   assertRemoteProofAssets,
   createLocalRunnerEnv,
   createLocalVercelEmulationEnv,
+  githubRepositoryFromRemote,
   pinLocalDeploymentManifest,
+  resolveOpenPullRequest,
 } from "./local-web-app-claim-flow-wasm-lace.mjs";
 import { prepareLaceRoleBeforeNavigation } from "./web-app-claim-flow-wasm-lace.mjs";
 
@@ -130,5 +132,37 @@ describe("local production PR claim flow", () => {
     expect(() => assertLocalPrContext({ ...valid, pr: { ...valid.pr, state: "CLOSED" } })).toThrowError(
       expect.objectContaining({ code: "local_open_pr_missing" }),
     );
+  });
+
+  it("resolves the exact open PR from SSH or HTTPS GitHub remotes without requiring gh", async () => {
+    expect(githubRepositoryFromRemote("git@github.com:Anastasia-Labs/proof-tool.git")).toEqual({
+      owner: "Anastasia-Labs",
+      repo: "proof-tool",
+    });
+    expect(githubRepositoryFromRemote("https://github.com/Anastasia-Labs/proof-tool.git")).toEqual({
+      owner: "Anastasia-Labs",
+      repo: "proof-tool",
+    });
+    expect(() => githubRepositoryFromRemote("https://example.com/proof-tool.git")).toThrowError(
+      expect.objectContaining({ code: "local_github_remote_invalid" }),
+    );
+
+    const requests = [];
+    const pr = await resolveOpenPullRequest({
+      branch: "colll78/feature",
+      env: {},
+      fetch: async (url, options) => {
+        requests.push({ options, url: String(url) });
+        return {
+          json: async () => [{ head: { ref: "colll78/feature" }, number: 14, state: "open" }],
+          ok: true,
+          status: 200,
+        };
+      },
+      repository: { owner: "Anastasia-Labs", repo: "proof-tool" },
+    });
+    expect(pr).toEqual({ headRefName: "colll78/feature", number: 14, state: "OPEN" });
+    expect(requests[0].url).toContain("head=Anastasia-Labs%3Acolll78%2Ffeature");
+    expect(requests[0].options.headers.Authorization).toBeUndefined();
   });
 });

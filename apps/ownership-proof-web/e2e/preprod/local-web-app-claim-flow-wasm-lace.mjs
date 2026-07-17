@@ -36,8 +36,15 @@ export async function runLocalPrClaimFlow(options = {}) {
   const appDir = path.join(repoRoot, "apps", "ownership-proof-web");
   const capture = options.capture ?? createCapture(defaultExecFile);
   const spawn = options.spawn ?? defaultSpawn;
+  const initialEnv = { ...(options.env ?? process.env) };
   const git = assertLocalPrContext(
-    await readLocalPrContext({ capture, repoRoot }),
+    await readLocalPrContext({
+      capture,
+      env: initialEnv,
+      fetch: options.fetch ?? globalThis.fetch,
+      remote: options.remote ?? "origin",
+      repoRoot,
+    }),
   );
 
   const commonDir = (await capture("git", [
@@ -48,7 +55,6 @@ export async function runLocalPrClaimFlow(options = {}) {
     "--git-common-dir",
   ])).trim();
   const sharedRoot = path.dirname(commonDir);
-  const initialEnv = { ...(options.env ?? process.env) };
   const localEnvFile = resolveInputFile(
     initialEnv[LOCAL_ENV_FILE_ENV],
     [path.join(repoRoot, ".env.local"), path.join(sharedRoot, ".env.local")],
@@ -205,24 +211,79 @@ export function assertLocalPrContext(context) {
   return Object.freeze({ ...context, prNumber: context.pr.number });
 }
 
-async function readLocalPrContext({ capture, repoRoot }) {
-  const [commitSha, branch, status] = await Promise.all([
+async function readLocalPrContext({ capture, env, fetch, remote, repoRoot }) {
+  const [commitSha, branch, status, remoteUrl] = await Promise.all([
     capture("git", ["-C", repoRoot, "rev-parse", "HEAD"]),
     capture("git", ["-C", repoRoot, "symbolic-ref", "--short", "HEAD"]),
     capture("git", ["-C", repoRoot, "status", "--porcelain=v1", "--untracked-files=normal"]),
+    capture("git", ["-C", repoRoot, "remote", "get-url", remote]),
   ]);
   const branchName = branch.trim();
-  const prJson = await capture(
-    "gh",
-    ["pr", "view", branchName, "--json", "number,state,headRefName"],
-    { cwd: repoRoot },
-  );
+  const pr = await resolveOpenPullRequest({
+    branch: branchName,
+    env,
+    fetch,
+    repository: githubRepositoryFromRemote(remoteUrl.trim()),
+  });
   return {
     commitSha: commitSha.trim().toLowerCase(),
     branch: branchName,
     status: status.trim(),
-    pr: JSON.parse(prJson),
+    pr,
   };
+}
+
+export function githubRepositoryFromRemote(remoteUrl) {
+  const match = String(remoteUrl ?? "").trim().match(
+    /^(?:git@github\.com:|https:\/\/github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?$/u,
+  );
+  if (!match) {
+    throw new LocalPrClaimFlowError(
+      "local_github_remote_invalid",
+      "The selected Git remote must identify a GitHub owner/repository over SSH or HTTPS.",
+    );
+  }
+  return Object.freeze({ owner: match[1], repo: match[2] });
+}
+
+export async function resolveOpenPullRequest({ branch, env = process.env, fetch, repository }) {
+  if (typeof fetch !== "function") {
+    throw new LocalPrClaimFlowError("local_pr_lookup_failed", "A fetch implementation is required to resolve the open PR.");
+  }
+  const head = `${repository.owner}:${branch}`;
+  const url = new URL(`https://api.github.com/repos/${repository.owner}/${repository.repo}/pulls`);
+  url.searchParams.set("state", "open");
+  url.searchParams.set("head", head);
+  url.searchParams.set("per_page", "2");
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "proof-tool-local-claim-flow",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  const token = String(env.GH_TOKEN ?? env.GITHUB_TOKEN ?? "").trim();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    throw new LocalPrClaimFlowError(
+      "local_pr_lookup_failed",
+      `GitHub PR lookup failed with HTTP ${response.status}; check network access or an optional GH_TOKEN/GITHUB_TOKEN.`,
+    );
+  }
+  const matches = await response.json();
+  if (!Array.isArray(matches) || matches.length !== 1) {
+    throw new LocalPrClaimFlowError(
+      "local_open_pr_missing",
+      `Expected exactly one open pull request for ${head}; found ${Array.isArray(matches) ? matches.length : 0}.`,
+    );
+  }
+  const pr = matches[0];
+  return Object.freeze({
+    headRefName: pr.head?.ref ?? "",
+    number: pr.number,
+    state: String(pr.state ?? "").toUpperCase(),
+  });
 }
 
 function resolveInputFile(configured, candidates, field) {

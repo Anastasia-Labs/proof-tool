@@ -16,7 +16,6 @@
     "e2e:preprod:lace:setup": "node e2e/preprod/lace-profile-setup.mjs",
     "test:e2e:preprod": "node e2e/preprod/run.mjs",
     "test:e2e:preprod:lace-smoke": "RECLAIM_E2E_WALLET_MODE=lace node e2e/preprod/run.mjs",
-    "test:e2e:preprod:web-app-claim-flow-wasm-lace": "node e2e/preprod/web-app-claim-flow-wasm-lace.mjs",
     "test:e2e:preprod:web-app-claim-flow-wasm-lace:local-pr": "node e2e/preprod/local-web-app-claim-flow-wasm-lace.mjs",
     "push:pr:with-local-claim-flow": "node e2e/preprod/push-pr-with-local-claim-flow.mjs",
     "typecheck": "tsc --noEmit",

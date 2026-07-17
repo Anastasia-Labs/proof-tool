@@ -1,20 +1,28 @@
-# PR Preview Web-App Claim Flow: Browser WASM + Lace
+# Local PR Web-App Claim Flow: Browser WASM + Lace
 
 ## Purpose
 
-This document specifies the merge-gating acceptance test for the claim journey
-that an actual web-app user performs. The required command is:
+This document specifies the local production acceptance test for the claim
+journey that an actual web-app user performs before a PR branch is pushed. To
+test without pushing, run:
 
 ```bash
-pnpm test:e2e:preprod:web-app-claim-flow-wasm-lace
+pnpm --dir apps/ownership-proof-web test:e2e:preprod:web-app-claim-flow-wasm-lace:local-pr -- --live-preprod
 ```
 
-The test must launch Playwright's bundled Chromium with a run-isolated copy of
-the repository's dedicated Lace profile template, navigate to the exact Vercel Preview deployment for the
-commit under review, start on the public landing page, and complete every
-normal claim step through the public UI. It must use browser WASM proving,
-Lace for wallet connection and safe-wallet signing, Cardano Preprod for the
-transaction, and provider-visible confirmation for the result.
+To run the same test and push only the exact successful commit, run:
+
+```bash
+node scripts/push-pr-with-local-lace-claim-flow.mjs --live-preprod
+```
+
+The lane builds the exact clean PR commit with `next build`, serves it through
+`next start` on loopback, launches Playwright's bundled Chromium with the
+dedicated Lace profile, starts on the public landing page, and completes every
+normal claim step through the public UI. It uses browser-WASM proving, Lace for
+wallet connection and safe-wallet signing, Cardano Preprod for the transaction,
+remote R2-backed proof assets, and provider-visible confirmation for the
+result.
 
 The command is a real, spending Preprod acceptance lane. It is not a fixture
 test, a component test, a Desktop Helper test, an API-stage composition, a
@@ -22,13 +30,13 @@ Lace injection smoke test, or a production-site check.
 
 ## Non-Negotiable Acceptance Contract
 
-A passing run proves all of the following about one exact commit and one exact
-deployment:
+A passing run proves all of the following about one exact commit and its local
+production build:
 
-1. The tested URL is an immutable Vercel Preview deployment, not the production
-   domain and not a mutable branch alias.
-2. The deployment reports the expected Git commit SHA and Vercel Preview
-   environment before any wallet or mnemonic is exposed to it.
+1. The tested URL is an origin-only `http://127.0.0.1:<port>/` loopback URL,
+   never the production domain or an arbitrary remote site.
+2. The production build reports the expected Git commit SHA, branch, and PR
+   number through explicit local provenance before any mnemonic is entered.
 3. The browser is Playwright's bundled Chromium, launched as a headed persistent
    context with one explicitly supplied unpacked Lace extension and one
    run-isolated copy of a dedicated, test-only profile template.
@@ -45,7 +53,7 @@ deployment:
    confirmed as the destination, and is the only wallet allowed to sign.
 9. `Prove in this browser` is selected explicitly. The production browser-WASM
    capability preflight passes and a real destination-bound proof is generated
-   by the deployed app.
+   by the locally hosted app using the committed remote proof-asset hosts.
 10. The recovery phrase is entered only into the claim page, is blocked if it
     appears in an outgoing URL or request body, is cleared after proof generation
     begins, and is absent from retained traces, screenshots, URLs, console logs,
@@ -65,23 +73,21 @@ deployment:
     typed reason. No step is silently skipped or accepted because a later screen
     happened to appear.
 
-Only a run satisfying all fourteen conditions may publish the required PR
-check as successful.
+Only a run satisfying all fourteen conditions may be treated as successful
+local pre-push evidence. A hosted Vercel Preview merge gate is explicitly
+deferred and is not installed by this local-only change.
 
 ## Current Repository Audit
 
-Status on 2026-07-16, after integrating current `main` commit `7eaf071`: the
-dedicated runner, package command, lane-managed fixture preparation,
-provenance route, automatic exact-Preview resolver, focused contract tests,
-Lace role/signing/CBOR guards, recovery-phrase egress guard, trusted-base workflow, and explicit local-production
-PR-push wrapper are implemented. The
-entire lane was also applied to the exact active PR #13 head `448f3b6` and
-verified there, so the current browser-WASM changes have compatibility
-evidence before the live lane runs.
-The lane is **not yet acceptance-complete** because the hardened final SHA has
-not run against an exact PR Preview, its protected runner/environment variables are not verified,
-and the stable check is not confirmed required by `main` branch protection. The
-old Lace smoke command remains unacceptable merge evidence.
+Status on 2026-07-17, after integrating current `main` commit `7eaf071`: the
+local package command, guarded push wrapper, lane-managed fixture preparation,
+local provenance route, focused contract tests, Lace role/signing/CBOR guards,
+recovery-phrase egress guard, and twenty-screen production journey are
+implemented. The exact executable head `bae4357` completed the full local lane
+as Preprod transaction
+`d92bf8f6d2148495084f49545c296cb7da01350da53ef00bc3f97d3497664158`.
+The subsequent changes only narrow the PR to this local lane and update
+documentation; final verification must still run against the exact merge head.
 
 ### Reusable implementation
 
@@ -104,19 +110,19 @@ old Lace smoke command remains unacceptable merge evidence.
 
 | Area | Current implementation | Remaining gate |
 | --- | --- | --- |
-| Command | `test:e2e:preprod:web-app-claim-flow-wasm-lace` invokes the dedicated runner. | Run it live with the dedicated profile and lane-managed fixture. |
-| Start point | The runner clears only app-origin session/local storage, opens `/`, captures `00-landing.png`, and follows `Claim funds`. | Confirm all twenty captures against the deployed PR UI. |
-| Target | The contract requires an exact HTTPS Vercel origin and rejects production/non-Vercel/path/query targets. | Exercise it against the immutable URL produced for a PR. |
-| Deployment identity | `/claim-api/build-provenance` exposes non-secret Vercel environment/URL/SHA/PR data; the runner requires an exact match. | Deploy the route and confirm the Vercel project exposes system variables at runtime. |
-| Proof path | The runner explicitly selects `Prove in this browser` and waits for production capability/asset readiness before phrase entry. | Complete a real WASM proof in the Preview runtime. |
+| Command | `test:e2e:preprod:web-app-claim-flow-wasm-lace:local-pr` invokes the no-push local runner; the root wrapper adds guarded push. | Run from a clean committed PR branch with `--live-preprod`. |
+| Start point | The runner clears only app-origin session/local storage, opens `/`, captures `00-landing.png`, and follows `Claim funds`. | Keep all twenty captures mandatory. |
+| Target | The contract requires an origin-only loopback URL and rejects production, remote, credential-bearing, path, query, and fragment targets. | Keep the production Next server bound to `127.0.0.1`. |
+| Deployment identity | `/claim-api/build-provenance` exposes non-secret local build URL/SHA/branch/PR data; the runner requires an exact match. | Keep provenance bound to the clean local `HEAD`. |
+| Proof path | The runner explicitly selects `Prove in this browser` and waits for production capability/asset readiness before phrase entry. | Keep the remote proof-asset host allowlist pinned. |
 | Duplicate work | The dedicated runner never calls prove/build/submit APIs to advance state; responses are observed only after UI actions. | Confirm network evidence from the first live run. |
 | Safe-wallet step | The runner captures the populated destination and activates `Confirm destination and continue`. | Validate the real safe Lace address and draft on Preprod. |
-| Wallet mapping | Lace selection is scoped to the account-center card containing the configured wallet label; the dedicated Lace 2.1.1 profile now passes non-spending unlock and both-role switching validation, active CIP-30 addresses are revalidated, and the actual `signTx` CBOR is observed before approval. | Confirm the connected CIP-30 identities and observer against the exact Preview during the live run. |
-| Fixture | The default mode uses a separate headless bundled-Chromium setup context and the ignored Preprod funder wallet to create one ADA-only claim through `/reclaim`; it then discovers the submitted transaction's exact outref. A single unspent fixture may be resumed after an interrupted run. | Verify the funder balance/provider configuration on the dedicated runner. |
+| Wallet mapping | Lace selection is scoped to the account-center card containing the configured wallet label; the dedicated Lace 2.1.1 profile passes non-spending unlock and both-role switching validation, active CIP-30 addresses are revalidated, and the actual `signTx` CBOR is observed before approval. | Confirm both local profile roles before each live run. |
+| Fixture | The default mode uses a separate headless bundled-Chromium setup context and the ignored Preprod funder wallet to create one ADA-only claim through `/reclaim`; it then discovers the submitted transaction's exact outref. A single unspent fixture may be resumed after an interrupted run. | Verify the local funder balance and provider configuration. |
 | Screenshots | The runner enforces the ordered twenty-file ledger and masks phrase/password inputs. | Review the first live artifact bundle for any extension-specific sensitive surface. |
 | Completion | The actual transaction body, observed CIP-30 CBOR, build/submit responses, receipt hash, exact outref state, and safe destination are cross-checked; provider progress must report the outref spent. | Obtain a real transaction hash and provider confirmation on the hardened final SHA. |
-| PR gate | `preprod-web-app-claim-flow-wasm-lace.yml` uses `pull_request_target`, checks out only the protected base-branch harness, resolves the untrusted PR only as an exact Vercel Preview, copies the Lace profile template per run, requires environment approval and an ephemeral dedicated runner, pins action SHAs, and publishes one fail-closed aggregate result. | Configure runner labels/variables/secrets, exercise the automatic trigger after the trusted workflow exists on `main`, and require the stable aggregate job name in `main` protection. |
-| Local PR push | `push-pr-with-local-lace-claim-flow.mjs` builds and serves the current clean commit with production Next commands, performs the same live claim against localhost, rechecks the commit, and pushes only after success. | Run the first live local invocation and retain its twenty-screen/provider evidence as pre-push confidence, not as deployed-Preview acceptance. |
+| Hosted PR gate | Deferred; no GitHub wallet-runner workflow or required check is included in this local-only merge. | Design and provision it in a separate reviewed change. |
+| Local PR push | `push-pr-with-local-lace-claim-flow.mjs` builds and serves the current clean commit with production Next commands, performs the live claim against localhost, rechecks the commit, and pushes only after success. | Retain its twenty-screen/provider evidence as exact pre-push confidence. |
 
 The generic deterministic lane remains valuable for broad regression coverage.
 It must not be renamed or represented as this real-browser acceptance lane.
@@ -136,7 +142,7 @@ documentation, plus GitHub's [Deployments REST API](https://docs.github.com/en/r
 [required-check troubleshooting](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks),
 and [protected-branch](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
 documentation. Repository behavior must be rechecked against these sources
-when the workflow contract changes.
+when the lane contract changes.
 
 ### Browser and extension
 
@@ -148,72 +154,35 @@ repo-pinned Playwright version, `launchPersistentContext`,
 and does not use the Playwright MCP browser-extension bridge.
 
 The context is headed because Lace connect and signing windows are part of the
-acceptance surface. The protected profile template is test-only, ignored,
-single-owner, read-only to the workflow, and never archived. Each hosted gate
-copies that stopped template into a unique `$RUNNER_TEMP` directory, uses the
-copy for one job, and removes only that guarded temporary path afterward. It
-must never copy a live browser profile or kill unrelated browser processes.
+acceptance surface. The dedicated profile is test-only, ignored, single-owner,
+and never archived or uploaded. Stop every process using it before a run; the
+lane must never copy a live daily browser profile or kill unrelated browser
+processes.
 
-### Vercel preview identity
+### Local provenance and future Preview identity
 
-Vercel creates a preview deployment for each Git push/PR update and exposes the
-deployment through GitHub's deployment/check metadata. Vercel also exposes
-`VERCEL_ENV`, `VERCEL_URL`, `VERCEL_GIT_COMMIT_SHA`, and
-`VERCEL_GIT_PULL_REQUEST_ID` to the deployed application.
+The local runner supplies only non-secret Vercel-shaped build identity fields
+for the exact clean commit, branch, PR number, and loopback host. The
+`/claim-api/build-provenance` route exposes those fields with an explicit
+`localPreviewEmulation: true` marker. The local contract requires that marker
+and exact identity; deployed-Preview acceptance must reject it.
 
-For a normal PR run, a GitHub-hosted resolver polls the Deployments API for the
-exact PR-head SHA and accepts exactly one latest successful `Preview` status
-whose `environment_url` belongs to the configured Vercel project. It does not
-scrape a PR comment, accept an operator-supplied URL, or substitute a branch
-alias. Before opening the claim flow the protected runner requests a
-build-provenance route and requires:
+A future hosted gate must independently resolve an immutable successful Vercel
+Preview for the exact PR-head SHA, verify the route against that deployment,
+and reject production, mutable aliases, ambiguous deployments, and local
+emulation. No GitHub Preview resolver is included in the current local-only
+merge.
 
-- `environment === "preview"`;
-- a normalized deployment hostname equal to the supplied target hostname;
-- `commitSha === RECLAIM_E2E_EXPECTED_COMMIT_SHA`;
-- the expected PR number when the deployment has PR metadata;
-- the public deployment and claim manifests to be enabled for Cardano Preprod;
-- browser proving to be enabled with the coherent signed descriptor/VK set.
+### Future GitHub merge enforcement (deferred)
 
-If Vercel Deployment Protection is enabled, the runner adds the automation
-bypass header at browser-context creation so relative page/API requests inherit
-it. The secret is never placed in a URL, artifact, screenshot name, or log.
-
-### GitHub merge enforcement
-
-The stable aggregate check `Preprod web-app claim flow (WASM + Lace)` must be
-required by a ruleset for `main`. The workflow uses `pull_request_target` so
-its YAML and executable harness come from `github.event.pull_request.base.sha`.
-It never checks out or executes the PR head on the wallet-bearing host. The PR
-head SHA is used only to resolve and verify the remote Preview. A later head push
-starts a new run and invalidates the earlier result. Merge-queue support, if
-enabled, must either run an equivalent trusted-harness lane for `merge_group` or
-be explicitly handled by the repository's required-check policy.
-
-GitHub recommends avoiding self-hosted runners for public repositories. This
-lane narrows that risk by never executing candidate code on the host: candidate
-code runs only in Vercel and the sandboxed browser. The dedicated Lace wallets
-and mnemonic are still expendable Preprod-only fixtures with no mainnet value,
-because Preview JavaScript necessarily processes data entered into its page.
-Therefore:
-
-- same-repository, non-draft PRs resolve their Preview on a GitHub-hosted runner
-  and may proceed to the locked-down dedicated runner only after an independent
-  environment reviewer approves it;
-- fork PRs fail the stable aggregate check before the secret-bearing runner is
-  scheduled; a maintainer must reproduce the reviewed commit on a trusted
-  same-repository branch;
-- the host executes the base-branch harness only, the agent is registered with
-  GitHub's `--ephemeral` mode under the dedicated
-  `proof-tool-preprod-lace-ephemeral` label, all third-party actions are pinned
-  by full SHA, and no manual branch dispatch exists;
-- the runner has no unrelated credentials, browser sessions, mainnet wallets,
-  or access to a daily browser profile;
-- the immutable profile template is copied for one run and the copy is removed;
-- concurrency is one per dedicated Preprod fixture set;
-- a hosted aggregate job fails unless both exact-Preview resolution and the
-  protected live execution succeed; a skipped executor cannot become a green
-  merge signal.
+No self-hosted wallet runner, protected environment, automatic workflow, or
+required status check is included in this change. A future hosted gate must be
+reviewed separately and must execute only a trusted base-branch harness, keep
+candidate code inside the remote Preview/browser boundary, use disposable
+Preprod-only wallets, require independent environment approval, and use a
+dedicated ephemeral runner. Until then, the commands in this document provide
+explicit maintainer-run pre-push evidence rather than automatic merge
+enforcement.
 
 ## Test Inputs and Preconditions
 
@@ -221,18 +190,16 @@ Therefore:
 
 | Variable | Contract |
 | --- | --- |
-| `RECLAIM_E2E_PREVIEW_URL` | Exact immutable HTTPS Vercel Preview deployment URL. |
-| `RECLAIM_E2E_EXPECTED_COMMIT_SHA` | Full PR-head commit SHA required from build provenance. |
-| `RECLAIM_E2E_EXPECTED_PR_NUMBER` | PR number when the deployment was created for a PR. |
+| `RECLAIM_E2E_PREVIEW_URL` | Internal runner value pinned to the origin-only loopback production server. |
+| `RECLAIM_E2E_EXPECTED_COMMIT_SHA` | Internal full local `HEAD` SHA required from build provenance. |
+| `RECLAIM_E2E_EXPECTED_PR_NUMBER` | Internal PR number resolved for the current local branch. |
 | `RECLAIM_E2E_LACE_EXTENSION_DIR` | Read-only unpacked Lace package with validated manifest identity/version. |
-| `PW_USER_DATA_DIR` | Unique run-isolated Chromium profile assigned by the workflow; local runs may use the dedicated ignored profile directly. |
-| `RECLAIM_E2E_LACE_WALLET_PASSWORD` | Lace test-profile password, supplied through the runner secret store. |
+| `PW_USER_DATA_DIR` | Dedicated ignored Chromium/Lace profile selected by `profile.env`. |
+| `RECLAIM_E2E_LACE_WALLET_PASSWORD` | Lace test-profile password loaded from the ignored mode-0600 `profile.env`. |
 | `RECLAIM_E2E_LACE_ROLE_LABELS_JSON` | Optional exact role-to-label mapping for an already-provisioned profile; defaults to the short labels below. |
 | `PREPROD_TEST_WALLETS_FILE` | Mode-0600 ignored Preprod fixture wallet file. |
 | `RECLAIM_E2E_FIXTURE_MODE` | Optional `prepare` (default without an outref) or `existing` (requires an explicit outref). |
-| `RECLAIM_E2E_CLAIM_OUTREF` | Optional one-input ADA-only outref for explicit `existing` recovery/debug mode; unset for the merge gate. |
-| `RECLAIM_E2E_VERCEL_BYPASS_SECRET` | Optional deployment-protection automation secret. |
-| `RECLAIM_E2E_VERCEL_PROJECT_HOST_PREFIX` | Optional repository variable used by automatic resolution; defaults to `proof-tool-` and must match immutable Preview hostnames. |
+| `RECLAIM_E2E_CLAIM_OUTREF` | Optional one-input ADA-only outref for explicit `existing` recovery/debug mode; unset when preparing a fresh fixture. |
 | `RECLAIM_PROVIDER` and provider credentials | Optional local read/funding provider configuration; defaults to public Preprod Koios. |
 | `RECLAIM_E2E_SUBMIT_TRANSACTIONS` | Must equal `1` as the explicit live-Preprod approval gate. |
 | `RECLAIM_E2E_OUTPUT_DIR` | Ignored output root; the runner adds a unique timestamp/SHA run directory. |
@@ -249,7 +216,7 @@ The claim journey uses two Lace roles:
 | `safe_claim_destination` | `safe_claim_dest` | Connect/read and approve the final claim transaction only. |
 
 The funder is a harness precondition, not a claim-flow user step. Before the
-claimant journey, the default `prepare` mode opens the exact Preview's
+claimant journey, the default `prepare` mode opens the local production
 `/reclaim` page in a separate headless bundled-Chromium context, injects only
 the ignored `reclaim_funder` Preprod wallet, and creates one ADA-only reclaim
 UTxO for `compromised_user` through the funding UI. It records the submitted
@@ -389,7 +356,7 @@ is masked.
 
 ## Failure Taxonomy
 
-Failures must be typed so a red required check is actionable:
+Failures must be typed so a failed local run is actionable:
 
 - `preview_url_invalid`
 - `preview_deployment_not_ready`
@@ -437,13 +404,13 @@ recorded transaction hash.
 Implementation status below describes the current working tree, not live
 acceptance evidence.
 
-### A. Preview provenance and target guard
+### A. Local production provenance and target guard
 
-- **Implemented:** add a small Node-runtime route that returns non-secret Vercel build
+- **Implemented:** add a small Node-runtime route that returns non-secret build
   provenance.
-- **Implemented:** add pure validation helpers and tests for exact URL, Preview environment,
-  commit/PR match, deployment protection, and production rejection.
-- **Implemented:** set Vercel automation headers at context creation.
+- **Implemented:** add pure validation helpers and tests for the exact loopback
+  URL, explicit local-emulation marker, commit/PR match, and production or
+  arbitrary-remote rejection.
 
 ### B. Lace driver hardening
 
@@ -459,7 +426,7 @@ acceptance evidence.
 
 - **Implemented:** add `e2e/preprod/web-app-claim-flow-wasm-lace.mjs` and focused modules rather
   than adding more conditional stages to the generic runner.
-- **Implemented:** clear only the preview origin's app storage, preserve Lace profile state, and
+- **Implemented:** clear only the loopback origin's app storage, preserve Lace profile state, and
   begin at `/`.
 - **Implemented:** drive/assert every ledger step with accessible roles and visible user labels.
 - **Implemented:** instrument requests for observation while prohibiting direct transition API
@@ -469,7 +436,7 @@ acceptance evidence.
 ### D. Fixture and provider boundary
 
 - **Implemented:** default to a separate setup context that funds one ADA-only
-  claim through the Preview `/reclaim` UI and discovers its exact provider-visible
+  claim through the local `/reclaim` UI and discovers its exact provider-visible
   outref; resume exactly one eligible fixture after an interrupted run.
 - **Implemented:** keep the funder outside Lace, allow only its expendable
   Preprod role to sign setup, and require wallet-file/Lace compromised identity
@@ -479,58 +446,28 @@ acceptance evidence.
 - **Implemented:** add provider-visible postconditions for spent input, receipt hash, and safe
   destination output index/address/value under the submitted transaction hash.
 
-### E. Package command and merge gate
+### E. Package commands and guarded push
 
-- **Implemented:** add the exact package script.
+- **Implemented:** add the no-push local package script and root test-and-push
+  wrapper.
 - **Implemented:** add focused unit/contract tests that do not spend funds.
-- **Implemented:** add an automatic PR workflow that resolves exactly one
-  successful Vercel Preview for the current same-repository PR-head SHA before
-  entering the protected Lace environment. The workflow is loaded from the
-  protected base branch, checks out only the base harness, has no branch
-  dispatch path, and prepares its own fixture.
-- **Implemented:** pin every third-party action by full commit SHA, copy the
-  stopped Lace profile template into a guarded per-run temporary directory,
-  and remove that copy after execution.
 - **Implemented:** independently parse the transaction body and observe the
   exact CIP-30 `signTx` CBOR before Lace approval; block recovery-phrase
   material in outgoing browser URLs and request bodies.
-- **Implemented:** publish the branch-protection-facing name from a hosted
-  aggregate job that fails unless resolution and the protected executor both
-  succeed, including when the executor is skipped.
-- **Implemented:** upload only secret-scan-approved artifacts.
-- **External repository setting:** configure the stable job/check name as
-  required for `main`; document fork and merge-queue behavior.
+- **Implemented:** scan retained local evidence for configured secrets and
+  refuse the push if the branch, commit, or worktree changes during the run.
+- **Deferred:** automatic hosted execution, wallet-runner provisioning, and a
+  branch-protection-facing required check.
 
-### Trusted-runner operation
+### Future trusted-runner operation
 
-Configure the `preprod-lace-e2e` GitHub environment with at least one required
-reviewer, prevent the workflow initiator from self-approving, restrict deployment
-to protected `main`, and register a one-job `--ephemeral` runner with the
-`proof-tool-preprod-lace-ephemeral` label only after approval. The host must not expose a general-purpose runner to
-other public-repository workflows. Configure these repository or environment
-variables:
-
-- `RECLAIM_E2E_LACE_EXTENSION_DIR`
-- `RECLAIM_E2E_LACE_PROFILE_DIR` (stopped, protected profile template; the
-  workflow uses only a run-local copy)
-- `RECLAIM_E2E_LACE_WALLET_FILE`
-- optional `RECLAIM_E2E_VERCEL_PROJECT_HOST_PREFIX` (defaults to
-  `proof-tool-`)
-- optional `RECLAIM_E2E_LACE_ROLE_LABELS_JSON`
-- optional `RECLAIM_PROVIDER`, `RECLAIM_KOIOS_URL`, and
-  `RECLAIM_BLOCKFROST_URL`
-
-and these secrets:
-
-- `RECLAIM_E2E_LACE_WALLET_PASSWORD`
-- optional `RECLAIM_E2E_VERCEL_BYPASS_SECRET`
-- optional `RECLAIM_KOIOS_TOKEN` or `RECLAIM_BLOCKFROST_PROJECT_ID`
+Hosted wallet-runner configuration is deliberately outside this local-only
+merge and must be specified, reviewed, provisioned, and validated separately.
 
 ### Local production claim before a PR push
 
-The deployed Vercel lane remains the only merge-gating acceptance result, but a
-maintainer can require the same user journey before updating an existing PR.
-From the repository root, run:
+The local lane provides explicit pre-push evidence for an existing PR. From the
+repository root, run:
 
 ```bash
 node scripts/push-pr-with-local-lace-claim-flow.mjs --live-preprod
@@ -553,6 +490,8 @@ The command fails before browser startup unless:
 - the worktree is clean and `HEAD` is a full commit;
 - the current branch is named and is neither `main` nor `master`;
 - GitHub reports an existing open PR whose head branch is the current branch;
+- a no-hook push dry-run confirms authentication, permission, and fast-forward
+  safety for the selected Git remote;
 - the ignored repository `.env.local` selects the canonical Preprod reclaim
   manifest; and
 - the ignored dedicated Lace `profile.env` exists with both required wallets.
@@ -565,9 +504,9 @@ or placed in a process argument.
 
 The local lane uses `next build` followed by `next start`, sets only
 non-secret Vercel identity fields for the current commit and PR, and exposes an
-explicit `localPreviewEmulation: true` provenance marker. The deployed lane
-rejects that marker, while the local lane requires it. This prevents localhost
-evidence from being confused with a real Vercel Preview.
+explicit `localPreviewEmulation: true` provenance marker. The local lane
+requires that marker, and any future deployed lane must reject it. This keeps
+localhost evidence distinct from remote Preview evidence.
 
 The Next build and server keep production mode. The separate local test driver
 removes production mode only from its own process so the existing fixture
@@ -605,11 +544,12 @@ landing page, creates all twenty screenshots, signs only with
 `safe_claim_destination`, submits to Preprod, and requires provider-visible
 spent-input and safe-destination confirmation.
 
-After success, the wrapper re-reads the branch, commit, and worktree. If
-anything changed during the long proof, it refuses to push. Otherwise it runs
-a normal non-forced push of that exact `HEAD`. Any build, browser, Lace,
-transaction, provider, or provenance failure leaves the remote branch
-untouched.
+Before browser startup, the wrapper runs a no-hook push dry-run so authentication,
+permission, or non-fast-forward failures cannot waste a funded fixture. After
+success, it re-reads the branch, commit, and worktree. If anything changed
+during the long proof, it refuses to push. Otherwise it runs a normal
+non-forced push of that exact `HEAD`. Any build, browser, Lace, transaction,
+provider, or provenance failure leaves the remote branch untouched.
 
 For diagnosis without pushing, run the local lane directly:
 
@@ -617,36 +557,18 @@ For diagnosis without pushing, run the local lane directly:
 pnpm --dir apps/ownership-proof-web test:e2e:preprod:web-app-claim-flow-wasm-lace:local-pr -- --live-preprod
 ```
 
-Local success is strong pre-push evidence, but it cannot prove that Vercel
-deployed the same commit, applied the correct protection settings, or behaves
-identically in its hosted runtime. PR #14 must still pass the exact deployed
-Preview check before merge.
-
-The normal merge gate needs no operator-supplied URL: opening, reopening,
-updating, or marking a same-repository PR ready for review starts the resolver.
-It polls GitHub's Vercel deployment status for that exact head SHA, then waits
-for approval on `preprod-lace-e2e` before scheduling the dedicated runner.
-
-There is intentionally no `workflow_dispatch` path: choosing an arbitrary
-branch would let branch-controlled workflow code reach the wallet host. An
-operator can run the package command directly on the protected host for
-diagnosis, but that cannot create the required PR check.
-
-The workflow fails if the trusted harness checkout, GitHub deployment SHA,
-Vercel build SHA, or Vercel PR id differ. Configure the aggregate job
-`Preprod web-app claim flow (WASM + Lace)` as the required check for `main`;
-do not require the resolver or executor job names independently. Protect this
-workflow and the runner/environment configuration with CODEOWNERS, independent
-environment review, and ruleset controls.
+Local success cannot prove that Vercel deployed the same commit or behaves
+identically in its hosted runtime. That limitation is explicit; this change
+does not install a partial or unprovisioned hosted workflow.
 
 ### Current verification evidence
 
-- The focused resolver/provenance/contract/fixture/provider/Lace/app-server and
-  local PR-push tests passed before the production-readiness review; the
-  hardened transaction/observer/egress tests add further focused coverage.
-- `pnpm typecheck`, the Next production build, Node syntax checks, YAML parsing,
-  direct reclaim-manifest verification, and `git diff --check` pass for the
-  current working tree.
+- The focused provenance/contract/fixture/provider/Lace/app-server and local
+  PR-push tests passed before the production-readiness review; the hardened
+  transaction/observer/egress tests add further focused coverage.
+- `pnpm typecheck`, the Next production build, Node syntax checks, direct
+  reclaim-manifest verification, and `git diff --check` pass for the reviewed
+  executable tree.
 - A fresh ignored Lace 2.1.1 profile was built with only the repo-backed
   `compromised_user` and `safe_claim_destination` Preprod fixtures, a generated
   test-only password persisted in a mode-0600 ignored `profile.env`, and the
@@ -654,28 +576,16 @@ environment review, and ruleset controls.
   that profile and reported the two account-center labels and distinct redacted
   addresses. The driver selects each containing wallet card by label instead of
   using an array index; the fixture funder remains outside Lace.
-- After applying the lane to an isolated checkout of recorded `origin/main`
-  (`214dcbb`), `pnpm typecheck`, the production Next build, and the complete
-  web-app suite passed; the suite result was 389 of 389 tests across 45 files.
-  The authoritative build and full suite used normal child-process permissions
-  because the restricted filesystem sandbox prevents the build worker and
-  manifest-verifier child processes from running correctly.
-- Applied to exact active PR #13 head
-  (`448f3b6ce584af401e3328f9afcc0d913a3dc31d`), focused tests passed 32 of
-  32, typecheck passed, the complete web-app suite passed 393 of 393 tests
-  across 45 files, and the production build passed with
-  `/claim-api/build-provenance` in the route table. This is compatibility
-  evidence only; PR #13's deployed Preview predates this lane.
-- On the earlier PR #14 head `2470626`, typecheck passed, the complete web-app
-  suite passed 403 of 403 tests across 47 files, the production build passed,
-  and a live local twenty-screen claim completed as transaction
-  `8899aa3ddcc595c87d49a069c80216356e14f18fe6a3d9d89363c53784707325`.
-  This evidence predates the trusted-base workflow and CBOR/egress hardening,
-  so the final SHA must run again.
-- The exact deployed Preview merge gate has not completed yet. Therefore there
-  is no deployed-Preview twenty-screenshot acceptance bundle, transaction
-  hash, provider confirmation, or branch-protection proof at this status; local
-  pre-push evidence cannot fill that gap.
+- On executable head `bae4357`, typecheck and the production Next build passed,
+  the complete web-app suite passed 416 of 416 tests across 48 files, and the
+  live local twenty-screen journey completed as transaction
+  `d92bf8f6d2148495084f49545c296cb7da01350da53ef00bc3f97d3497664158`.
+  Provider evidence matched the exact submission/build hash, spent claim input,
+  safe destination, and 2,000,000-lovelace output; the final receipt showed
+  `1 of 1` claimed and zero remaining.
+- Any executable change after that evidence requires a fresh exact-head local
+  run before push. Documentation-only descendants must identify the validated
+  executable parent instead of pretending they were separately spending-tested.
 
 ## Verification Matrix
 
@@ -683,13 +593,13 @@ environment review, and ruleset controls.
 | --- | --- |
 | Static | Typecheck, lint/style where configured, manifest verification, package script exists. |
 | Unit | URL/provenance guards, state-order assertions, screenshot ledger, redaction, role/signing guards, ambiguous-submit handling. |
-| Non-spending integration | Real Lace profile launch, both role mappings, connect prompts, browser-WASM capability preflight against the exact preview. |
+| Non-spending integration | Real Lace profile launch, both role mappings, connect prompts, browser-WASM capability preflight against the local production build. |
 | Live acceptance | Fresh fixture, all twenty captures, real browser-WASM proof, safe Lace signature, submitted tx, final receipt, provider-visible confirmation. |
-| Merge enforcement | Required aggregate check on the current PR merge candidate, with resolver/checkout/provenance all bound to the current PR head SHA; stale-head results are rejected. |
+| Guarded push | Clean PR branch and exact `HEAD` rechecked after acceptance; normal non-force push occurs only when unchanged. |
 
-Mocks may satisfy unit coverage only. A local production build cannot satisfy
-Preview provenance. A Lace connect smoke cannot satisfy the claim journey. A
-UI receipt without provider confirmation cannot satisfy live acceptance.
+Mocks may satisfy unit coverage only. A Lace connect smoke cannot satisfy the
+claim journey. A UI receipt without provider confirmation cannot satisfy live
+acceptance. Local evidence must not be described as deployed-Preview evidence.
 
 ## Definition of Done
 
@@ -698,8 +608,8 @@ This plan is complete only when:
 - the exact package command exists and fails closed on missing inputs;
 - it uses bundled Chromium, the dedicated Lace profile, and the unpacked Lace
   package without Computer Use or an installed Edge session;
-- it targets and verifies the exact Preprod Vercel Preview for the expected PR
-  head SHA;
+- it builds and verifies the exact clean PR `HEAD` through the loopback
+  production server and local provenance marker;
 - it starts at the landing page and performs every user claim step in order;
 - it explicitly uses real browser-WASM proving and generates no proof outside
   the page;
@@ -707,10 +617,9 @@ This plan is complete only when:
 - all mandatory screenshots and redacted run artifacts are present;
 - the receipt and provider-visible chain result agree;
 - focused tests pass and one live Preprod run produces acceptance evidence;
-- the stable GitHub check is required before merge to `main` under the
-  documented trusted-runner policy;
+- the guarded wrapper refuses to push a changed branch, commit, or worktree;
 - this document's implementation status is reconciled to the checked-in code
   and the retained evidence without overstating partial results.
 
-Until every item is met, report the lane as incomplete and do not use the
-existing Lace smoke command as a merge-approval signal.
+Until every item is met, report the local lane as incomplete and do not use the
+existing Lace smoke command as equivalent evidence.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertPushHeadStable,
+  buildPushArgs,
   parsePrPushArgs,
 } from "./push-pr-with-local-claim-flow.mjs";
 
@@ -34,5 +35,34 @@ describe("PR push with local live claim", () => {
     expect(() => assertPushHeadStable({ ...stable, afterStatus: " M changed.ts" })).toThrowError(
       expect.objectContaining({ code: "local_push_head_changed" }),
     );
+  });
+
+  it("checks push authentication and fast-forward safety before spending", () => {
+    expect(buildPushArgs({
+      branch: "colll78/feature",
+      dryRun: true,
+      remote: "origin",
+      repoRoot: "/repo",
+    })).toEqual([
+      "-C",
+      "/repo",
+      "push",
+      "--dry-run",
+      "--no-verify",
+      "origin",
+      "HEAD:refs/heads/colll78/feature",
+    ]);
+    expect(buildPushArgs({
+      branch: "colll78/feature",
+      dryRun: false,
+      remote: "origin",
+      repoRoot: "/repo",
+    })).toEqual([
+      "-C",
+      "/repo",
+      "push",
+      "origin",
+      "HEAD:refs/heads/colll78/feature",
+    ]);
   });
 });

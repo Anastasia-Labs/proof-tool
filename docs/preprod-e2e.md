@@ -226,15 +226,20 @@ existing PR, commit the intended changes and run from the repository root:
 node scripts/push-pr-with-local-lace-claim-flow.mjs --live-preprod
 ```
 
-This command requires a clean non-main branch with an open PR. It loads the
+This command requires a clean non-main branch with an open PR and working Git
+push authentication for the selected remote. It resolves the PR through
+GitHub's API without requiring the `gh` CLI; public repositories need no token,
+while `GH_TOKEN` or `GITHUB_TOKEN` may authenticate the lookup when needed.
+Before spending any Preprod funds it performs a no-hook `git push --dry-run` to
+reject authentication, permission, or non-fast-forward failures. It then loads the
 ignored root `.env.local` and dedicated Lace `profile.env`, runs a production
 `next build`/`next start` server on `127.0.0.1`, and verifies that the
 commit's Vercel stable-pointer manifest keeps the proving key and optimized CCS
 on the approved remote R2-backed asset hosts. The ignored environment still
 supplies provider/review configuration, but cannot replace the committed
 deployment manifest. The command then performs the same real browser-WASM/Lace
-journey, twenty screenshots, Preprod submission, and provider confirmation as
-the deployed lane. The Next build and server stay in production mode. Only the
+journey, twenty screenshots, Preprod submission, and provider confirmation.
+The Next build and server stay in production mode. Only the
 separate fixture-funding driver drops production mode from its own process; it
 is not injected into the app and Lace remains the transaction-signing wallet.
 
@@ -261,43 +266,9 @@ The wrapper pushes the exact tested commit only after success and refuses to
 push if the branch, commit, or worktree changes while proving. It never uses a
 force push. The explicit `--live-preprod` flag acknowledges that the run funds
 and spends a fresh Preprod fixture. Ordinary `git push` remains unchanged.
-Local success is pre-push confidence only; the exact Vercel Preview workflow is
-still the required merge check.
-
-## Hosted Vercel Preview Gate
-
-The required workflow runs on `pull_request_target`, not `pull_request`. This is
-a security boundary: the resolver and wallet-bearing host check out only the
-protected base-branch harness. They never execute the PR's workflow, scripts,
-dependencies, or checkout. The PR is tested solely by navigating bundled
-Chromium to the immutable Vercel Preview for its exact head SHA.
-
-Only same-repository, non-draft PRs may reach the protected
-`preprod-lace-e2e` environment. Forks fail before the wallet runner is
-scheduled. The environment must require independent approval and the dedicated
-runner must not carry unrelated credentials, mainnet wallets, or daily browser
-profiles. Its GitHub agent must be registered with `--ephemeral` under the
-`proof-tool-preprod-lace-ephemeral` label so it accepts one job and then
-de-registers. Every third-party action is pinned by full commit SHA.
-
-`RECLAIM_E2E_LACE_PROFILE_DIR` identifies a stopped, protected Lace profile
-template. The workflow copies it to a unique `$RUNNER_TEMP` directory, runs one
-job against the copy, then removes only that guarded temporary path. The
-template is never launched or uploaded. The workflow intentionally has no
-`workflow_dispatch` branch path because branch-controlled workflow code must
-not reach the wallet host.
-
-Before Lace approval, the trusted harness parses the unsigned transaction CBOR
-and verifies its hash, prepared claim input, safe-wallet inputs/collateral,
-plain safe-address outputs, exact destination value, and absence of unrelated
-mint, certificate, or governance actions. It wraps the page's Lace CIP-30 API
-before connection and requires the single `signTx` call to contain that exact
-CBOR with partial signing enabled. An HTTP request interceptor also blocks the
-test recovery phrase if it appears in an outgoing URL or request body.
-
-The stable aggregate check is `Preprod web-app claim flow (WASM + Lace)`. Make
-that check required for `main`; do not require the internal resolver and
-executor job names independently.
+Local success is strong pre-push evidence for the exact tested commit. It does
+not verify a deployed Vercel Preview, and this local-only lane does not install
+or require a hosted wallet-runner workflow.
 
 ## Artifacts And Secret Scan
 
