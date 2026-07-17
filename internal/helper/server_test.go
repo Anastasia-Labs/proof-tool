@@ -365,7 +365,7 @@ func TestProductionGeneratorFailsClosedWhenKeysAreMissing(t *testing.T) {
 	_, err = generator.GenerateProof(context.Background(), ProveInput{
 		MasterXPrv:       master,
 		TargetCredential: target,
-		Search:           ownership.SearchOptions{Account: -1, Role: -1, Index: -1, MaxAccount: 9, MaxIndex: 999},
+		Search:           ownership.SearchOptions{Account: -1, Role: -1, Index: -1, MaxAccount: 9, MaxIndex: defaultMaxIndex},
 	})
 	if err == nil {
 		t.Fatal("missing production key bundle did not fail")
@@ -781,7 +781,7 @@ func validProveRequest() ProveRequest {
 func validProveDestinationRequest() ProveDestinationRequest {
 	master := make([]byte, 96)
 	maxAccount := uint32(9)
-	maxIndex := uint32(999)
+	maxIndex := defaultMaxIndex
 	return ProveDestinationRequest{
 		MasterXPrvBase64: base64.StdEncoding.EncodeToString(master),
 		Profile:          DestinationProfileSingle,
