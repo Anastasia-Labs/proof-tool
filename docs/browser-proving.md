@@ -54,7 +54,7 @@ Discovery derives the hardened purpose, coin, and account prefixes once,
 traverses the soft role/index subtree from extended public keys, and
 canonically re-derives every match privately before it is cached for the
 current worker. It searches roles 0, 1, and 2 in staged index-major order over
-accounts 0 through 9 and indexes 0 through 999. Aggregate candidates, rate,
+accounts 0 through 9 and indexes 0 through 5000. Aggregate candidates, rate,
 and ETA may reach the UI; credentials and paths may not.
 
 During proving, the main worker uses the cached local path and sends scalar

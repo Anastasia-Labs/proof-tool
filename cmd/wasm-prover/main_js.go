@@ -1753,7 +1753,7 @@ func searchOptions(req searchRequest) ownership.SearchOptions {
 		opts.MaxAccount = 9
 	}
 	if opts.MaxIndex == 0 {
-		opts.MaxIndex = 999
+		opts.MaxIndex = 5000
 	}
 	if req.Account != nil {
 		opts.Account = *req.Account

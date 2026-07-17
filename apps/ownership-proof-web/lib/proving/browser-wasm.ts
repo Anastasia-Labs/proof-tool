@@ -569,7 +569,7 @@ function buildDiscoveryRequestJson(
     ],
     search: {
       max_account: 9,
-      max_index: 999,
+      max_index: 5000,
     },
   });
 }
@@ -624,7 +624,7 @@ function buildProveRequestJson(
     destination_address_hex: request.destination_address,
     search: {
       max_account: 9,
-      max_index: 999,
+      max_index: 5000,
     },
     artifacts: buildArtifactsBlock(descriptor),
     tuning: buildTuningBlock(descriptor, workerCount),
