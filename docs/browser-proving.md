@@ -39,8 +39,11 @@ contract semantics.
 The claim UI checks runtime capability before reading the recovery phrase. The
 prover worker loads `wasm_exec.js` and `proof-destination.wasm`, then performs
 automatic local credential discovery for all distinct proof targets in one
-pass. Only after every target is found does the browser open or prefetch the
-large proof assets. The Go preflight then validates:
+pass — unless every proof request already carries an explicit CIP-1852 `path`,
+in which case discovery is skipped and each path is verified against its
+target credential inside `proveDestination`. Only after every target is found
+(or paths are supplied) does the browser open or prefetch the large proof
+assets. The Go preflight then validates:
 
 - key-manifest schema, signature, key version, circuit ID, and VK identity;
 - chunk-manifest signature and coherence with the key/deployment manifests;

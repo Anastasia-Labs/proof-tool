@@ -49,6 +49,15 @@ Tests cover fixed boundary vectors, the CIP-11 role-2 vector, randomized valid
 masters and paths through roles 0 to 5, and canonical private re-verification
 of every production match.
 
+## Explicit path (skip search)
+
+Callers that already know the CIP-1852 `account` / `role` / `index` (for
+example a prior wallet scan) may pass an explicit `path` on the
+`proveDestination` request. When present, the prover skips discovery and the
+worker discovery cache, verifies that the master XPrv derives the target
+credential at that path (roles 0–2 only), then builds the witness. Omitting
+`path` keeps the automatic search below.
+
 ## Search order and bounds
 
 The default bounds remain accounts 0 through 9 and indexes 0 through 999. The
