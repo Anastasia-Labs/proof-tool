@@ -1,0 +1,100 @@
+{
+  "schema": "proof-tool-formal-helper-artifacts-v1",
+  "recorded_at": "2026-07-16",
+  "helpers": {
+    "reclaim_base_parameterized": {
+      "purpose": "Prove the current-source ReclaimBase withdrawal-membership gate for arbitrary typed configured credentials before deployment parameter application.",
+      "source_symbol": "Ownership.ReclaimBase.reclaimBaseValidatorCode",
+      "source_file": "contracts/ownership-verifier/src/Ownership/ReclaimBase.hs",
+      "generator": "formal/haskell/src/Main.hs",
+      "file": "formal/artifacts/helpers/reclaim-base-parameterized.cbor.hex",
+      "format": "single_cbor_hex",
+      "script_cbor_bytes": 191,
+      "script_cbor_sha256": "e26bec384284db56a4f9b205bc4cf4958e455750d4c7f5ded920903a98eac5d2",
+      "hex_file_sha256": "cd471b96ad0318e1b3558cd5b2fad688b741ca0b654ab09ef6c632cf3d06589f",
+      "lean_import": "ProofToolFormal.Artifacts.reclaimBaseParameterized"
+    },
+    "one_shot_parameterized": {
+      "purpose": "Prove the production OneShotNFT policy for an arbitrary typed seed output reference before deployment parameter application.",
+      "source_symbol": "Ownership.OneShotNFT.oneShotNFTPolicyCode",
+      "source_file": "contracts/ownership-verifier/src/Ownership/OneShotNFT.hs",
+      "generator": "formal/haskell/src/Main.hs",
+      "file": "formal/artifacts/helpers/one-shot-parameterized.cbor.hex",
+      "format": "single_cbor_hex",
+      "script_cbor_bytes": 2927,
+      "script_cbor_sha256": "14747377fae9b0cc04a636e7e88a1303019ef72ed2b758b43590974e96835c58",
+      "hex_file_sha256": "5ed7c560bcb466c834c53bdf52c4b057c308333e4999ffda957e7f254c332ae4",
+      "lean_import": "ProofToolFormal.Artifacts.oneShotParameterized"
+    },
+    "find_reference_input_equals": {
+      "purpose": "Exercise the production reference-index selector before top-level parameter decoding.",
+      "source_symbol": "Ownership.ReclaimGlobalV2.findReferenceInputAt",
+      "wrapper_symbol": "FormalHelpers.findReferenceInputAtEquals",
+      "source_file": "contracts/ownership-verifier/src/Ownership/ReclaimGlobalV2.hs",
+      "wrapper_file": "formal/haskell/src/FormalHelpers.hs",
+      "generator": "formal/haskell/src/Main.hs",
+      "file": "formal/artifacts/helpers/find-reference-input-equals.cbor.hex",
+      "format": "single_cbor_hex",
+      "script_cbor_bytes": 84,
+      "script_cbor_sha256": "0f529f5e32840363781ef4c4945b2bca32b66c33206f7b4cd7e9068f1bf996fe",
+      "hex_file_sha256": "5f4fb858ecd80f73d29cfa5249c9bcaf7aa78435fbcaca88cec73ae5b966252a",
+      "lean_import": "ProofToolFormal.Artifacts.findReferenceInputEquals"
+    },
+    "has_exact_param_token": {
+      "purpose": "Exercise the production parameter-NFT Value predicate for arbitrary configured policy and token bytes.",
+      "source_symbol": "Ownership.ReclaimGlobalV2.hasExactlyOneParamToken",
+      "wrapper_symbol": "Ownership.ReclaimGlobalV2.hasExactlyOneParamTokenCheck",
+      "source_file": "contracts/ownership-verifier/src/Ownership/ReclaimGlobalV2.hs",
+      "wrapper_file": "contracts/ownership-verifier/src/Ownership/ReclaimGlobalV2.hs",
+      "generator": "formal/haskell/src/Main.hs",
+      "file": "formal/artifacts/helpers/has-exact-param-token.cbor.hex",
+      "format": "single_cbor_hex",
+      "script_cbor_bytes": 155,
+      "script_cbor_sha256": "96f17ee5bcf4c0d87d4d34f1ad86ea0805260f598e62794cd74a947e9643cdb1",
+      "hex_file_sha256": "d894720f7e4dd1af6736802c1c04a24a3107a7006b5955b5db2330f87256d259",
+      "lean_import": "ProofToolFormal.Artifacts.hasExactParamToken"
+    },
+    "value_covers": {
+      "purpose": "Exercise the production ledger-normalized componentwise Value comparator.",
+      "source_symbol": "Ownership.ReclaimGlobalV2.valueCoversData",
+      "wrapper_symbol": "FormalHelpers.valueCoversDataUnit",
+      "source_file": "contracts/ownership-verifier/src/Ownership/ReclaimGlobalV2.hs",
+      "wrapper_file": "formal/haskell/src/FormalHelpers.hs",
+      "generator": "formal/haskell/src/Main.hs",
+      "file": "formal/artifacts/helpers/value-covers.cbor.hex",
+      "format": "single_cbor_hex",
+      "script_cbor_bytes": 269,
+      "script_cbor_sha256": "a883c17e0cc5910acd7eb7ba6d9618b12316df30a508f499292537ecc93a980e",
+      "hex_file_sha256": "606a9517b950d90304f8b9ad895ffd11d808c4c4adfc2ad7c462705d806a262d",
+      "lean_import": "ProofToolFormal.Artifacts.valueCovers"
+    },
+    "statement_digest_equals": {
+      "purpose": "Exercise the production domain-separated credential/destination BLAKE2b-256 statement digest.",
+      "source_symbol": "Ownership.Verify.ownershipDestinationPublicInputDigest",
+      "wrapper_symbol": "FormalHelpers.ownershipDestinationPublicInputDigestEquals",
+      "source_file": "contracts/ownership-verifier/src/Ownership/Verify.hs",
+      "wrapper_file": "formal/haskell/src/FormalHelpers.hs",
+      "generator": "formal/haskell/src/Main.hs",
+      "file": "formal/artifacts/helpers/statement-digest-equals.cbor.hex",
+      "format": "single_cbor_hex",
+      "script_cbor_bytes": 61,
+      "script_cbor_sha256": "c0d57e24947ced99e5ef009d0cfaeb5c25f40f5e4b3bb36752a6d31268932d2d",
+      "hex_file_sha256": "160e676130ed89e7484af18ca2d4ed560d259c7c3e8eb3f588bf1059216f8a50",
+      "lean_import": "ProofToolFormal.Artifacts.statementDigestEquals"
+    },
+    "batch_transcript_v2_equals": {
+      "purpose": "Exercise production V2 transcript domain, verifier-key hash, count, widths, and ordered proof/digest framing.",
+      "source_symbol": "Ownership.ReclaimGlobalV2.reclaimBatchTranscriptV2",
+      "wrapper_symbol": "FormalHelpers.reclaimBatchTranscriptV2Equals",
+      "source_file": "contracts/ownership-verifier/src/Ownership/ReclaimGlobalV2.hs",
+      "wrapper_file": "formal/haskell/src/FormalHelpers.hs",
+      "generator": "formal/haskell/src/Main.hs",
+      "file": "formal/artifacts/helpers/batch-transcript-v2-equals.cbor.hex",
+      "format": "single_cbor_hex",
+      "script_cbor_bytes": 235,
+      "script_cbor_sha256": "d047107183e0e8bfda62ac2c12a6dfbb3a902148657509f83e9bf28f5982566a",
+      "hex_file_sha256": "44eee4bfed779aafdc87a2673df5a172d768a30307233f0ccc676d5eb20470c5",
+      "lean_import": "ProofToolFormal.Artifacts.batchTranscriptV2Equals"
+    }
+  }
+}

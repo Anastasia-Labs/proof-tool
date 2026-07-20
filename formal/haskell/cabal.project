@@ -1,0 +1,19 @@
+repository cardano-haskell-packages
+  url: https://chap.intersectmbo.org/
+  secure: True
+
+with-compiler: ghc-9.6.6
+
+index-state:
+  , hackage.haskell.org 2025-01-15T00:00:00Z
+  , cardano-haskell-packages 2025-01-15T00:00:00Z
+
+packages:
+  .
+  ../../contracts/ownership-verifier
+
+program-options
+  ghc-options: -Wno-unused-packages
+
+package plutus-tx-plugin
+  flags: +use-ghc-stub

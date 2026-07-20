@@ -1,0 +1,573 @@
+{
+  "schema": "proof-tool-formal-theorem-catalog-v1",
+  "catalog_status": "proof-execution-in-progress",
+  "recorded_at": "2026-07-20",
+  "workspace_baseline_commit": "0003ac42b5a29309587ac163c9be93dad6c67a47",
+  "deployment_source_commit": "c513fd78ecb14a4119769986675d602dffa741b4",
+  "active_manifest": "apps/ownership-proof-web/public/proof-assets/reclaim-deployment.json",
+  "result_vocabulary": {
+    "Valid": "Blaster or Lean establishes the universally quantified statement within the declared scope.",
+    "Falsified": "Blaster produces a counterexample to an intentionally unsafe universal statement; ledger-validity and replay remain required.",
+    "Pass": "A deterministic artifact or cross-language gate succeeds.",
+    "Pending": "No completion claim; implementation or evidence is absent.",
+    "Undetermined": "The solver did not classify the statement; this cannot satisfy the catalog."
+  },
+  "common_scope": {
+    "language": "PlutusV3",
+    "ledger_precondition": "CardanoLedgerApi.V3.validScriptContext ctx, except entries explicitly labeled raw-data robustness",
+    "artifact_invocation_precondition": "Top-level context theorems additionally require validContextForArtifact: the spending own-input payment credential, rewarding credential, or minting currency symbol equals the exact validator or policy identity under proof.",
+    "artifact_rule": "Top-level theorems target exact exporter-produced single_cbor_hex artifacts; helper theorems target reusable compiled closed terms.",
+    "fuel_rule": "Successful and logical-failure results must be distinguished from CEK exhaustion; completeness requires an explicit within-fuel precondition.",
+    "list_rule": "Unbounded recursive-list claims require Lean induction plus SMT subgoals; finite unrolling is not universal evidence.",
+    "specification_rule": "Semantic predicates are stated in typed ledger/business terms and may not duplicate raw field walks merely to make a theorem tautological."
+  },
+  "entries": [
+    {
+      "catalog_id": "PROV-1",
+      "kind": "artifact_gate",
+      "severity": "critical",
+      "target": "deployed Preprod artifacts and the coherent current-source candidate pair",
+      "planned_name": "artifact_regeneration_matches_active_manifest",
+      "quantification": "All active script parameters and recorded verifier material are fixed by the manifest; regeneration is deterministic.",
+      "preconditions": ["deployment source and toolchain are available", "public verifier material hashes match the manifest"],
+      "statement": "Exporter bytes and Cardano script hashes equal the active manifest and reference-script identities, or any intentional source divergence is explicitly classified as a non-deployed candidate.",
+      "expected_result": "Pass",
+      "status": "Pass",
+      "evidence_required": ["provenance-lock.json", "regeneration command output", "byte digest and script-hash equality"],
+      "evidence_observed": [
+        "formal/assurance/artifact-regeneration.json and formal/assurance/public-deployment-chain.json preserve the deployed Preprod lock",
+        "the active exporter is rebuilt from the manifest-pinned deployment commit in an isolated temporary git archive rather than from divergent current source",
+        "the unchanged OneShotNFT and ParamsHolder artifacts remain tied to the active deployment",
+        "current source GlobalV2 exports as non-deployed candidate b88e02bd9d6a9e711f11941729b437c04a27368bbb10f5f95c1deebb rather than deployed 1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
+        "the simplified current-source ReclaimBase is regenerated after GlobalV2 and applies that exact candidate credential, producing non-deployed candidate 98c37bec5939bf320e387e54973bb2af68b7d839fc8ae96cc8b1ff50 rather than deployed a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
+        "19 ledger-bound exact Haskell/Lean decisions agree across the deployed artifacts and coherent candidate pair",
+        "no deployment, active manifest, or public reference-script identity has been changed"
+      ]
+    },
+    {
+      "catalog_id": "PROV-2",
+      "kind": "artifact_gate",
+      "severity": "critical",
+      "target": "all top-level proof artifacts",
+      "planned_name": "lean_import_roundtrip_matches_exporter_bytes",
+      "quantification": "Every active or supporting artifact named by the coverage matrix.",
+      "preconditions": ["exporter output is canonical single-CBOR hex"],
+      "statement": "Lean imports the exact exporter output as Plutus V3 and the imported program round-trips to the locked bytes.",
+      "expected_result": "Pass",
+      "status": "Pass",
+      "evidence_required": ["#import_uplc modules", "round-trip digest equality"],
+      "evidence_observed": [
+        "ProofToolFormal.FlatRoundTrip.oneShot_import_roundtrips_to_locked_exporter_bytes",
+        "ProofToolFormal.FlatRoundTrip.paramsHolder_import_roundtrips_to_locked_exporter_bytes",
+        "ProofToolFormal.FlatRoundTrip.reclaimBase_import_roundtrips_to_locked_exporter_bytes",
+        "ProofToolFormal.FlatRoundTrip.reclaimBaseCandidate_import_roundtrips_to_exporter_bytes",
+        "ProofToolFormal.FlatRoundTrip.reclaimGlobalV2_import_roundtrips_to_locked_exporter_bytes",
+        "ProofToolFormal.FlatRoundTrip.reclaimGlobalV2Candidate_import_roundtrips_to_exporter_bytes",
+        "an independent Lean Flat encoder re-encodes each imported AST and canonical single-CBOR wrapper to the exact locked exporter bytes"
+      ]
+    },
+    {
+      "catalog_id": "CTX-1",
+      "kind": "cross_language_gate",
+      "severity": "critical",
+      "target": "V3 ScriptContext encoding boundary",
+      "planned_name": "haskell_lean_v3_context_encoding_agrees",
+      "quantification": "Repository-backed golden contexts spanning every field and constructor consumed by production scripts.",
+      "preconditions": ["fixtures originate from the current plutus-ledger-api encoder"],
+      "statement": "Haskell and Lean encode the consumed V3 context fields identically and the exact scripts make the same decisions.",
+      "expected_result": "Pass",
+      "status": "Pass",
+      "evidence_required": ["golden Data bytes", "Lean decode/encode checks", "cross-evaluator decision log"],
+      "evidence_observed": [
+        "formal/assurance/context-goldens.json contains Haskell-generated V3 contexts spanning minting, spending, rewarding, withdrawals, inline datums, reference inputs, Values, authoritative first-four-field V2 redeemers, proof/digest lists, and destination outputs",
+        "ProofToolFormal.ContextGoldens proves exact CBOR-to-typed-context decoding plus ledger validity and active-artifact binding",
+        "formal/assurance/cross-evaluator-decisions.json records seven matching exact-artifact decisions",
+        "the active GlobalV2 success fixture uses the committed real proof/verifier key and a derived destination-bound digest; a one-bit digest substitution is rejected by both evaluators"
+      ]
+    },
+    {
+      "catalog_id": "CTX-2",
+      "kind": "model_gate",
+      "severity": "critical",
+      "target": "ledger-valid theorem family",
+      "planned_name": "ledger_valid_scope_is_nonvacuous",
+      "quantification": "Each top-level theorem module and at least one source-backed valid context per purpose.",
+      "preconditions": [],
+      "statement": "Security theorems require validScriptContext, valid source-backed contexts exist, and malformed-Data claims are separately labeled.",
+      "expected_result": "Pass",
+      "status": "Pass",
+      "evidence_required": ["valid-context witness replay", "catalog precondition audit"],
+      "evidence_observed": [
+        "ProofToolFormal.ContextGoldens.oneShot_ledger_valid",
+        "ProofToolFormal.ContextGoldens.reclaimBase_ledger_valid",
+        "ProofToolFormal.ContextGoldens.reclaimGlobalV2_ledger_valid",
+        "formal/assurance/context-goldens.json",
+        "malformed input is classified separately in ProofToolFormal.Result"
+      ]
+    },
+    {
+      "catalog_id": "CTX-3",
+      "kind": "model_gate",
+      "severity": "critical",
+      "target": "exact-artifact invocation boundary",
+      "planned_name": "artifact_invocation_scope_is_nonvacuous_and_correct",
+      "quantification": "Each top-level theorem module and at least one source-backed context for each exact artifact identity.",
+      "preconditions": ["validScriptContext ctx"],
+      "statement": "The model binds spending own-input credentials, rewarding credentials, and minting currency symbols to the exact ReclaimBase, ReclaimGlobalV2, and OneShotNFT identities under proof; validScriptContext alone is never treated as that binding.",
+      "expected_result": "Pass",
+      "status": "Pass",
+      "evidence_required": ["validContextForArtifact definitions", "positive and wrong-artifact witnesses", "catalog precondition audit"],
+      "evidence_observed": [
+        "ProofToolFormal.ModelBoundary.validContextForArtifact",
+        "generic positive and wrong-artifact lemmas for spending, rewarding, and minting",
+        "three ledger-valid active-identity witnesses in ProofToolFormal.ContextGoldens",
+        "three concrete wrong-active-artifact rejection witnesses in ProofToolFormal.ContextGoldens"
+      ]
+    },
+    {
+      "catalog_id": "PH-1",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "exact compiled ParamsHolder artifact",
+      "planned_name": "paramsHolder_always_unsuccessful",
+      "quantification": "forall (arg : Data)",
+      "preconditions": ["execution reaches a classified result within fuel"],
+      "statement": "The compiled parameter-holder validator never returns successful halt for any argument.",
+      "expected_result": "Valid",
+      "status": "Valid",
+      "anti_vacuity": "Fuel exhaustion is not counted as validator failure.",
+      "evidence_required": ["Lean theorem", "#print axioms", "compiled-script replay"],
+      "evidence_observed": [
+        "ProofToolFormal.ParamsHolder.exact_paramsHolder_always_errors quantifies over every Data argument",
+        "the exact locked single_cbor_hex artifact reaches genuine CEK machineError within 20 classified steps",
+        "#print axioms reports only propext, Classical.choice, and Quot.sound; no sorryAx or blasterProven"
+      ]
+    },
+    {
+      "catalog_id": "NFT-1",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "compiled parameterized OneShotNFT policy",
+      "planned_name": "oneShot_success_iff_seed_consumed_and_exactly_one_own_token",
+      "quantification": "forall (seed : TxOutRef) (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds ctx to the parameterized policy ID", "ctx has minting ScriptInfo", "execution is within fuel"],
+      "statement": "Success is equivalent to consuming seed and minting exactly one token name with quantity one under the policy's own currency symbol; other policies are irrelevant.",
+      "expected_result": "Valid",
+      "status": "Valid",
+      "anti_vacuity": "The reverse implication is required, not only success-implies-safety.",
+      "evidence_required": ["Lean theorem", "negative mutation theorems", "#print axioms"],
+      "evidence_observed": [
+        "ProofToolFormal.OneShotNFT.exact_active_success_iff_authorized_within_fuel proves the biconditional over every typed V3 ScriptContext for the exact active artifact",
+        "ProofToolFormal.OneShotNFT.exact_parameterized_success_iff_authorized_within_fuel proves the same property for every typed seed and context over the exact production pre-parameter helper",
+        "ProofToolFormal.OneShotNFT.exact_success_requires_minting_purpose proves the wrong-purpose negative branch",
+        "formal/assurance/one-shot-evidence.json",
+        "formal/assurance/helper-artifacts.json"
+      ]
+    },
+    {
+      "catalog_id": "NFT-CEX-1",
+      "kind": "expected_counterexample",
+      "severity": "high",
+      "target": "compiled parameterized OneShotNFT policy",
+      "planned_name": "unsafe_oneShot_success_without_seed_or_exact_mint",
+      "quantification": "forall (seed : TxOutRef) (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds ctx to the parameterized policy ID", "ctx has minting ScriptInfo"],
+      "statement": "Success implies seed is absent or own-policy mint is not exactly one token of quantity one.",
+      "expected_result": "Falsified",
+      "status": "Falsified",
+      "evidence_required": ["ledger-valid generated counterexample", "replay"],
+      "evidence_observed": [
+        "ProofToolFormal.OneShotNFT.golden_falsifies_unsafe_success_without_authorization",
+        "the generated oneShotContext is ledger-valid and bound to the exact active policy identity",
+        "the exact compiled artifact successfully halts under the 2,000,000-step Lean replay",
+        "the Haskell Plutus evaluator independently records the same successful decision in formal/assurance/cross-evaluator-decisions.json"
+      ]
+    },
+    {
+      "catalog_id": "RB-1",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "exact current-source ReclaimBase candidate and reusable parameterized closed term",
+      "planned_name": "reclaimBase_success_iff_configured_withdrawal",
+      "quantification": "forall (globalCredential : Credential) (ctx : ScriptContext)",
+      "preconditions": ["execution is within fuel"],
+      "statement": "Success is equivalent to the exact configured credential being present as a key in the transaction withdrawals map; the withdrawal amount is irrelevant.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "anti_vacuity": "Includes the authorized-implies-success direction.",
+      "evidence_required": ["parameterized helper theorem", "exact artifact corollary", "#print axioms"],
+      "evidence_observed": [
+        "ProofToolFormal.ReclaimBaseParameterized proves the generalized typed withdrawal-membership biconditional without project axioms",
+        "ProofToolFormal.ReclaimBaseCandidate replays exact candidate success and missing-withdrawal rejection at 2,000,000 CEK steps",
+        "the full Haskell suite passes all 114 tests, including at least 12,800 randomized Base cases in the observed coverage-expanded runs",
+        "the exact universal compiled bridge over the recursively encoded withdrawals list remains pending because finite symbolic CEK expansion is not accepted as induction"
+      ]
+    },
+    {
+      "catalog_id": "RB-2",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "exact current-source ReclaimBase candidate",
+      "planned_name": "reclaimBase_missing_or_wrong_configured_withdrawal_rejects",
+      "quantification": "forall (ctx : ScriptContext)",
+      "preconditions": [
+        "the exact configured credential is absent from the withdrawal keys",
+        "execution is within fuel when claiming genuine machineError rather than only nonsuccess"
+      ],
+      "statement": "A missing or different withdrawal key cannot pass the local ReclaimBase gate, and logical rejection is distinguished from exhaustion.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "evidence_required": ["Lean theorem", "branch-specific corollaries", "compiled replay"],
+      "evidence_observed": [
+        "the generalized typed membership theorem covers absent and wrong keys",
+        "ProofToolFormal.ReclaimBaseCandidate exact_candidate_missing_withdrawal_rejects_within_fuel replays genuine candidate rejection",
+        "the exact universal compiled recursive-list bridge remains pending"
+      ]
+    },
+    {
+      "catalog_id": "RB-3",
+      "kind": "lean_theorem",
+      "severity": "high",
+      "target": "exact current-source ReclaimBase candidate",
+      "planned_name": "reclaimBase_decision_is_independent_of_purpose_and_datum",
+      "quantification": "forall (globalCredential : Credential) (ctx1 ctx2 : ScriptContext) with equal withdrawal maps",
+      "preconditions": ["execution is within fuel"],
+      "statement": "Changing ScriptInfo, datum availability, datum constructor, datum fields, credential width, or configured credential constructor does not change the decision when withdrawal membership is unchanged.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "evidence_required": ["Lean theorem", "exact candidate replay", "typed-oracle comparison"],
+      "evidence_observed": [
+        "ProofToolFormal.ReclaimBaseParameterized proves ScriptInfo irrelevance for the typed withdrawal predicate without project axioms",
+        "ProofToolFormal.ReclaimBaseCandidate exact_candidate_short_datum_succeeds and exact_candidate_noncanonical_datum_succeeds replay the exact candidate",
+        "the focused Haskell suite exercises spending/rewarding/minting purpose, missing/malformed datums, arbitrary credential widths, and key-shaped parameters",
+        "the exact universal compiled recursive-list bridge remains pending"
+      ]
+    },
+    {
+      "catalog_id": "RB-CEX-1",
+      "kind": "expected_counterexample",
+      "severity": "high",
+      "target": "exact current-source ReclaimBase candidate",
+      "planned_name": "unsafe_reclaimBase_candidate_never_succeeds_with_configured_withdrawal",
+      "quantification": "forall (globalCredential : Credential) (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx"],
+      "statement": "No valid context containing the configured withdrawal can make the candidate succeed.",
+      "expected_result": "Falsified",
+      "status": "Falsified",
+      "evidence_required": ["ledger-valid generated counterexample", "compiled replay"],
+      "evidence_observed": [
+        "ProofToolFormal.ReclaimBaseCandidate exact_candidate_golden_succeeds",
+        "the source-backed golden context is ledger-valid and contains the configured withdrawal",
+        "the exact candidate successfully halts in the 2,000,000-step Lean replay"
+      ]
+    },
+    {
+      "catalog_id": "RG-1",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "exact active ReclaimGlobalV2 artifact",
+      "planned_name": "reclaimGlobalV2_success_implies_rewarding_and_selected_params",
+      "quantification": "forall (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash", "execution is within fuel"],
+      "statement": "Success implies RewardingScriptInfo, thereby rejecting deregistration and every other non-rewarding invocation that could compromise the stake-credential lifecycle. The selected reference output contains the configured parameter NFT with quantity one, permits unrelated assets, and supplies the base script hash used by the input scan. Index sign and bounds are routing/selection behavior rather than authorization properties.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "evidence_required": ["Lean theorem", "wrong-purpose/index/NFT/datum corollaries", "#print axioms"],
+      "evidence_observed": [
+        "ProofToolFormal.Result.runStepsClassified_add gives an exact resumable classified-prefix decomposition without conflating exhaustion and error",
+        "ProofToolFormal.ReclaimGlobalV2.exact_success_requires_rewarding_purpose proves that any successful 2,000,000-step execution of the exact active artifact has RewardingScriptInfo",
+        "ProofToolFormal.ReclaimGlobalV2.exact_success_requires_rewarding_purpose gives the lifecycle-preserving rejection result by contraposition for deregistration and every other non-rewarding purpose",
+        "the selected reference input, parameter NFT, and base-hash scan portions of this combined catalog property remain pending"
+      ]
+    },
+    {
+      "catalog_id": "RG-PARAM-DATUM",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "exact active ReclaimGlobalV2 artifact and selected parameter output",
+      "planned_name": "reclaimGlobalV2_success_implies_authoritative_parameter_base_hash",
+      "quantification": "forall (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash", "execution is within fuel"],
+      "statement": "Success implies the selected NFT-bearing reference output has a readable inline datum whose authoritative first byte-string field is the 28-byte base-script hash used to select reclaim inputs; constructor tag and trailing fields are ABI conformance, not authorization.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "anti_vacuity": "A source-backed successful context must expose the independently decoded authoritative field; validator success is not the definition of the field predicate.",
+      "evidence_required": ["Lean theorem", "compiled replay", "composed-system impact assessment"],
+      "evidence_observed": [
+        "formal/assurance/counterexamples/global-v2-noncanonical-datum-tags.json",
+        "a ledger-valid, active-artifact-bound context with inner parameter datum constructor tag 1 successfully halts in the exact Haskell and Lean compiled evaluators",
+        "the selected parameter NFT, sole 28-byte base hash field, real proof, digest, destination, and all other context data remain valid"
+      ],
+      "classification_note": "The preserved tag-1 witness is now classified as ABI-conformance evidence and does not falsify the authorization property; the universal exact-artifact bridge remains pending."
+    },
+    {
+      "catalog_id": "RG-BASE-DATUM",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "exact active ReclaimGlobalV2 artifact and every matching base input",
+      "planned_name": "reclaimGlobalV2_success_implies_reclaimBase_compatible_input_datums",
+      "quantification": "forall (ctx : ScriptContext) and every input selected by the configured base script hash",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash", "execution is within fuel"],
+      "statement": "Success implies each matching input has an inline datum with a 28-byte authoritative first field used as that input's ownership-statement credential; canonical constructor-0 encoding is a separate conformance condition.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "anti_vacuity": "The independently decoded authoritative field must be used in the digest/proof statement; validator success is not the definition of compatibility.",
+      "evidence_required": ["Lean theorem", "compiled replay", "composed-system impact assessment"],
+      "evidence_observed": [
+        "formal/assurance/counterexamples/global-v2-noncanonical-datum-tags.json",
+        "a ledger-valid, active-artifact-bound GlobalV2 context with inner base datum constructor tag 1 successfully halts in both exact compiled evaluators",
+        "the deployed Preprod ReclaimBase artifact independently rejects the corresponding ledger-valid spending context, while the simplified current-source candidate intentionally accepts its local gate"
+      ],
+      "classification_note": "The noncanonical constructor tag is an ABI-conformance witness, not an authorization counterexample. The universal exact-artifact bridge from success to the authoritative field remains pending."
+    },
+    {
+      "catalog_id": "RG-CEX-PARAM-DATUM-TAG",
+      "kind": "counterexample",
+      "severity": "medium",
+      "target": "exact active ReclaimGlobalV2 artifact and selected parameter output",
+      "planned_name": "reclaimGlobalV2_success_implies_canonical_parameter_datum_tag",
+      "quantification": "forall (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash", "execution is within fuel"],
+      "statement": "Success implies the selected parameter datum uses the canonical inner constructor tag 0.",
+      "expected_result": "Falsified",
+      "status": "Falsified",
+      "evidence_required": ["ledger-valid source-backed counterexample", "exact Haskell and Lean replay", "composed-system impact assessment"],
+      "evidence_observed": [
+        "formal/assurance/counterexamples/global-v2-noncanonical-datum-tags.json",
+        "changing only the inner parameter datum constructor tag from 0 to 1 preserves successful halt in both exact compiled evaluators",
+        "the authoritative 28-byte base-script hash, parameter NFT, proof, digest, destination, and all other context data remain unchanged"
+      ]
+    },
+    {
+      "catalog_id": "RG-CEX-BASE-DATUM-TAG",
+      "kind": "counterexample",
+      "severity": "medium",
+      "target": "exact active ReclaimGlobalV2 artifact and matching ReclaimBase input",
+      "planned_name": "reclaimGlobalV2_success_implies_canonical_base_datum_tag",
+      "quantification": "forall (ctx : ScriptContext) and every input selected by the configured base script hash",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash", "execution is within fuel"],
+      "statement": "Success implies each matching input datum uses the canonical inner constructor tag 0.",
+      "expected_result": "Falsified",
+      "status": "Falsified",
+      "evidence_required": ["ledger-valid source-backed counterexample", "exact Haskell and Lean replay", "composed-system impact assessment"],
+      "evidence_observed": [
+        "formal/assurance/counterexamples/global-v2-noncanonical-datum-tags.json",
+        "changing only a matching input's inner datum constructor tag from 0 to 1 preserves successful GlobalV2 halt in both exact compiled evaluators",
+        "the authoritative 28-byte credential, destination-bound proof statement, and complete value coverage remain unchanged; the deployed historical Base rejects the same spending context"
+      ]
+    },
+    {
+      "catalog_id": "RG-2",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "exact active ReclaimGlobalV2 artifact",
+      "planned_name": "reclaimGlobalV2_success_implies_exact_ordered_slot_coverage",
+      "quantification": "forall (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash", "execution is within fuel"],
+      "statement": "Success implies at least one matching base input and a one-to-one ledger-order-preserving consumption of matching inputs, proofs, digests, and destination outputs, with no missing or unused proof/digest slots.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "evidence_required": ["inductive Lean theorem", "slot-cardinality/order corollaries", "#print axioms"]
+    },
+    {
+      "catalog_id": "RG-3",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "exact active ReclaimGlobalV2 artifact and digest helpers",
+      "planned_name": "reclaimGlobalV2_success_implies_every_digest_matches_credential_and_destination",
+      "quantification": "forall (ctx : ScriptContext) and every consumed reclaim slot",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash", "execution is within fuel"],
+      "statement": "Each claimed digest equals the on-chain digest of that slot's 28-byte base credential and corresponding destinationAddressV1 bytes; reorder or substitution cannot satisfy success.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "evidence_required": ["inductive Lean theorem", "digest helper theorem", "cross-language vectors"]
+    },
+    {
+      "catalog_id": "RG-4",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "exact active ReclaimGlobalV2 artifact and Value/address helpers",
+      "planned_name": "reclaimGlobalV2_success_implies_proof_bound_destination_and_value_coverage",
+      "quantification": "forall (ctx : ScriptContext) and every consumed reclaim slot",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash", "execution is within fuel"],
+      "statement": "Every matching input is paired with the digest/proof-bound on-chain destination and its full ledger-normalized multi-asset Value is componentwise covered by the corresponding output.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "evidence_required": ["inductive Lean theorem", "Value equivalence theorem", "address encoding theorem"]
+    },
+    {
+      "catalog_id": "RG-5",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "compiled reclaimBatchTranscriptV2 closed helper and exact active validator",
+      "planned_name": "reclaimBatchTranscriptV2_commits_to_key_count_and_ordered_slots",
+      "quantification": "forall (vkHash : ByteString) (proofs digests : List Data)",
+      "preconditions": ["vkHash width is 32", "all proof widths are 336", "all digest widths are 32", "lists have equal length", "count is at most 65535"],
+      "statement": "The transcript is exactly domain, verifier-key hash, big-endian u16 count, and ordered proof/digest pairs; any component mutation changes the framed input or is rejected.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "evidence_required": ["closed-helper Lean theorem", "invalid-width/list/count theorems", "Go/TypeScript/Haskell vector agreement"]
+    },
+    {
+      "catalog_id": "RG-6",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "exact active ReclaimGlobalV2 artifact",
+      "planned_name": "reclaimGlobalV2_success_implies_pinned_verifier_checked_each_authenticated_statement",
+      "quantification": "forall (ctx : ScriptContext) and every consumed reclaim slot",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash", "execution is within fuel"],
+      "statement": "The parsed pinned verifier key and statement-bound batch verification are on the success path for every authenticated slot and final folded equations accept.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "anti_vacuity": "This is an interface/control-flow claim, not Groth16 knowledge soundness or circuit correctness.",
+      "evidence_required": ["Lean theorem", "exact verifier-key provenance", "trust-report assumptions"]
+    },
+    {
+      "catalog_id": "RG-7",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "exact active ReclaimGlobalV2 artifact",
+      "planned_name": "authorized_reclaimGlobalV2_context_is_successful",
+      "quantification": "forall (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash", "independent honestReclaimV2 predicate holds", "pinned verifier accepts the authenticated ordered slots", "execution is within the justified protocol/fuel envelope"],
+      "statement": "Every independently well-formed and cryptographically accepted honest reclaim context returns successful halt.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "anti_vacuity": "A source-backed real valid context must satisfy the antecedent; verifier acceptance may not be defined as validator success.",
+      "evidence_required": ["Lean theorem", "nonvacuity witness", "real-proof cross-evaluator replay"]
+    },
+    {
+      "catalog_id": "RG-CEX-COVERAGE",
+      "kind": "expected_counterexample",
+      "severity": "critical",
+      "target": "exact active ReclaimGlobalV2 artifact",
+      "planned_name": "unsafe_reclaimGlobalV2_success_without_exact_coverage",
+      "quantification": "forall (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash"],
+      "statement": "Success implies the independent exact ordered coverage predicate is false.",
+      "expected_result": "Falsified",
+      "status": "Falsified",
+      "evidence_required": ["ledger-valid counterexample", "compiled replay"],
+      "evidence_observed": [
+        "ProofToolFormal.ReclaimGlobalV2.real_proof_falsifies_unsafe_coverage_claim",
+        "ProofToolFormal.ReclaimGlobalV2.real_proof_context_has_exact_ordered_slot_coverage",
+        "the exact active real-proof context is ledger-valid, artifact-bound, and succeeds in both evaluators"
+      ]
+    },
+    {
+      "catalog_id": "RG-CEX-STATEMENT",
+      "kind": "expected_counterexample",
+      "severity": "critical",
+      "target": "exact active ReclaimGlobalV2 artifact",
+      "planned_name": "unsafe_reclaimGlobalV2_success_with_statement_mismatch",
+      "quantification": "forall (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash"],
+      "statement": "Success implies at least one consumed digest differs from its on-chain credential/destination statement.",
+      "expected_result": "Falsified",
+      "status": "Falsified",
+      "evidence_required": ["ledger-valid counterexample", "compiled replay"],
+      "evidence_observed": [
+        "ProofToolFormal.ReclaimGlobalV2.real_proof_falsifies_unsafe_statement_claim",
+        "ProofToolFormal.ReclaimGlobalV2.real_proof_context_has_matching_statements",
+        "the independent oracle recomputes ROOT-OWNERSHIP-DESTINATION-v1 credential/destination digests"
+      ]
+    },
+    {
+      "catalog_id": "RG-CEX-VALUE",
+      "kind": "expected_counterexample",
+      "severity": "critical",
+      "target": "exact active ReclaimGlobalV2 artifact",
+      "planned_name": "unsafe_reclaimGlobalV2_success_with_destination_underpayment",
+      "quantification": "forall (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash"],
+      "statement": "Success implies at least one paired destination output does not cover its matching input Value.",
+      "expected_result": "Falsified",
+      "status": "Falsified",
+      "evidence_required": ["ledger-valid counterexample", "compiled replay"],
+      "evidence_observed": [
+        "ProofToolFormal.ReclaimGlobalV2.real_proof_falsifies_unsafe_value_claim",
+        "ProofToolFormal.ReclaimGlobalV2.real_proof_context_has_componentwise_value_coverage",
+        "the independent oracle checks every required policy/token quantity against the paired destination"
+      ]
+    },
+    {
+      "catalog_id": "RG-CEX-NOOP",
+      "kind": "expected_counterexample",
+      "severity": "high",
+      "target": "exact active ReclaimGlobalV2 artifact",
+      "planned_name": "unsafe_no_valid_reclaimGlobalV2_context_succeeds",
+      "quantification": "forall (ctx : ScriptContext)",
+      "preconditions": ["validScriptContext ctx", "validContextForArtifact binds the rewarding credential to the exact ReclaimGlobalV2 hash"],
+      "statement": "No valid ReclaimGlobalV2 context can succeed.",
+      "expected_result": "Falsified",
+      "status": "Falsified",
+      "anti_vacuity": "Generated witness must contain at least one matching base input and replay with repository-backed proof material.",
+      "evidence_required": ["ledger-valid counterexample", "real-proof replay"],
+      "evidence_observed": [
+        "ProofToolFormal.ReclaimGlobalV2.real_proof_falsifies_unsafe_no_success_claim",
+        "ProofToolFormal.ContextGoldens.reclaimGlobalV2Success_ledger_valid",
+        "ProofToolFormal.ContextGoldens.reclaimGlobalV2Success_bound_to_active_artifact",
+        "ProofToolFormal.ConcreteReplay.exact_reclaimGlobalV2_real_proof_succeeds",
+        "active-reclaim-global-v2-real-proof-success in formal/assurance/cross-evaluator-decisions.json"
+      ]
+    },
+    {
+      "catalog_id": "SYS-1",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "composed exact active ReclaimBase and ReclaimGlobalV2 artifacts",
+      "planned_name": "successful_reclaim_transaction_implies_authenticated_destination_bound_value_coverage",
+      "quantification": "forall compatible (baseCtx globalCtx : ScriptContext) sharing one TxInfo",
+      "preconditions": ["the transaction is ledger-valid", "the input is locked by the deployed ReclaimBase identity under analysis", "the exact ReclaimBase and ReclaimGlobalV2 artifacts both succeed", "artifact coherence links the configured withdrawal credential and parameter datum to those identities", "execution is within fuel"],
+      "statement": "For every spent input locked by that ReclaimBase, the credential recorded in its datum is included in an accepted destination-bound ownership statement, and the input's complete value is paid to the authenticated destination.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "evidence_required": ["composition theorem", "artifact coherence lemmas", "#print axioms"]
+    },
+    {
+      "catalog_id": "SYS-2",
+      "kind": "lean_theorem",
+      "severity": "critical",
+      "target": "composed exact ReclaimBase and ReclaimGlobalV2 artifacts",
+      "planned_name": "correctly_formed_reclaim_transaction_succeeds_within_budget",
+      "quantification": "forall ledger-valid reclaim transactions satisfying the complete honest-construction predicate",
+      "preconditions": ["one valid destination-bound proof is supplied for every reclaimed credential", "each paired destination output covers the complete input value", "parameter and artifact coherence holds", "the declared protocol execution budget is sufficient"],
+      "statement": "A correctly formed transaction containing a valid destination-bound proof for every reclaimed credential and complete value-covering outputs succeeds within the protocol budget.",
+      "expected_result": "Valid",
+      "status": "Pending",
+      "evidence_required": ["generalized composition/completeness theorem", "real-proof witness", "explicit budget bound", "#print axioms"]
+    },
+    {
+      "catalog_id": "SYS-3",
+      "kind": "trust_gate",
+      "severity": "critical",
+      "target": "published assurance claim",
+      "planned_name": "published_trust_boundary_is_complete",
+      "quantification": "Every published theorem and evidence gate.",
+      "preconditions": [],
+      "statement": "The report states that a relayer may submit a proof and, assuming circuit correctness and Groth16 knowledge soundness, acceptance means the proof was generated from a master XPrv deriving the datum credential while the contract forces value to the proof-bound destination; it also enumerates all other reachable assumptions without broadening that claim.",
+      "expected_result": "Pass",
+      "status": "Pass",
+      "evidence_required": ["trust-report.md", "#print axioms output", "claims-language review"],
+      "evidence_observed": [
+        "formal/assurance/trust-report.md",
+        "published theorem modules include #print axioms declarations",
+        "lake build reports blasterProven, native compiler trust, standard Lean axioms, and the reachable upstream CEK admission",
+        "the report distinguishes kernel-checked induction, native closed replay, SMT-backed validity, tests, and pending obligations"
+      ]
+    },
+    {
+      "catalog_id": "EXPORT-ALTERNATIVES",
+      "kind": "coverage_gate",
+      "severity": "high",
+      "target": "global-multi exporter mode",
+      "planned_name": "all_production_reachable_export_modes_are_covered_or_guarded",
+      "quantification": "Every mode accepted by reclaim-scripts-export and reclaimGlobalExportArgs.",
+      "preconditions": [],
+      "statement": "Each non-active exported validator has its own theorem catalog or an explicit user-approved retirement/production guard; V2 results are not attributed to it.",
+      "expected_result": "Pass",
+      "status": "Pending",
+      "evidence_required": ["coverage-matrix.md", "multi theorem entries or approval-backed guard"]
+    }
+  ]
+}
