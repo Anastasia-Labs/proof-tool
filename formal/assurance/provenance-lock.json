@@ -4,7 +4,7 @@
   "recorded_at": "2026-07-20",
   "workspace": {
     "branch": "formal-methods",
-    "contract_baseline_commit": "0003ac42b5a29309587ac163c9be93dad6c67a47",
+    "contract_baseline_commit": "efaa5bddb44000c863a8adce0149e8de2e81a10f",
     "formal_workspace_scope": "formal/**"
   },
   "deployment": {
@@ -37,7 +37,7 @@
   "source_identity": {
     "source_tree": {
       "deployment_commit_tree": "49d3a4bffa1f2435eb5b35fc628e7caeb66da0c7",
-      "contract_baseline_tree": "501e014a09b04009c0ecd21862eff4d3810bb892",
+      "contract_baseline_tree": "a446adde5f671b1f9f780eee0f7c1813cd9a5f32",
       "match": false,
       "classification": "current Base and GlobalV2 source is a separately verified coherent non-deployed candidate pair; active artifacts rebuild from deployment source"
     },
@@ -124,17 +124,17 @@
     "construction_order": "export current-source GlobalV2, derive its Cardano script hash, then apply that exact credential to current-source ReclaimBase",
     "reclaim_global_v2": {
       "artifact_file": "formal/artifacts/candidate/reclaim-global-v2.cbor.hex",
-      "script_cbor_bytes": 3521,
-      "script_cbor_sha256": "4d9be0b824c60e97058fb4c2bd19827a9405679247e2f800795685aec19302c4",
-      "script_hash": "b88e02bd9d6a9e711f11941729b437c04a27368bbb10f5f95c1deebb",
+      "script_cbor_bytes": 3438,
+      "script_cbor_sha256": "db02c9c0a808c74670855daebd72906baac488c4c1fc8f53a460afa2382d8f80",
+      "script_hash": "41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7",
       "active_script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5"
     },
     "reclaim_base": {
       "artifact_file": "formal/artifacts/candidate/reclaim-base.cbor.hex",
-      "applied_global_credential": "b88e02bd9d6a9e711f11941729b437c04a27368bbb10f5f95c1deebb",
-      "script_cbor_bytes": 230,
-      "script_cbor_sha256": "a4933a8f68c8556bdbc90ca12860be7175cc04ab90e1a3d68e70a3599c15384f",
-      "script_hash": "98c37bec5939bf320e387e54973bb2af68b7d839fc8ae96cc8b1ff50",
+      "applied_global_credential": "41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7",
+      "script_cbor_bytes": 146,
+      "script_cbor_sha256": "21877e3a36f1dbd2a84ca2a8d3c698ac6b4b36682060b6e26f27323c30331770",
+      "script_hash": "736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd",
       "active_script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd"
     },
     "evidence": [
@@ -146,7 +146,7 @@
   "artifact_regeneration": {
     "script": "formal/scripts/lock-active-artifacts.mjs",
     "report": "formal/assurance/artifact-regeneration.json",
-    "report_sha256": "4d813b5f74cd039e3f723b246dcbe34b3efe74fb73b60972caeb87a9523f537d",
+    "report_sha256": "ac81a72a99d76895ca883f4c5c4af488c8200e4ce554cbb93cfbe42ef19e4170",
     "public_chain_evidence": "formal/assurance/public-deployment-chain.json",
     "public_chain_evidence_sha256": "3761b0f3ce5639205cc4b43edff2ec1081fb1030f58181f7ab2ec90e0b7af017",
     "all_identities_match": true,

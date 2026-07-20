@@ -32,14 +32,14 @@
     {
       "name": "reclaimBaseCandidate",
       "file": "formal/artifacts/candidate/reclaim-base.cbor.hex",
-      "decoded_cbor_sha256": "a4933a8f68c8556bdbc90ca12860be7175cc04ab90e1a3d68e70a3599c15384f",
-      "identity": "98c37bec5939bf320e387e54973bb2af68b7d839fc8ae96cc8b1ff50"
+      "decoded_cbor_sha256": "21877e3a36f1dbd2a84ca2a8d3c698ac6b4b36682060b6e26f27323c30331770",
+      "identity": "736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd"
     },
     {
       "name": "reclaimGlobalV2Candidate",
       "file": "formal/artifacts/candidate/reclaim-global-v2.cbor.hex",
-      "decoded_cbor_sha256": "4d9be0b824c60e97058fb4c2bd19827a9405679247e2f800795685aec19302c4",
-      "identity": "b88e02bd9d6a9e711f11941729b437c04a27368bbb10f5f95c1deebb"
+      "decoded_cbor_sha256": "db02c9c0a808c74670855daebd72906baac488c4c1fc8f53a460afa2382d8f80",
+      "identity": "41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7"
     }
   ],
   "checks": [

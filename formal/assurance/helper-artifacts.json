@@ -1,6 +1,6 @@
 {
   "schema": "proof-tool-formal-helper-artifacts-v1",
-  "recorded_at": "2026-07-16",
+  "recorded_at": "2026-07-20",
   "helpers": {
     "reclaim_base_parameterized": {
       "purpose": "Prove the current-source ReclaimBase withdrawal-membership gate for arbitrary typed configured credentials before deployment parameter application.",
@@ -9,9 +9,9 @@
       "generator": "formal/haskell/src/Main.hs",
       "file": "formal/artifacts/helpers/reclaim-base-parameterized.cbor.hex",
       "format": "single_cbor_hex",
-      "script_cbor_bytes": 191,
-      "script_cbor_sha256": "e26bec384284db56a4f9b205bc4cf4958e455750d4c7f5ded920903a98eac5d2",
-      "hex_file_sha256": "cd471b96ad0318e1b3558cd5b2fad688b741ca0b654ab09ef6c632cf3d06589f",
+      "script_cbor_bytes": 107,
+      "script_cbor_sha256": "878969636f6f883f5417984facdac169730c76a3ddc3abb934d5799c82727e5f",
+      "hex_file_sha256": "28a06305faf612d3594740c6f356646a8b7ea1a03b0ffca5f9c1b8e1380a7c7e",
       "lean_import": "ProofToolFormal.Artifacts.reclaimBaseParameterized"
     },
     "one_shot_parameterized": {

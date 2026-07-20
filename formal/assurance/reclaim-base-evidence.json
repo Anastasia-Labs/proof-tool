@@ -21,9 +21,9 @@
     "deployment_status": "candidate only; no manifest, parameter datum, reference script, or chain deployment changed",
     "artifact_file": "formal/artifacts/candidate/reclaim-base.cbor.hex",
     "export_json": "formal/artifacts/candidate/reclaim-base.plutus.json",
-    "script_hash": "98c37bec5939bf320e387e54973bb2af68b7d839fc8ae96cc8b1ff50",
-    "script_cbor_bytes": 230,
-    "script_cbor_sha256": "a4933a8f68c8556bdbc90ca12860be7175cc04ab90e1a3d68e70a3599c15384f",
+    "script_hash": "736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd",
+    "script_cbor_bytes": 146,
+    "script_cbor_sha256": "21877e3a36f1dbd2a84ca2a8d3c698ac6b4b36682060b6e26f27323c30331770",
     "flat_roundtrip_theorem": "ProofToolFormal.FlatRoundTrip.reclaimBaseCandidate_import_roundtrips_to_exporter_bytes",
     "semantics": "Success is exactly configured withdrawal-key membership. Purpose, datum presence and shape, credential width, and configured credential constructor are ignored locally.",
     "lean_modules": [
@@ -44,8 +44,8 @@
       "status": "Pending",
       "reason": "Symbolically preprocessing the recursively encoded arbitrary withdrawal list expands the CEK term instead of supplying induction; finite expansion is not accepted as a universal proof."
     },
-    "applied_global_credential": "b88e02bd9d6a9e711f11941729b437c04a27368bbb10f5f95c1deebb",
-    "contract_baseline_commit": "0003ac42b5a29309587ac163c9be93dad6c67a47"
+    "applied_global_credential": "41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7",
+    "contract_baseline_commit": "efaa5bddb44000c863a8adce0149e8de2e81a10f"
   },
   "haskell_test": {
     "command": "cd contracts/ownership-verifier && cabal test ownership-verifier-test",

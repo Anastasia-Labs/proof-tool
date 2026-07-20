@@ -3,7 +3,7 @@
   "recorded_at": "2026-07-20",
   "network": "Preprod",
   "context_goldens": "formal/assurance/context-goldens.json",
-  "context_goldens_sha256": "dee6ac77d3df659b9966fe054689eb1cddc720c83e47c94c11f1f9a475b33ee2",
+  "context_goldens_sha256": "be6686a605caffbac092495162c6dcb29928950e0698af14280e34d29efca46a",
   "lean_semantics": "PlutusV3 post-Conway BuiltinSemanticsVariant E",
   "lean_step_limit": 2000000,
   "exhaustion_policy": "A step-limit result is distinct from validator error and cannot satisfy a decision replay.",
@@ -98,7 +98,7 @@
     },
     {
       "fixture": "candidate-reclaim-base-ledger-shape",
-      "artifact_script_cbor_sha256": "a4933a8f68c8556bdbc90ca12860be7175cc04ab90e1a3d68e70a3599c15384f",
+      "artifact_script_cbor_sha256": "21877e3a36f1dbd2a84ca2a8d3c698ac6b4b36682060b6e26f27323c30331770",
       "fixture_note": "Ledger-valid spending context bound to the coherent candidate Base hash and containing the candidate GlobalV2 withdrawal credential.",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
@@ -107,7 +107,7 @@
     },
     {
       "fixture": "candidate-reclaim-base-missing-withdrawal",
-      "artifact_script_cbor_sha256": "a4933a8f68c8556bdbc90ca12860be7175cc04ab90e1a3d68e70a3599c15384f",
+      "artifact_script_cbor_sha256": "21877e3a36f1dbd2a84ca2a8d3c698ac6b4b36682060b6e26f27323c30331770",
       "haskell_compiled_decision": "validator error",
       "lean_classified_decision": "validatorError",
       "lean_theorem": "ProofToolFormal.ReclaimBaseCandidate.exact_candidate_missing_withdrawal_rejects_within_fuel",
@@ -115,7 +115,7 @@
     },
     {
       "fixture": "candidate-reclaim-base-short-datum",
-      "artifact_script_cbor_sha256": "a4933a8f68c8556bdbc90ca12860be7175cc04ab90e1a3d68e70a3599c15384f",
+      "artifact_script_cbor_sha256": "21877e3a36f1dbd2a84ca2a8d3c698ac6b4b36682060b6e26f27323c30331770",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ReclaimBaseCandidate.exact_candidate_short_datum_succeeds",
@@ -123,7 +123,7 @@
     },
     {
       "fixture": "candidate-reclaim-base-noncanonical-datum-tag",
-      "artifact_script_cbor_sha256": "a4933a8f68c8556bdbc90ca12860be7175cc04ab90e1a3d68e70a3599c15384f",
+      "artifact_script_cbor_sha256": "21877e3a36f1dbd2a84ca2a8d3c698ac6b4b36682060b6e26f27323c30331770",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ReclaimBaseCandidate.exact_candidate_noncanonical_datum_succeeds",
@@ -131,7 +131,7 @@
     },
     {
       "fixture": "candidate-reclaim-global-v2-success",
-      "artifact_script_cbor_sha256": "4d9be0b824c60e97058fb4c2bd19827a9405679247e2f800795685aec19302c4",
+      "artifact_script_cbor_sha256": "db02c9c0a808c74670855daebd72906baac488c4c1fc8f53a460afa2382d8f80",
       "fixture_note": "Ledger-valid rewarding context bound to the candidate GlobalV2 credential and referencing the coherent candidate Base hash.",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
@@ -140,7 +140,7 @@
     },
     {
       "fixture": "candidate-reclaim-global-v2-substituted-digest",
-      "artifact_script_cbor_sha256": "4d9be0b824c60e97058fb4c2bd19827a9405679247e2f800795685aec19302c4",
+      "artifact_script_cbor_sha256": "db02c9c0a808c74670855daebd72906baac488c4c1fc8f53a460afa2382d8f80",
       "haskell_compiled_decision": "validator error",
       "lean_classified_decision": "validatorError",
       "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_substituted_digest_rejects_within_fuel",
@@ -148,7 +148,7 @@
     },
     {
       "fixture": "candidate-reclaim-global-v2-noncanonical-param-datum-tag",
-      "artifact_script_cbor_sha256": "4d9be0b824c60e97058fb4c2bd19827a9405679247e2f800795685aec19302c4",
+      "artifact_script_cbor_sha256": "db02c9c0a808c74670855daebd72906baac488c4c1fc8f53a460afa2382d8f80",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_noncanonical_param_datum_tag_succeeds",
@@ -156,7 +156,7 @@
     },
     {
       "fixture": "candidate-reclaim-global-v2-noncanonical-base-datum-tag",
-      "artifact_script_cbor_sha256": "4d9be0b824c60e97058fb4c2bd19827a9405679247e2f800795685aec19302c4",
+      "artifact_script_cbor_sha256": "db02c9c0a808c74670855daebd72906baac488c4c1fc8f53a460afa2382d8f80",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_noncanonical_base_datum_tag_succeeds",
@@ -164,7 +164,7 @@
     },
     {
       "fixture": "candidate-reclaim-global-v2-malformed-redeemer",
-      "artifact_script_cbor_sha256": "4d9be0b824c60e97058fb4c2bd19827a9405679247e2f800795685aec19302c4",
+      "artifact_script_cbor_sha256": "db02c9c0a808c74670855daebd72906baac488c4c1fc8f53a460afa2382d8f80",
       "haskell_compiled_decision": "validator error",
       "lean_classified_decision": "validatorError",
       "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_unit_redeemer_rejects_within_fuel",

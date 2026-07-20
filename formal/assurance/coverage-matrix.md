@@ -18,9 +18,9 @@ It identifies:
 | Network | `Preprod` |
 | Deployment source | `c513fd78ecb14a4119769986675d602dffa741b4` |
 | Active ReclaimBase hash | `a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd` |
-| Current-source ReclaimBase candidate | `98c37bec5939bf320e387e54973bb2af68b7d839fc8ae96cc8b1ff50` (not deployed; parameterized by the candidate GlobalV2 credential) |
+| Current-source ReclaimBase candidate | `736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd` (not deployed; parameterized by the candidate GlobalV2 credential) |
 | Active ReclaimGlobal hash | `1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5` |
-| Current-source ReclaimGlobalV2 candidate | `b88e02bd9d6a9e711f11941729b437c04a27368bbb10f5f95c1deebb` (not deployed) |
+| Current-source ReclaimGlobalV2 candidate | `41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7` (not deployed) |
 | Parameter policy | `82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174` |
 | Parameter token name | `5245434c41494d504152414d53` (`RECLAIMPARAMS`) |
 | Proof-slot encoding | `full-proof-plus-public-input-digest-v2` |

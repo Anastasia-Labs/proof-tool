@@ -29,9 +29,9 @@ and Haskell compiled evaluators. The separate authorization properties
 | OneShotNFT | `82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174` | `63f75c395f950ac36f0d3465db66e16b03771161ca807017070e294979b9bc7e` | exact bytes locked; `NFT-1` valid |
 | ParamsHolder | `ebb18a12777410738fdeaa77ec0fd582685d677b6b34de9a6e3b6d7e` | `b59ac3cea50e634b57f811c3d6ef95a8e5ad1837cb23706d249fb6c0cd4142ee` | exact identity locked; `PH-1` valid |
 | ReclaimBase (deployed Preprod) | `a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd` | `ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af` | exact historical bytes and old-semantics theorems preserved |
-| ReclaimBase (current source candidate) | `98c37bec5939bf320e387e54973bb2af68b7d839fc8ae96cc8b1ff50` | `a4933a8f68c8556bdbc90ca12860be7175cc04ab90e1a3d68e70a3599c15384f` | paired with candidate GlobalV2 credential `b88e02bd…eebb`; not deployed; concrete exact replays pass; `RB-1..3` universal compiled bridge pending |
+| ReclaimBase (current source candidate) | `736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd` | `21877e3a36f1dbd2a84ca2a8d3c698ac6b4b36682060b6e26f27323c30331770` | paired with candidate GlobalV2 credential `41ab67af…19e7`; not deployed; concrete exact replays pass; `RB-1..3` universal compiled bridge pending |
 | ReclaimGlobalV2 (deployed Preprod) | `1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5` | `ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c` | exact bytes locked; two typed-shape properties falsified; generalized top-level properties pending |
-| ReclaimGlobalV2 (current source candidate) | `b88e02bd9d6a9e711f11941729b437c04a27368bbb10f5f95c1deebb` | `4d9be0b824c60e97058fb4c2bd19827a9405679247e2f800795685aec19302c4` | not deployed; coherent candidate contexts and five exact positive/negative replays pass; universal compiled bridge pending |
+| ReclaimGlobalV2 (current source candidate) | `41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7` | `db02c9c0a808c74670855daebd72906baac488c4c1fc8f53a460afa2382d8f80` | not deployed; coherent candidate contexts and five exact positive/negative replays pass; universal compiled bridge pending |
 
 The deployed script/policy identities remain matched to the public Preprod
 manifest and reference-script evidence. Current source intentionally differs
@@ -116,8 +116,8 @@ change was made without deploying or relabeling the resulting candidate.
 - The active manifest verifier passes directly and reports the statement-bound
   V2 profile and explicit seven-slot policy.
 - The candidate verifier rebuilds in deployment order and reproduces GlobalV2
-  hash `b88e02bd9d6a9e711f11941729b437c04a27368bbb10f5f95c1deebb`, then Base hash
-  `98c37bec5939bf320e387e54973bb2af68b7d839fc8ae96cc8b1ff50` parameterized by
+  hash `41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7`, then Base hash
+  `736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd` parameterized by
   that exact GlobalV2 credential.
 - The default assurance workspace gate rebuilds active artifacts from the
   manifest-pinned deployment commit, rebuilds the coherent current-source
