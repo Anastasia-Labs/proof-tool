@@ -31,10 +31,6 @@ builtinIf :: BI.BuiltinBool -> a -> a -> a
 builtinIf condition trueBranch falseBranch =
   BI.ifThenElse condition (\_ -> trueBranch) (\_ -> falseBranch) BI.unitval
 
-{-# INLINABLE builtinToBool #-}
-builtinToBool :: BI.BuiltinBool -> Bool
-builtinToBool condition = builtinIf condition True False
-
 -- | Extract the withdrawal map from a library-encoded V3 ScriptContext.
 -- The ledger constructs both single-constructor records and guarantees their
 -- field counts. In plutus-ledger-api-1.38.0.0, txInfoWdrl is fixed at field 6,
@@ -71,6 +67,22 @@ withdrawalKeyPresent expectedKey entries =
     )
     entries
 
+-- | Production-only traversal that returns the validator result directly.
+-- Keep 'withdrawalKeyPresent' as the observable Boolean helper used by tests,
+-- while avoiding its BuiltinBool-to-Bool conversion in the compiled script.
+{-# INLINABLE requireWithdrawalKey #-}
+requireWithdrawalKey :: BuiltinData -> BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> BuiltinUnit
+requireWithdrawalKey expectedKey entries =
+  B.caseList
+    (\() -> traceError "reclaim global withdrawal missing")
+    ( \entry rest ->
+        builtinIf
+          (BI.equalsData expectedKey (BI.fst entry))
+          BI.unitval
+          (requireWithdrawalKey expectedKey rest)
+    )
+    entries
+
 -- | Minimal production gate. The configured withdrawal key is applied at the
 -- deployment boundary. For the audited script-credential deployment, its
 -- presence causes the ledger to execute the corresponding global rewarding
@@ -88,7 +100,9 @@ reclaimBaseValidatorBuiltin globalCredentialData ctx =
 {-# INLINABLE reclaimBaseValidatorDataUntyped #-}
 reclaimBaseValidatorDataUntyped :: BuiltinData -> BuiltinData -> BuiltinUnit
 reclaimBaseValidatorDataUntyped globalCredentialData ctx =
-  check $ builtinToBool $ reclaimBaseValidatorBuiltin globalCredentialData ctx
+  requireWithdrawalKey
+    globalCredentialData
+    (BI.unsafeDataAsMap (txInfoWdrlFromContextData ctx))
 
 -- The deployment/export boundary applies the already encoded credential Data
 -- to this code, so withdrawal-key Data is a compiled constant rather than

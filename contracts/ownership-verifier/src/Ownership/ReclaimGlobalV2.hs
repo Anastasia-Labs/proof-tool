@@ -52,8 +52,8 @@ import Ownership.Verify
   , ownershipProofBatchChallengeV2
   , ownershipProofBatchDomainV2
   , parseVerifyingKeyBatch
-  , verifyCommittedProofGrothBatch
-  , verifyCommittedProofPokBatchWithBatchVK
+  , verifyCommittedProofGrothBatchBuiltin
+  , verifyCommittedProofPokBatchWithBatchVKBuiltin
   )
 
 data ReclaimGlobalParams = ReclaimGlobalParams
@@ -114,11 +114,6 @@ builtinIf condition trueBranch falseBranch =
     (\_ -> trueBranch)
     (\_ -> falseBranch)
     BI.unitval
-
-{-# INLINABLE boolToBuiltin #-}
-boolToBuiltin :: Bool -> BI.BuiltinBool
-boolToBuiltin condition =
-  if condition then BI.true else BI.false
 
 {-# INLINABLE builtinAnd #-}
 builtinAnd :: BI.BuiltinBool -> BI.BuiltinBool -> BI.BuiltinBool
@@ -182,13 +177,15 @@ dropAtData errorMessage idx values =
   go idx values
   where
     go !n !remaining =
-      if n == 0
-        then remaining
-        else
+      builtinIf
+        (BI.equalsInteger n 0)
+        remaining
+        (
           B.caseList
             (\() -> traceError errorMessage)
             (\_ rest -> go (n - 1) rest)
             remaining
+        )
 
 {-# INLINABLE findReferenceInputAtData #-}
 findReferenceInputAtData :: Integer -> BI.BuiltinList BuiltinData -> BuiltinData
@@ -400,6 +397,45 @@ reclaimBatchTranscriptV2 verifierKeyHash proofs publicInputDigests =
         )
         remainingProofs
 
+-- The enclosing validator proves these widths on every accepted path: the
+-- proof parser requires 336 bytes and the claimed digest must equal the
+-- computed 32-byte statement digest. Keep only list alignment and count
+-- framing on the production transcript path.
+{-# INLINABLE reclaimBatchTranscriptKnownWidthsV2 #-}
+reclaimBatchTranscriptKnownWidthsV2 :: BuiltinByteString -> BI.BuiltinList BuiltinData -> BI.BuiltinList BuiltinData -> BuiltinByteString
+reclaimBatchTranscriptKnownWidthsV2 verifierKeyHash proofs publicInputDigests =
+  let !(!count, !items) = go 0 proofs publicInputDigests
+      !header =
+        (ownershipProofBatchDomainV2 <> verifierKeyHash)
+          <> integerToByteString BigEndian 2 count
+   in header <> items
+  where
+    go !count !remainingProofs !remainingDigests =
+      B.caseList
+        ( \() ->
+            B.caseList
+              (\() -> (count, emptyByteString))
+              (\_ _ -> traceError "reclaim proof/digest list lengths differ")
+              remainingDigests
+        )
+        ( \proofData moreProofs ->
+            B.caseList
+              (\() -> traceError "reclaim proof/digest list lengths differ")
+              ( \digestData moreDigests ->
+                  let !proof = BI.unsafeDataAsB proofData
+                      !digest = BI.unsafeDataAsB digestData
+                   in builtinIf
+                        (BI.lessThanInteger count 65535)
+                        ( let !item = proof <> digest
+                              !(!finalCount, !remainingItems) = go (count + 1) moreProofs moreDigests
+                           in (finalCount, item <> remainingItems)
+                        )
+                        (traceError "reclaim batch count exceeds u16")
+              )
+              remainingDigests
+        )
+        remainingProofs
+
 {-# INLINABLE decodeBasePaymentKeyHashFromFields #-}
 decodeBasePaymentKeyHashFromFields :: BI.BuiltinList BuiltinData -> BuiltinByteString
 decodeBasePaymentKeyHashFromFields txOutFields =
@@ -414,23 +450,18 @@ decodeBasePaymentKeyHashFromFields txOutFields =
 -- hash widths, so only the variants that change destination semantics remain
 -- branched here. Pointer staking credentials are valid ledger values but are
 -- deliberately unsupported by destinationAddressV1.
-{-# INLINABLE credentialHashBytes #-}
-credentialHashBytes :: BuiltinData -> BuiltinByteString
-credentialHashBytes credential =
-  BI.unsafeDataAsB (BI.head (constrFields credential))
-
-{-# INLINABLE credentialWireTag #-}
-credentialWireTag :: BuiltinData -> BuiltinByteString
-credentialWireTag credential =
-  let !credentialTag = constrTag credential
-   in if credentialTag == 0
-        then consByteString 1 emptyByteString
-        else consByteString 2 emptyByteString
-
 {-# INLINABLE credentialAddressBytes #-}
 credentialAddressBytes :: BuiltinData -> BuiltinByteString
 credentialAddressBytes credential =
-  credentialWireTag credential <> credentialHashBytes credential
+  let !credentialConstr = BI.unsafeDataAsConstr credential
+      !credentialTag = BI.fst credentialConstr
+      !wireTag =
+        builtinIf
+          (BI.equalsInteger credentialTag 0)
+          (consByteString 1 emptyByteString)
+          (consByteString 2 emptyByteString)
+      !credentialHash = BI.unsafeDataAsB (BI.head (BI.snd credentialConstr))
+   in wireTag <> credentialHash
 
 {-# INLINABLE zeroCredentialHash #-}
 zeroCredentialHash :: BuiltinByteString
@@ -439,14 +470,19 @@ zeroCredentialHash = B.replicateByte 28 0
 {-# INLINABLE stakeAddressBytes #-}
 stakeAddressBytes :: BuiltinData -> BuiltinByteString
 stakeAddressBytes stakingCredentialMaybe =
-  let !maybeTag = constrTag stakingCredentialMaybe
-   in if maybeTag == 1
-        then consByteString 0 zeroCredentialHash
-        else
-          let !stakingCredential = BI.head (constrFields stakingCredentialMaybe)
-           in if constrTag stakingCredential == 0
-                then credentialAddressBytes (BI.head (constrFields stakingCredential))
-                else traceError "staking pointers are unsupported"
+  let !maybeConstr = BI.unsafeDataAsConstr stakingCredentialMaybe
+      !maybeTag = BI.fst maybeConstr
+   in builtinIf
+        (BI.equalsInteger maybeTag 1)
+        (consByteString 0 zeroCredentialHash)
+        (
+          let !stakingCredential = BI.head (BI.snd maybeConstr)
+              !stakingCredentialConstr = BI.unsafeDataAsConstr stakingCredential
+           in builtinIf
+                (BI.equalsInteger (BI.fst stakingCredentialConstr) 0)
+                (credentialAddressBytes (BI.head (BI.snd stakingCredentialConstr)))
+                (traceError "staking pointers are unsupported")
+        )
 
 {-# INLINABLE destinationAddressV1FromTxOutFields #-}
 destinationAddressV1FromTxOutFields :: BI.BuiltinList BuiltinData -> BuiltinByteString
@@ -541,7 +577,7 @@ validateReclaimInputsV2 ::
 validateReclaimInputsV2 baseScriptHash parsedVerifierKey verifierKeyHash proofs publicInputDigests inputs destinationOutputs =
   first inputs proofs publicInputDigests destinationOutputs
   where
-    !batchTranscript = reclaimBatchTranscriptV2 verifierKeyHash proofs publicInputDigests
+    !batchTranscript = reclaimBatchTranscriptKnownWidthsV2 verifierKeyHash proofs publicInputDigests
     !batchChallenge = ownershipProofBatchChallengeV2 batchTranscript
 
     first !remainingInputs !remainingProofs !remainingDigests !remainingOutputs =
@@ -598,9 +634,9 @@ validateReclaimInputsV2 baseScriptHash parsedVerifierKey verifierKeyHash proofs 
               ( \() ->
                   let !foldedVkX = coefficientFirstVkX parsedVerifierKey coefficientSum foldedPub foldedECmt foldedCommitment
                    in builtinIf
-                        (boolToBuiltin (verifyCommittedProofGrothBatch parsedVerifierKey coefficientSum foldedGrothLhs foldedVkX foldedC))
+                        (verifyCommittedProofGrothBatchBuiltin parsedVerifierKey coefficientSum foldedGrothLhs foldedVkX foldedC)
                         ( builtinIf
-                            (boolToBuiltin (verifyCommittedProofPokBatchWithBatchVK parsedVerifierKey foldedCommitment foldedPok))
+                            (verifyCommittedProofPokBatchWithBatchVKBuiltin parsedVerifierKey foldedCommitment foldedPok)
                             BI.true
                             (traceError "reclaim proof commitment validation failed")
                         )

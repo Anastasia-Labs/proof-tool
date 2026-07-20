@@ -39,12 +39,14 @@ module Ownership.Verify
   , verifyOwnershipWithParsedVKKnown28
   , verifyOwnershipWithParsedVKKnown28NoPok
   , verifyCommittedProofGrothBatch
+  , verifyCommittedProofGrothBatchBuiltin
   , verifyCommittedProofMergedBatchWithBatchVK
   , verifyCommittedProofMergedWithVK
   , committedProofMergedBatchSidesWithBatchVK
   , committedProofMergedSidesWithVK
   , verifyCommittedProofPokBatch
   , verifyCommittedProofPokBatchWithBatchVK
+  , verifyCommittedProofPokBatchWithBatchVKBuiltin
   , verifyOwnershipWithVK
   , groth16VerifyCommittedParsedNoPok
   , groth16VerifyCommittedParsedBatchNoPok
@@ -56,6 +58,16 @@ module Ownership.Verify
 import PlutusTx.Prelude
 import PlutusTx.Builtins (ByteOrder (BigEndian, LittleEndian), modInteger)
 import qualified PlutusTx.Builtins.Internal as BI
+
+{-# INLINABLE builtinIf #-}
+builtinIf :: BI.BuiltinBool -> a -> a -> a
+builtinIf condition trueBranch falseBranch =
+  BI.ifThenElse condition (\_ -> trueBranch) (\_ -> falseBranch) BI.unitval
+
+{-# INLINABLE builtinToBool #-}
+builtinToBool :: BI.BuiltinBool -> Bool
+builtinToBool condition =
+  builtinIf condition True False
 
 newtype VerifyingKey = VerifyingKey BuiltinByteString
 newtype Proof = Proof BuiltinByteString
@@ -218,8 +230,9 @@ parseVerifyingKey vk =
 {-# INLINABLE parseVerifyingKeyBatch #-}
 parseVerifyingKeyBatch :: BuiltinByteString -> ParsedBatchVerifyingKey
 parseVerifyingKeyBatch vk =
-  if lengthOfByteString vk == 672
-    then
+  builtinIf
+    (BI.equalsInteger (lengthOfByteString vk) 672)
+    (
       let alpha = bls12_381_G1_uncompress (sliceByteString 0   48 vk)
           beta  = bls12_381_G2_uncompress (sliceByteString 48  96 vk)
        in ParsedBatchVerifyingKey
@@ -233,7 +246,8 @@ parseVerifyingKeyBatch vk =
             , parsedBatchCkG   = bls12_381_G2_uncompress (sliceByteString 480 96 vk)
             , parsedBatchCkGSN = bls12_381_G2_uncompress (sliceByteString 576 96 vk)
             }
-    else traceError "verifying key must be 672 bytes"
+    )
+    (traceError "verifying key must be 672 bytes")
 
 {-# INLINABLE verifyOwnershipWithParsedVK #-}
 verifyOwnershipWithParsedVK :: ParsedVerifyingKey -> BuiltinByteString -> BuiltinByteString -> Bool
@@ -436,6 +450,23 @@ verifyCommittedProofGrothBatch ::
   BuiltinBLS12_381_G1_Element ->
   Bool
 verifyCommittedProofGrothBatch
+  parsedVk
+  batchCoefficientSum
+  foldedLhs
+  foldedVkX
+  foldedC =
+  builtinToBool
+    (verifyCommittedProofGrothBatchBuiltin parsedVk batchCoefficientSum foldedLhs foldedVkX foldedC)
+
+{-# INLINABLE verifyCommittedProofGrothBatchBuiltin #-}
+verifyCommittedProofGrothBatchBuiltin ::
+  ParsedBatchVerifyingKey ->
+  Integer ->
+  BuiltinBLS12_381_MlResult ->
+  BuiltinBLS12_381_G1_Element ->
+  BuiltinBLS12_381_G1_Element ->
+  BI.BuiltinBool
+verifyCommittedProofGrothBatchBuiltin
   (ParsedBatchVerifyingKey alpha beta gamma delta _ _ _ _ _)
   batchCoefficientSum
   foldedLhs
@@ -452,7 +483,7 @@ verifyCommittedProofGrothBatch
         alphaTerm
           `bls12_381_mulMlResult` bls12_381_millerLoop foldedVkX gamma
           `bls12_381_mulMlResult` bls12_381_millerLoop foldedC delta
-   in bls12_381_finalVerify foldedLhs rhs
+   in BI.bls12_381_finalVerify foldedLhs rhs
 
 -- | Benchmark-only V2 merge of the folded Groth16 and BSB22 PoK equations.
 -- The production validators continue to call the two independent checks.
@@ -648,10 +679,23 @@ verifyCommittedProofPokBatchWithBatchVK ::
   BuiltinBLS12_381_G1_Element ->
   Bool
 verifyCommittedProofPokBatchWithBatchVK
+  parsedVk
+  foldedCommitment
+  foldedPok =
+  builtinToBool
+    (verifyCommittedProofPokBatchWithBatchVKBuiltin parsedVk foldedCommitment foldedPok)
+
+{-# INLINABLE verifyCommittedProofPokBatchWithBatchVKBuiltin #-}
+verifyCommittedProofPokBatchWithBatchVKBuiltin ::
+  ParsedBatchVerifyingKey ->
+  BuiltinBLS12_381_G1_Element ->
+  BuiltinBLS12_381_G1_Element ->
+  BI.BuiltinBool
+verifyCommittedProofPokBatchWithBatchVKBuiltin
   (ParsedBatchVerifyingKey _ _ _ _ _ _ _ ckG ckGSN)
   foldedCommitment
   foldedPok =
-  bls12_381_finalVerify
+  BI.bls12_381_finalVerify
     (bls12_381_millerLoop foldedPok ckG)
     (bls12_381_millerLoop (bls12_381_G1_neg foldedCommitment) ckGSN)
 
@@ -661,20 +705,24 @@ groth16VerifyCommittedParsedBatchNoPok
   (ParsedBatchVerifyingKey _ _ _ _ _ _ _ _ _)
   (Proof p)
   (Scalar pubBytes) =
-  if lengthOfByteString p /= 336
-    then traceError "proof must be 336 bytes"
-    else
+  builtinIf
+    (BI.equalsInteger (lengthOfByteString p) 336)
+    (
       let yBytes = sliceByteString 240 48 p
           yInt = byteStringToInteger BigEndian yBytes
-       in if yInt >= blsBaseFieldOrder
-            then traceError "commitment Y must be canonical"
-            else
+       in builtinIf
+            (BI.lessThanInteger yInt blsBaseFieldOrder)
+            (
               let a = bls12_381_G1_uncompress (sliceByteString 0   48 p)
                   b = bls12_381_G2_uncompress (sliceByteString 48  96 p)
                   c = bls12_381_G1_uncompress (sliceByteString 144 48 p)
 
                   cmtUncompressed = sliceByteString 192 96 p
-                  sortBit = if (2 * yInt) > blsBaseFieldOrder then 32 else 0
+                  sortBit =
+                    builtinIf
+                      (BI.lessThanInteger blsBaseFieldOrder (2 * yInt))
+                      32
+                      0
                   comp0  = indexByteString p 192 + 128 + sortBit
                   comp   = consByteString comp0 (sliceByteString 193 47 p)
 
@@ -685,6 +733,10 @@ groth16VerifyCommittedParsedBatchNoPok
                            `modInteger` blsScalarFieldOrder
                   pub  = byteStringToInteger LittleEndian pubBytes `modInteger` blsScalarFieldOrder
                in BatchCommittedProofCheck commitment pok a b c pub eCmt
+            )
+            (traceError "commitment Y must be canonical")
+    )
+    (traceError "proof must be 336 bytes")
 
 {-# INLINABLE groth16VerifyCommittedParsedBatchLegacyNoPok #-}
 groth16VerifyCommittedParsedBatchLegacyNoPok :: ParsedBatchVerifyingKey -> Proof -> Scalar -> CommittedProofCheck
