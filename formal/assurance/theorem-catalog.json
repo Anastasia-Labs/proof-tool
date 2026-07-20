@@ -2,7 +2,7 @@
   "schema": "proof-tool-formal-theorem-catalog-v1",
   "catalog_status": "proof-execution-in-progress",
   "recorded_at": "2026-07-20",
-  "workspace_baseline_commit": "efaa5bddb44000c863a8adce0149e8de2e81a10f",
+  "workspace_baseline_commit": "7c7ea7fbb7b0ae9d9c777d4e2c5b97a3e6c2db0e",
   "deployment_source_commit": "c513fd78ecb14a4119769986675d602dffa741b4",
   "active_manifest": "apps/ownership-proof-web/public/proof-assets/reclaim-deployment.json",
   "result_vocabulary": {
@@ -38,8 +38,8 @@
         "formal/assurance/artifact-regeneration.json and formal/assurance/public-deployment-chain.json preserve the deployed Preprod lock",
         "the active exporter is rebuilt from the manifest-pinned deployment commit in an isolated temporary git archive rather than from divergent current source",
         "the unchanged OneShotNFT and ParamsHolder artifacts remain tied to the active deployment",
-        "current source GlobalV2 exports as non-deployed candidate 41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7 rather than deployed 1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
-        "the simplified current-source ReclaimBase is regenerated after GlobalV2 and applies that exact candidate credential, producing non-deployed candidate 736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd rather than deployed a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
+        "current source GlobalV2 exports as non-deployed candidate f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582 rather than deployed 1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
+        "the simplified current-source ReclaimBase is regenerated after GlobalV2 and applies that exact candidate credential, producing non-deployed candidate c234ceda7ee98fbc61ab7c3d5c1748411718353b636010a4df60da45 rather than deployed a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
         "19 ledger-bound exact Haskell/Lean decisions agree across the deployed artifacts and coherent candidate pair",
         "no deployment, active manifest, or public reference-script identity has been changed"
       ]

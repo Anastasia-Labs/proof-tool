@@ -4,7 +4,7 @@
   "recorded_at": "2026-07-20",
   "workspace": {
     "branch": "formal-methods",
-    "contract_baseline_commit": "efaa5bddb44000c863a8adce0149e8de2e81a10f",
+    "contract_baseline_commit": "7c7ea7fbb7b0ae9d9c777d4e2c5b97a3e6c2db0e",
     "formal_workspace_scope": "formal/**"
   },
   "deployment": {
@@ -124,17 +124,17 @@
     "construction_order": "export current-source GlobalV2, derive its Cardano script hash, then apply that exact credential to current-source ReclaimBase",
     "reclaim_global_v2": {
       "artifact_file": "formal/artifacts/candidate/reclaim-global-v2.cbor.hex",
-      "script_cbor_bytes": 3438,
-      "script_cbor_sha256": "db02c9c0a808c74670855daebd72906baac488c4c1fc8f53a460afa2382d8f80",
-      "script_hash": "41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7",
+      "script_cbor_bytes": 3356,
+      "script_cbor_sha256": "5979568d5689ee65c5be038bface43807865e3aed88cb56d58d53758bf436489",
+      "script_hash": "f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582",
       "active_script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5"
     },
     "reclaim_base": {
       "artifact_file": "formal/artifacts/candidate/reclaim-base.cbor.hex",
-      "applied_global_credential": "41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7",
-      "script_cbor_bytes": 146,
-      "script_cbor_sha256": "21877e3a36f1dbd2a84ca2a8d3c698ac6b4b36682060b6e26f27323c30331770",
-      "script_hash": "736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd",
+      "applied_global_credential": "f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582",
+      "script_cbor_bytes": 132,
+      "script_cbor_sha256": "c6877d5c9180826d92a8e9c6463f8a693ae797d704810e20751b8c9a026b31d3",
+      "script_hash": "c234ceda7ee98fbc61ab7c3d5c1748411718353b636010a4df60da45",
       "active_script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd"
     },
     "evidence": [

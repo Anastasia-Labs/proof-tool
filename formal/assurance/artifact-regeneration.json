@@ -3,11 +3,11 @@
   "network": "Preprod",
   "deployment_transaction": "a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db",
   "deployment_source_commit": "c513fd78ecb14a4119769986675d602dffa741b4",
-  "workspace_contract_baseline_commit": "efaa5bddb44000c863a8adce0149e8de2e81a10f",
+  "workspace_contract_baseline_commit": "7c7ea7fbb7b0ae9d9c777d4e2c5b97a3e6c2db0e",
   "source_identity": {
     "contracts/ownership-verifier/src": {
       "deployment": "49d3a4bffa1f2435eb5b35fc628e7caeb66da0c7",
-      "contract_baseline": "a446adde5f671b1f9f780eee0f7c1813cd9a5f32",
+      "contract_baseline": "52da89cfeffc8db9ccca3fb615959a7db2aa1fd5",
       "match": false
     },
     "contracts/ownership-verifier/export": {

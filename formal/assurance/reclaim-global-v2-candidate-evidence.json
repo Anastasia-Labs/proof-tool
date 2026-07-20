@@ -2,7 +2,7 @@
   "schema": "proof-tool-reclaim-global-v2-candidate-evidence-v1",
   "recorded_at": "2026-07-20",
   "deployment_status": "candidate only; no manifest, parameter datum, reference script, or chain deployment changed",
-  "contract_baseline_commit": "efaa5bddb44000c863a8adce0149e8de2e81a10f",
+  "contract_baseline_commit": "7c7ea7fbb7b0ae9d9c777d4e2c5b97a3e6c2db0e",
   "applied_parameters": {
     "params_policy_id": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
     "params_token_name": "5245434c41494d504152414d53",
@@ -10,9 +10,9 @@
   },
   "artifact_file": "formal/artifacts/candidate/reclaim-global-v2.cbor.hex",
   "artifact_json_file": "formal/artifacts/candidate/reclaim-global-v2.plutus.json",
-  "script_cbor_bytes": 3438,
-  "script_cbor_sha256": "db02c9c0a808c74670855daebd72906baac488c4c1fc8f53a460afa2382d8f80",
-  "script_hash": "41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7",
+  "script_cbor_bytes": 3356,
+  "script_cbor_sha256": "5979568d5689ee65c5be038bface43807865e3aed88cb56d58d53758bf436489",
+  "script_hash": "f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582",
   "active_preprod_script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
   "active_preprod_script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
   "concrete_replays": [

@@ -44,8 +44,8 @@ current source pair is a candidate until deployment: Preprod still uses Base
 hash `a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd` and GlobalV2
 hash `1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5`. The coherent
 current-source candidates are Base
-`736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd`, parameterized by
-GlobalV2 `41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7`.
+`c234ceda7ee98fbc61ab7c3d5c1748411718353b636010a4df60da45`, parameterized by
+GlobalV2 `f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582`.
 
 ## Scope and meaning of success
 

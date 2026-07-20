@@ -13,7 +13,7 @@ properties in the theorem catalog.
 ## Pinned baseline
 
 The baseline was researched on 2026-07-15 and revalidated against contract
-baseline `efaa5bddb44000c863a8adce0149e8de2e81a10f` on 2026-07-20:
+baseline `7c7ea7fbb7b0ae9d9c777d4e2c5b97a3e6c2db0e` on 2026-07-20:
 
 | Component | Revision/version |
 | --- | --- |
