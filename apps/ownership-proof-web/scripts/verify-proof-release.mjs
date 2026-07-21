@@ -15,6 +15,18 @@ export async function verifyProofRelease(options = {}) {
   const baseURL = trimSlash(options.baseURL ?? "");
   const live = baseURL.length > 0;
   const webRoot = path.resolve(options.webRoot ?? "public");
+  const buildProvenance =
+    live && options.expectedCommitSha
+      ? await waitForExpectedBuildProvenance({
+          baseURL,
+          expectedCommitSha: options.expectedCommitSha,
+          fetchImpl: options.fetchImpl,
+          timeoutMs: options.provenanceTimeoutMs,
+          retryIntervalMs: options.provenanceRetryIntervalMs,
+          sleepImpl: options.sleepImpl,
+          nowImpl: options.nowImpl,
+        })
+      : null;
   const deploymentLocation = live
     ? new URL(options.deployment ?? STABLE_DEPLOYMENT_PATH, `${baseURL}/`).toString()
     : path.resolve(options.deployment ?? path.join(webRoot, STABLE_DEPLOYMENT_PATH.slice(1)));
@@ -219,6 +231,7 @@ export async function verifyProofRelease(options = {}) {
     mode: live ? "live" : "local",
     release: chunk.release,
     deployment_id: deployment.deployment_id,
+    verified_commit_sha: buildProvenance?.commitSha ?? null,
     checked_resources: fetched.size,
     bulk_assets: {
       proving_key_url: descriptor.pk_url,
@@ -226,6 +239,71 @@ export async function verifyProofRelease(options = {}) {
       chunk_transport_url: chunk.transport.base_url,
     },
   };
+}
+
+export async function waitForExpectedBuildProvenance(options = {}) {
+  const baseURL = trimSlash(options.baseURL ?? "");
+  const expectedCommitSha = String(options.expectedCommitSha ?? "").toLowerCase();
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const timeoutMs = options.timeoutMs ?? 180_000;
+  const retryIntervalMs = options.retryIntervalMs ?? 5_000;
+  const sleepImpl = options.sleepImpl ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const nowImpl = options.nowImpl ?? Date.now;
+
+  check(baseURL.length > 0, "build provenance requires a deployed base URL");
+  check(/^[0-9a-f]{40}$/u.test(expectedCommitSha), "expected build provenance commit must be a full Git SHA");
+  check(typeof fetchImpl === "function", "build provenance requires fetch");
+  check(Number.isSafeInteger(timeoutMs) && timeoutMs >= 0, "build provenance timeout must be non-negative");
+  check(
+    Number.isSafeInteger(retryIntervalMs) && retryIntervalMs > 0,
+    "build provenance retry interval must be positive",
+  );
+
+  const provenanceURL = new URL("/claim-api/build-provenance", `${baseURL}/`).toString();
+  const deadline = nowImpl() + timeoutMs;
+  let attempts = 0;
+  let lastObservation = "no response";
+
+  while (true) {
+    attempts += 1;
+    try {
+      const response = await fetchImpl(provenanceURL, {
+        cache: "no-store",
+        redirect: "error",
+      });
+      if (!response.ok) {
+        lastObservation = `HTTP ${response.status}`;
+      } else {
+        const provenance = await response.json();
+        const commitSha = String(provenance?.commitSha ?? "").toLowerCase();
+        const environment = String(provenance?.environment ?? "").toLowerCase();
+        if (
+          provenance?.schema === "proof-tool-web-build-provenance-v1" &&
+          environment === "production" &&
+          commitSha === expectedCommitSha
+        ) {
+          return Object.freeze({
+            attempts,
+            commitSha,
+            deploymentUrl: String(provenance?.deploymentUrl ?? ""),
+            environment,
+          });
+        }
+        lastObservation = `production commit ${commitSha || "missing"}`;
+      }
+    } catch (error) {
+      lastObservation = error instanceof Error ? error.message : String(error);
+    }
+
+    const remainingMs = deadline - nowImpl();
+    if (remainingMs <= 0) {
+      throw new Error(
+        `production alias did not serve expected commit ${expectedCommitSha} within ${timeoutMs}ms ` +
+          `(last observation: ${lastObservation})`,
+      );
+    }
+    await sleepImpl(Math.min(retryIntervalMs, remainingMs));
+  }
 }
 
 function verifyKeyCoherence(keyManifest, coherence, deployment) {
@@ -375,11 +453,19 @@ function parseArgs(argv) {
     if (flag === "--web-root") options.webRoot = value;
     else if (flag === "--deployment") options.deployment = value;
     else if (flag === "--base-url") options.baseURL = value;
+    else if (flag === "--expected-commit-sha") options.expectedCommitSha = value;
+    else if (flag === "--wait-timeout-ms") options.provenanceTimeoutMs = parseNonNegativeInteger(value, flag);
     else throw new Error(`unknown argument: ${flag}`);
     check(value && !value.startsWith("--"), `${flag} requires a value`);
     index += 1;
   }
   return options;
+}
+
+function parseNonNegativeInteger(value, flag) {
+  const parsed = Number(value);
+  check(Number.isSafeInteger(parsed) && parsed >= 0, `${flag} must be a non-negative integer`);
+  return parsed;
 }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {

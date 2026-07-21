@@ -2,7 +2,7 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { verifyProofRelease } from "./verify-proof-release.mjs";
+import { verifyProofRelease, waitForExpectedBuildProvenance } from "./verify-proof-release.mjs";
 
 const publicRoot = path.resolve("public");
 const deploymentPath = path.join(publicRoot, "proof-assets/reclaim-deployment.json");
@@ -42,5 +42,54 @@ describe("proof release coherence verifier", () => {
         deployment: path.join(root, "proof-assets/reclaim-deployment.json"),
       }),
     ).rejects.toThrow(/signature verification failed/u);
+  });
+
+  it("waits for the production alias to serve the expected deployment commit", async () => {
+    const expectedCommitSha = "a".repeat(40);
+    const responses = ["b".repeat(40), expectedCommitSha];
+    let now = 0;
+
+    await expect(
+      waitForExpectedBuildProvenance({
+        baseURL: "https://proof-tool.example",
+        expectedCommitSha,
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              schema: "proof-tool-web-build-provenance-v1",
+              environment: "production",
+              commitSha: responses.shift(),
+              deploymentUrl: "proof-tool-deployment.example",
+            }),
+            { status: 200 },
+          ),
+        timeoutMs: 10,
+        retryIntervalMs: 1,
+        nowImpl: () => now,
+        sleepImpl: async (ms) => {
+          now += ms;
+        },
+      }),
+    ).resolves.toMatchObject({ attempts: 2, commitSha: expectedCommitSha, environment: "production" });
+  });
+
+  it("fails closed when the production alias never reaches the expected commit", async () => {
+    const expectedCommitSha = "a".repeat(40);
+    await expect(
+      waitForExpectedBuildProvenance({
+        baseURL: "https://proof-tool.example",
+        expectedCommitSha,
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              schema: "proof-tool-web-build-provenance-v1",
+              environment: "production",
+              commitSha: "b".repeat(40),
+            }),
+            { status: 200 },
+          ),
+        timeoutMs: 0,
+      }),
+    ).rejects.toThrow(/did not serve expected commit/u);
   });
 });

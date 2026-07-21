@@ -55,7 +55,11 @@ jobs:
       }}
     runs-on: ubuntu-latest
     env:
-      BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url || inputs.base_url || vars.PROOF_RELEASE_BASE_URL || 'https://proof-tool.vercel.app' }}
+      # Vercel protects immutable deployment hostnames even for Production.
+      # Verify the public production alias, but wait until its build provenance
+      # identifies the exact deployment commit before checking signed assets.
+      BASE_URL: ${{ inputs.base_url || vars.PROOF_RELEASE_BASE_URL || 'https://proof-tool.vercel.app' }}
+      EXPECTED_COMMIT_SHA: ${{ github.event.deployment.sha || '' }}
     defaults:
       run:
         working-directory: apps/ownership-proof-web
@@ -70,4 +74,11 @@ jobs:
           cache: pnpm
           cache-dependency-path: apps/ownership-proof-web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: node scripts/verify-proof-release.mjs --base-url "$BASE_URL"
+      - if: ${{ github.event_name == 'deployment_status' }}
+        run: >-
+          node scripts/verify-proof-release.mjs
+          --base-url "$BASE_URL"
+          --expected-commit-sha "$EXPECTED_COMMIT_SHA"
+          --wait-timeout-ms 180000
+      - if: ${{ github.event_name != 'deployment_status' }}
+        run: node scripts/verify-proof-release.mjs --base-url "$BASE_URL"
