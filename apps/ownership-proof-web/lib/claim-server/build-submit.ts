@@ -54,7 +54,6 @@ const DESTINATION_PUBLIC_INPUT_DOMAIN = "ROOT-OWNERSHIP-DESTINATION-v1";
 const DESTINATION_PUBLIC_INPUT_ENCODING = "single-credential-destination-v1";
 const CARDANO_PROOF_FORMAT = "groth16-bls12-381-bsb22";
 const PROOF_SCHEMA = "root-ownership-proof-artifact-v1";
-const STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING = "full-proof-plus-public-input-digest-v2";
 const validatorToScriptHash = (LucidExports as unknown as {
   validatorToScriptHash: (script: NonNullable<UTxO["scriptRef"]>) => string;
 }).validatorToScriptHash;
@@ -205,7 +204,7 @@ export async function buildClaimTx(
     buildInputs.paramsUtxo,
     ...buildInputs.referenceScriptUtxos,
   ]));
-  if (!Array.isArray(evaluationRedeemers) || (isStatementBoundV2(deployment) && evaluationRedeemers.length === 0)) {
+  if (!Array.isArray(evaluationRedeemers) || evaluationRedeemers.length === 0) {
     throw new ClaimValidationError(
       "claim_evaluation_unavailable",
       "Provider did not return measured execution units for the claim transaction.",
@@ -307,8 +306,7 @@ export async function prepareClaimBuildPreflight(
       draft.expectedDestinationOutputStartIndex,
       proofHexes,
       proofs.map((proof) => proof.publicInputDigestHex),
-      deployment.reclaimGlobalBatchTranscriptVkHash ?? "",
-      deployment.reclaimGlobalProofSlotEncoding,
+      deployment.reclaimGlobalBatchTranscriptVkHash,
     ),
   };
 }
@@ -549,57 +547,40 @@ function destinationPublicInputDigest(credentialHex: string, destinationAddressH
   return Buffer.from(blake2b(new Uint8Array(preimage), { dkLen: 32 })).toString("hex");
 }
 
-export function encodeReclaimProofSlots(fullProofs: readonly string[], sameAsPreviousEnabled: boolean): string[] {
-  return fullProofs.map((proof, index) => {
-    if (proof.length === 0) {
-      throw new Error("full reclaim proof cannot be empty");
-    }
-    return sameAsPreviousEnabled && index > 0 && proof === fullProofs[index - 1] ? "" : proof;
-  });
-}
-
 function makeReclaimGlobalRedeemer(
   paramsIdx: number | bigint,
   destinationOutputStartIndex: number | bigint,
   fullProofs: string[],
   publicInputDigests: string[],
   verifierVkHash: string,
-  proofSlotEncoding: ReclaimDeployment["reclaimGlobalProofSlotEncoding"],
 ): string {
-  if (proofSlotEncoding === "full-proof-plus-public-input-digest-v2") {
-    if (fullProofs.length !== publicInputDigests.length) {
-      throw new Error("reclaim v2 proof/digest list lengths differ");
-    }
-    fullProofs.forEach((proof, index) => {
-      if (!/^[0-9a-f]{672}$/iu.test(proof)) {
-        throw new Error(`reclaim v2 proof ${index} must be exactly 336 bytes of hexadecimal`);
-      }
-      if (!/^[0-9a-f]{64}$/iu.test(publicInputDigests[index])) {
-        throw new Error(`reclaim v2 public input digest ${index} must be exactly 32 bytes of hexadecimal`);
-      }
-    });
-    // Run the canonical byte-level framing locally as an additional preflight
-    // guard. The transaction carries only the parallel lists; the validator
-    // independently recreates this transcript using its embedded hash.
-    buildBatchTranscriptV2(
-      decodeBlake2b256(verifierVkHash, "deployment verifier key hash"),
-      fullProofs.map((proof, index) => decodeHexBytes(proof, `reclaim v2 proof ${index}`)),
-      publicInputDigests.map((digest, index) => decodeHexBytes(digest, `reclaim v2 public input digest ${index}`)),
-    );
-    return Data.to(
-      new Constr(0, [
-        BigInt(paramsIdx),
-        BigInt(destinationOutputStartIndex),
-        fullProofs,
-        publicInputDigests,
-      ]),
-    );
+  if (fullProofs.length !== publicInputDigests.length) {
+    throw new Error("reclaim v2 proof/digest list lengths differ");
   }
-  const proofSlots = encodeReclaimProofSlots(
-    fullProofs,
-    proofSlotEncoding === "bytes-empty-same-as-previous-v1",
+  fullProofs.forEach((proof, index) => {
+    if (!/^[0-9a-f]{672}$/iu.test(proof)) {
+      throw new Error(`reclaim v2 proof ${index} must be exactly 336 bytes of hexadecimal`);
+    }
+    if (!/^[0-9a-f]{64}$/iu.test(publicInputDigests[index])) {
+      throw new Error(`reclaim v2 public input digest ${index} must be exactly 32 bytes of hexadecimal`);
+    }
+  });
+  // Run the canonical byte-level framing locally as an additional preflight
+  // guard. The transaction carries only the parallel lists; the validator
+  // independently recreates this transcript using its embedded hash.
+  buildBatchTranscriptV2(
+    decodeBlake2b256(verifierVkHash, "deployment verifier key hash"),
+    fullProofs.map((proof, index) => decodeHexBytes(proof, `reclaim v2 proof ${index}`)),
+    publicInputDigests.map((digest, index) => decodeHexBytes(digest, `reclaim v2 public input digest ${index}`)),
   );
-  return Data.to(new Constr(0, [BigInt(paramsIdx), BigInt(destinationOutputStartIndex), proofSlots]));
+  return Data.to(
+    new Constr(0, [
+      BigInt(paramsIdx),
+      BigInt(destinationOutputStartIndex),
+      fullProofs,
+      publicInputDigests,
+    ]),
+  );
 }
 
 async function loadParamsReferenceInput(
@@ -878,8 +859,7 @@ function reclaimGlobalRedeemerBuilder(input: {
       BigInt(input.destinationOutputStartIndex),
       proofs.map((proof) => proof.proofHex),
       proofs.map((proof) => proof.publicInputDigestHex),
-      input.deployment.reclaimGlobalBatchTranscriptVkHash ?? "",
-      input.deployment.reclaimGlobalProofSlotEncoding,
+      input.deployment.reclaimGlobalBatchTranscriptVkHash,
     );
   };
 }
@@ -1186,13 +1166,10 @@ export function assertMeasuredEvaluationWithinDeploymentMargin(
 ): void {
   const batching = deployment.batching;
   if (!batching) {
-    if (isStatementBoundV2(deployment)) {
-      throw new ClaimValidationError(
-        "claim_evaluation_policy_invalid",
-        "Statement-bound V2 claims require measured-execution margins in the deployment policy.",
-      );
-    }
-    return;
+    throw new ClaimValidationError(
+      "claim_evaluation_policy_invalid",
+      "Statement-bound V2 claims require measured-execution margins in the deployment policy.",
+    );
   }
   if (
     !Number.isInteger(batching.max_tx_mem_percent) ||
@@ -1202,22 +1179,16 @@ export function assertMeasuredEvaluationWithinDeploymentMargin(
     batching.max_tx_cpu_percent <= 0 ||
     batching.max_tx_cpu_percent > 100
   ) {
-    if (isStatementBoundV2(deployment)) {
-      throw new ClaimValidationError(
-        "claim_evaluation_policy_invalid",
-        "Statement-bound V2 claims require valid measured-execution margins.",
-      );
-    }
-    return;
+    throw new ClaimValidationError(
+      "claim_evaluation_policy_invalid",
+      "Statement-bound V2 claims require valid measured-execution margins.",
+    );
   }
   if (evaluation.memoryPercent === null || evaluation.cpuPercent === null) {
-    if (isStatementBoundV2(deployment)) {
-      throw new ClaimValidationError(
-        "claim_evaluation_unavailable",
-        "Provider did not return usable transaction execution limits for the claim evaluation.",
-      );
-    }
-    return;
+    throw new ClaimValidationError(
+      "claim_evaluation_unavailable",
+      "Provider did not return usable transaction execution limits for the claim evaluation.",
+    );
   }
   if (evaluation.memoryPercent > batching.max_tx_mem_percent) {
     throw new ClaimValidationError("claim_evaluation_margin_exceeded", "Claim transaction memory execution units exceed the configured deployment margin.");
@@ -1225,10 +1196,6 @@ export function assertMeasuredEvaluationWithinDeploymentMargin(
   if (evaluation.cpuPercent > batching.max_tx_cpu_percent) {
     throw new ClaimValidationError("claim_evaluation_margin_exceeded", "Claim transaction CPU execution units exceed the configured deployment margin.");
   }
-}
-
-function isStatementBoundV2(deployment: ReclaimDeployment): boolean {
-  return deployment.reclaimGlobalProofSlotEncoding === STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING;
 }
 
 function percentCeil(value: bigint, max: bigint): number {

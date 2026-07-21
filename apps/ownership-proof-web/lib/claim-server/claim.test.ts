@@ -152,8 +152,23 @@ function deployment(): ReclaimDeployment {
     paramsCurrencySymbol: "d".repeat(56),
     paramsTokenName: "5245434c41494d",
     verifierVkHash: "blake2b256:" + "e".repeat(64),
+    reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
+    reclaimGlobalBatchTranscriptVkHash: "blake2b256:" + "e".repeat(64),
     contractVersion: "v1",
     sourceCommit: "commit",
+    batching: {
+      default_utxo_count: 6,
+      optimization_utxo_count: 6,
+      hard_max_utxo_count: 7,
+      max_tx_cpu_percent: 90,
+      max_tx_mem_percent: 80,
+      distinct_7_opt_in: {
+        request_parameter: "maxUtxos",
+        request_value: 7,
+        require_explicit_request: true,
+        require_measured_execution_units: true,
+      },
+    },
   };
 }
 

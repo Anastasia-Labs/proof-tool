@@ -1,0 +1,66 @@
+{
+  "schema": "proof-tool-public-deployment-chain-evidence-v1",
+  "recorded_at": "2026-07-15",
+  "network": "Preprod",
+  "provider": {
+    "name": "Koios",
+    "endpoint": "https://preprod.koios.rest/api/v1/tx_info",
+    "request": {
+      "_tx_hashes": [
+        "a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db"
+      ],
+      "_inputs": true,
+      "_assets": true,
+      "_scripts": true,
+      "_bytecode": true
+    }
+  },
+  "deployment_transaction": {
+    "tx_hash": "a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db",
+    "block_hash": "393137b760cc5a9810d05883d079cde14c854b84702bd5c30c291908277cf5f8",
+    "block_height": 4928201,
+    "absolute_slot": 128188199,
+    "valid_contract": true,
+    "inputs": [
+      {
+        "tx_hash": "a1d0677b0b29281b422c0cd2fb6614d615d773e908d02eed20b6f98c772a0b8b",
+        "output_index": 3,
+        "lovelace": "8893219905"
+      }
+    ],
+    "mint": {
+      "policy_id": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
+      "token_name_hex": "5245434c41494d504152414d53",
+      "quantity": "1",
+      "script_type": "plutusV3",
+      "script_size_bytes": 2982,
+      "script_cbor_sha256": "63f75c395f950ac36f0d3465db66e16b03771161ca807017070e294979b9bc7e"
+    },
+    "outputs": {
+      "params": {
+        "output_index": 0,
+        "holder_script_hash": "ebb18a12777410738fdeaa77ec0fd582685d677b6b34de9a6e3b6d7e",
+        "inline_datum_cbor_hex": "d87981581ca4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd"
+      },
+      "reclaim_base_reference": {
+        "output_index": 1,
+        "script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
+        "script_size_bytes": 435,
+        "script_cbor_sha256": "ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af"
+      },
+      "reclaim_global_reference": {
+        "output_index": 2,
+        "script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
+        "script_size_bytes": 3648,
+        "script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c"
+      }
+    }
+  },
+  "one_shot_seed": {
+    "tx_hash": "a1d0677b0b29281b422c0cd2fb6614d615d773e908d02eed20b6f98c772a0b8b",
+    "output_index": 3,
+    "out_ref": "a1d0677b0b29281b422c0cd2fb6614d615d773e908d02eed20b6f98c772a0b8b#3",
+    "derivation": "The public deployment transaction has exactly one regular input. The deployer passes its selected seed input to oneShotNFTPolicyCode and collects that same UTxO in the deployment transaction. Regeneration must additionally reproduce the on-chain policy ID."
+  },
+  "safety": "This file contains only public ledger data. It contains no wallet seed, mnemonic, private key, derivation path, proof witness, or proving key."
+}

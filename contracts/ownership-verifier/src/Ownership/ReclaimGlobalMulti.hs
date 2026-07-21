@@ -292,14 +292,15 @@ scanMultiReclaimInputs baseScriptHash inputs =
         )
         remainingInputs
 
+-- These helpers receive only Address components projected from ledger-built
+-- TxOuts. The ledger fixes Credential/Maybe constructor ranges and credential
+-- hash widths, so only the variants that change destination semantics remain
+-- branched here. Pointer staking credentials are valid ledger values but are
+-- deliberately unsupported by destinationAddressV1.
 {-# INLINABLE credentialHashBytes #-}
 credentialHashBytes :: BuiltinData -> BuiltinByteString
 credentialHashBytes credential =
-  let !credentialConstr = BI.unsafeDataAsConstr credential
-      !credentialHash = BI.unsafeDataAsB (BI.head (BI.snd credentialConstr))
-   in if lengthOfByteString credentialHash == 28
-        then credentialHash
-        else traceError "credential hash must be 28 bytes"
+  BI.unsafeDataAsB (BI.head (constrFields credential))
 
 {-# INLINABLE credentialWireTag #-}
 credentialWireTag :: BuiltinData -> BuiltinByteString
@@ -307,10 +308,7 @@ credentialWireTag credential =
   let !credentialTag = constrTag credential
    in if credentialTag == 0
         then consByteString 1 emptyByteString
-        else
-          if credentialTag == 1
-            then consByteString 2 emptyByteString
-            else traceError "unsupported credential constructor"
+        else consByteString 2 emptyByteString
 
 {-# INLINABLE credentialAddressBytes #-}
 credentialAddressBytes :: BuiltinData -> BuiltinByteString
@@ -335,17 +333,10 @@ stakeAddressBytes stakingCredentialMaybe =
    in if maybeTag == 1
         then consByteString 0 zeroCredentialHash
         else
-          if maybeTag == 0
-            then
-              let !stakingCredential = BI.head (constrFields stakingCredentialMaybe)
-                  !stakingCredentialTag = constrTag stakingCredential
-               in if stakingCredentialTag == 0
-                    then credentialAddressBytes (BI.head (constrFields stakingCredential))
-                    else
-                      if stakingCredentialTag == 1
-                        then traceError "staking pointers are unsupported"
-                        else traceError "unsupported staking credential constructor"
-            else traceError "unsupported maybe staking credential constructor"
+          let !stakingCredential = BI.head (constrFields stakingCredentialMaybe)
+           in if constrTag stakingCredential == 0
+                then credentialAddressBytes (BI.head (constrFields stakingCredential))
+                else traceError "staking pointers are unsupported"
 
 {-# INLINABLE destinationAddressV1FromTxOutData #-}
 destinationAddressV1FromTxOutData :: BuiltinData -> BuiltinByteString
@@ -353,12 +344,8 @@ destinationAddressV1FromTxOutData txOut =
   let !txOutFields = constrFields txOut
       !address = field0 txOutFields
       !addressFields = constrFields address
-      !encoded =
-        credentialAddressBytes (field0 addressFields)
-          <> stakeAddressBytes (field1 addressFields)
-   in if lengthOfByteString encoded == 58
-        then encoded
-        else traceError "destination address v1 must be 58 bytes"
+   in credentialAddressBytes (field0 addressFields)
+        <> stakeAddressBytes (field1 addressFields)
 
 {-# INLINABLE multiOwnershipDomain #-}
 multiOwnershipDomain :: BuiltinByteString

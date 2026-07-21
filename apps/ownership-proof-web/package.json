@@ -12,7 +12,6 @@
     "deploy:reclaim:preprod": "node e2e/preprod/deploy-reclaim-preprod.mjs",
     "e2e:preprod:stage2g:v2:material": "node e2e/preprod/stage2g-v2-material.mjs",
     "e2e:preprod:stage2g:v2:evaluate": "node e2e/preprod/stage2g-v2-evaluate.mjs",
-    "e2e:preprod:stage2g:v2:compare": "node e2e/preprod/stage2g-v2-compare.mjs",
     "e2e:preprod:lace:setup": "node e2e/preprod/lace-profile-setup.mjs",
     "test:e2e:preprod": "node e2e/preprod/run.mjs",
     "test:e2e:preprod:lace-smoke": "RECLAIM_E2E_WALLET_MODE=lace node e2e/preprod/run.mjs",

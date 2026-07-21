@@ -32,7 +32,7 @@ reimplement that conversion at an API boundary.
 
 The active reclaim path uses the single-destination profile. The original
 ownership-only CLI and verifier remain separate development/demo surfaces and
-must not be substituted into `ReclaimGlobal`.
+must not be substituted into `ReclaimGlobalV2`.
 
 ## Code Map
 

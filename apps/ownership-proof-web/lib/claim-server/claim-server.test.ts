@@ -17,8 +17,6 @@ import type { ReclaimDeployment } from "../reclaim/types";
 import {
   CLAIM_DEFAULT_BATCH_CAP,
   CLAIM_HARD_BATCH_CAP,
-  CLAIM_LEGACY_DEFAULT_BATCH_CAP,
-  CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP,
   CLAIM_OPTIMIZATION_BATCH_CAP,
   type ClaimDraftResponse,
 } from "../claim/types";
@@ -66,6 +64,8 @@ const DEPLOYMENT: ReclaimDeployment = {
   paramsCurrencySymbol: PARAMS_POLICY,
   paramsTokenName: PARAMS_TOKEN_NAME,
   verifierVkHash: VK_HASH,
+  reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
+  reclaimGlobalBatchTranscriptVkHash: VK_HASH,
   contractVersion: "test",
   sourceCommit: "source",
   paramsUtxo: {
@@ -77,11 +77,17 @@ const DEPLOYMENT: ReclaimDeployment = {
     datum_reclaim_base_script_hash: RECLAIM_SCRIPT,
   },
   batching: {
-    default_utxo_count: CLAIM_LEGACY_DEFAULT_BATCH_CAP,
-    optimization_utxo_count: CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP,
-    hard_max_utxo_count: CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP,
-    max_tx_cpu_percent: 80,
+    default_utxo_count: CLAIM_DEFAULT_BATCH_CAP,
+    optimization_utxo_count: CLAIM_OPTIMIZATION_BATCH_CAP,
+    hard_max_utxo_count: CLAIM_HARD_BATCH_CAP,
+    max_tx_cpu_percent: 90,
     max_tx_mem_percent: 80,
+    distinct_7_opt_in: {
+      request_parameter: "maxUtxos",
+      request_value: 7,
+      require_explicit_request: true,
+      require_measured_execution_units: true,
+    },
   },
 };
 
@@ -333,47 +339,6 @@ describe("claim draft server helpers", () => {
     ).toHaveLength(2);
   });
 
-  it("preserves manifest-driven capacity above seven for legacy deployments", async () => {
-    const legacyCap = CLAIM_HARD_BATCH_CAP + 1;
-    const reclaimUtxos = Array.from({ length: legacyCap }, (_, index) =>
-      reclaimUtxo(
-        (index + 1).toString(16).padStart(2, "0"),
-        0,
-        (index + 1).toString(16).padStart(56, "0"),
-        index + 1,
-      ),
-    );
-    const provider = providerWith({
-      reclaimUtxos,
-      selectedUtxos: reclaimUtxos,
-      safeUtxos: [safeUtxo()],
-    });
-    const legacyDeployment: ReclaimDeployment = {
-      ...DEPLOYMENT,
-      batching: {
-        ...DEPLOYMENT.batching!,
-        default_utxo_count: legacyCap,
-        optimization_utxo_count: legacyCap,
-        hard_max_utxo_count: legacyCap,
-      },
-    };
-
-    const draft = await createClaimDraft(provider, legacyDeployment, {
-      deploymentId: legacyDeployment.id,
-      networkId: 0,
-      safeWalletChangeAddress: SAFE_ADDRESS,
-      safeWalletAddresses: [SAFE_ADDRESS],
-      nextBatch: true,
-    });
-
-    expect(draft.batchCap).toEqual({
-      requested: legacyCap,
-      default: legacyCap,
-      hardMax: legacyCap,
-    });
-    expect(draft.orderedInputs).toHaveLength(legacyCap);
-  });
-
   it("rejects selected malformed reclaim datums", async () => {
     const malformed = reclaimUtxo("01", 0, CREDENTIAL_1, 1, { datum: Data.to(new Constr(0, ["ab"])) });
     const provider = providerWith({
@@ -573,7 +538,7 @@ describe("claim build and submit fail closed", () => {
     ).rejects.toMatchObject({ code: "claim_evaluation_changed" });
   });
 
-  it("enforces V2's measured 90/80 margins while preserving legacy evaluation behavior", () => {
+  it("enforces V2's measured 90/80 margins", () => {
     const evaluation = {
       redeemers: [],
       totalMemory: "0",
@@ -599,8 +564,6 @@ describe("claim build and submit fail closed", () => {
     const { batching: _v2Batching, ...v2WithoutBatching } = STATEMENT_BOUND_V2_DEPLOYMENT;
     expect(() => assertMeasuredEvaluationWithinDeploymentMargin(v2WithoutBatching, evaluation)).toThrow(ClaimValidationError);
 
-    const { batching: _batching, ...legacyWithoutBatching } = DEPLOYMENT;
-    expect(() => assertMeasuredEvaluationWithinDeploymentMargin(legacyWithoutBatching, evaluation)).not.toThrow();
   });
 
   it("route-facing build refuses deployments that are missing reference scripts", async () => {
@@ -1318,7 +1281,7 @@ function proofArtifactForDraft(draft: ClaimDraftResponse, index: number): any {
       proof: "encoded-proof",
       cardano: {
         format: "groth16-bls12-381-bsb22",
-        proof_hex: "aa",
+        proof_hex: "aa".repeat(336),
         public_input_digest_hex: destinationPublicInputDigest(input.paymentCredential, output.destinationAddress),
       },
     },

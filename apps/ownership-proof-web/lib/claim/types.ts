@@ -10,11 +10,6 @@ export const CLAIM_HARD_BATCH_CAP = 7;
 export const CLAIM_DISTINCT_7_MAX_TX_CPU_PERCENT = 90;
 export const CLAIM_DISTINCT_7_MAX_TX_MEM_PERCENT = 80;
 
-// Keep legacy deployments on their pre-V2, manifest-driven capacity path.
-// These are client-side ceilings, not the V2 capacity policy above.
-export const CLAIM_LEGACY_DEFAULT_BATCH_CAP = 4;
-export const CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP = 5;
-export const CLAIM_LEGACY_HARD_BATCH_CAP = 35;
 export const DESTINATION_ADDRESS_V1_ENCODING = "destination-address-v1";
 export const DESTINATION_ADDRESS_V1_BYTES = 58;
 

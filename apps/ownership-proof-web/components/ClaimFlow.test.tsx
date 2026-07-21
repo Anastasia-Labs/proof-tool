@@ -124,36 +124,6 @@ describe("ClaimFlow", () => {
     });
   });
 
-  it("retains manifest-driven automatic capacity for legacy claim profiles", () => {
-    const rows: Parameters<typeof selectClaimBatchRows>[0] = Array.from({ length: 8 }, (_, index) => ({
-      id: index,
-      tx: String(index),
-      output: 0,
-      credential,
-      ada: "1 ADA",
-      assets: "No tokens",
-      summary: [],
-      outRefId: `${(index + 1).toString(16).padStart(64, "0")}#0`,
-      confirmationSlot: index,
-    }));
-    const deployment = {
-      available: true,
-      deployment: {
-        ...claimDeployment().deployment,
-        reclaimGlobalProofSlotEncoding: "bytes-empty-same-as-previous-v1",
-        batching: {
-          default_utxo_count: 8,
-          optimization_utxo_count: 8,
-          hard_max_utxo_count: 8,
-          max_tx_cpu_percent: 80,
-          max_tx_mem_percent: 80,
-        },
-      },
-    } as Parameters<typeof selectClaimBatchRows>[2];
-
-    expect(selectClaimBatchRows(rows, [], deployment)).toHaveLength(8);
-  });
-
   it("uses the gated fixture state from the query string", async () => {
     vi.stubEnv("NEXT_PUBLIC_CLAIM_UI_FIXTURE", "1");
     window.history.replaceState(null, "", "/claim?fixtureState=create-proofs-ready");
@@ -2258,6 +2228,8 @@ function claimDeployment() {
       paramsCurrencySymbol: "d".repeat(56),
       paramsTokenName: "",
       verifierVkHash: "e".repeat(64),
+      reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
+      reclaimGlobalBatchTranscriptVkHash: "e".repeat(64),
       contractVersion: "v1",
       sourceCommit: "f".repeat(40),
       paramsUtxo: {
@@ -2269,11 +2241,17 @@ function claimDeployment() {
         datum_reclaim_base_script_hash: "a".repeat(56),
       },
       batching: {
-        default_utxo_count: 4,
-        optimization_utxo_count: 5,
-        hard_max_utxo_count: 5,
-        max_tx_cpu_percent: 70,
-        max_tx_mem_percent: 70,
+        default_utxo_count: 6,
+        optimization_utxo_count: 6,
+        hard_max_utxo_count: 7,
+        max_tx_cpu_percent: 90,
+        max_tx_mem_percent: 80,
+        distinct_7_opt_in: {
+          request_parameter: "maxUtxos",
+          request_value: 7,
+          require_explicit_request: true,
+          require_measured_execution_units: true,
+        },
       },
     },
     manifest: {},

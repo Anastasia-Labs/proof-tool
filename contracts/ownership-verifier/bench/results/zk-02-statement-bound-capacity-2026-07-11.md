@@ -1,5 +1,11 @@
 # ZK-02 statement-bound capacity comparison — 2026-07-11
 
+> **Archived evidence.** The V1 rows in this signed historical comparison are
+> intentionally preserved, but the V1 implementation, export mode, tests, and
+> benchmark target were removed on 2026-07-16. They are not a current contract
+> profile or a benchmark obligation. ReclaimGlobalV2 is the sole supported
+> single-proof global validator.
+
 This is the mandatory current-V1 versus statement-bound-V2 all-distinct
 capacity comparison. The matching machine-readable record, including base,
 global, total, delta, headroom, redeemer-size, script-identity, transaction,

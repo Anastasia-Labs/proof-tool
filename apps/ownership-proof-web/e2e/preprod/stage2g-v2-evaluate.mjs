@@ -407,36 +407,6 @@ export async function exportAttachedV2Scripts({ material, repoRoot = REPO_ROOT, 
   };
 }
 
-export async function exportAttachedBaselineScripts({ material, repoRoot = REPO_ROOT, execFile: execFileFn = execFileAsync }) {
-  const contractDir = path.join(repoRoot, "contracts", "ownership-verifier");
-  const global = await exportScript(execFileFn, contractDir, [
-    "global",
-    material.params.policyId,
-    material.params.tokenName,
-    material.cardanoVkHex,
-  ]);
-  assertScriptShape(global, "global");
-  if (global.proof_slot_encoding !== "bytes-empty-same-as-previous-v1") {
-    throw new Stage2gV2EvaluationError(
-      "stage2g_baseline_export_invalid",
-      "baseline exporter did not return the canonical current proof-slot encoding.",
-    );
-  }
-  const globalScript = { type: global.type, script: global.script };
-  const globalScriptHash = validatorToScriptHash(globalScript).toLowerCase();
-  const base = await exportScript(execFileFn, contractDir, ["base", globalScriptHash]);
-  assertScriptShape(base, "base");
-  return {
-    baseScript: { type: base.type, script: base.script },
-    globalScript,
-    baseScriptHash: validatorToScriptHash({ type: base.type, script: base.script }).toLowerCase(),
-    globalScriptHash,
-    proofSlotEncoding: "bytes-empty-same-as-previous-v1",
-    batchTranscript: "proof-only-v1",
-    attachment: "direct",
-  };
-}
-
 async function exportScript(execFileFn, contractDir, args) {
   try {
     const result = await execFileFn(
@@ -498,22 +468,13 @@ export async function buildSyntheticAttachedTx({ provider, material, scripts, lu
       throw new Stage2gV2EvaluationError("stage2g_base_input_order", "Final synthetic ReclaimBase input order is not represented in benchmark material.");
     }
     const proofs = entries.map((entry) => entry.proofHex);
-    if (scripts.proofSlotEncoding === PROOF_SLOT_ENCODING && scripts.batchTranscript === BATCH_TRANSCRIPT) {
-      return Data.to(
-        new Constr(0, [
-          BigInt(paramsIndex),
-          0n,
-          proofs,
-          entries.map((entry) => entry.publicInputDigestHex),
-        ]),
-      );
-    }
-    if (scripts.proofSlotEncoding === "bytes-empty-same-as-previous-v1" && scripts.batchTranscript === "proof-only-v1") {
-      return Data.to(new Constr(0, [BigInt(paramsIndex), 0n, proofs]));
-    }
-    throw new Stage2gV2EvaluationError(
-      "stage2g_proof_slot_encoding",
-      "Synthetic comparison builder received an unsupported proof-slot encoding.",
+    return Data.to(
+      new Constr(0, [
+        BigInt(paramsIndex),
+        0n,
+        proofs,
+        entries.map((entry) => entry.publicInputDigestHex),
+      ]),
     );
   };
 

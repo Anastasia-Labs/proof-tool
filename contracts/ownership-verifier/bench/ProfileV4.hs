@@ -29,7 +29,7 @@ import PlutusTx.Prelude
 import qualified UntypedPlutusCore as UPLC
 import qualified UntypedPlutusCore.Evaluation.Machine.Cek as Cek
 
-import Ownership.ReclaimGlobal (valueCoversData)
+import Ownership.ReclaimGlobalV2 (valueCoversData)
 import Ownership.ReclaimGlobalMulti (destinationAddressV1FromTxOutData)
 import ScriptContextBuilder
 

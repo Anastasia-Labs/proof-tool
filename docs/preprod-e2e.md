@@ -18,7 +18,7 @@ must not be run with `NODE_ENV=production`.
   deployment-source ancestry and manifest coherence, provider and server-secret
   checks.
 - `deploy-reclaim-preprod.mjs`: one-shot NFT, parameter holder, parameterized
-  ReclaimGlobal/ReclaimBase scripts, reference scripts, reward-account
+  ReclaimGlobalV2/ReclaimBase scripts, reference scripts, reward-account
   registration, and enabled manifest creation.
 - `app-server.mjs`: starts a local Next app or targets `RECLAIM_E2E_APP_URL`.
 - `wallet-driver.mjs`, `cip30-harness.mjs`, `real-lace-driver.mjs`: wallet mode
@@ -75,7 +75,7 @@ path, query, credentials, or fragment. Helper tokens are written only as
 The deployer refuses a dirty/unpushed source tree: `HEAD` must equal
 `origin/main`. It never creates proof keys. It exports parameterized Plutus V3
 scripts through the contract executable, mints the one-shot parameter NFT,
-registers the ReclaimGlobal reward account when needed, creates the immutable
+registers the ReclaimGlobalV2 reward account when needed, creates the immutable
 parameter and base/global reference-script outputs, confirms them through the
 provider, and writes the ignored enabled manifest.
 
@@ -152,22 +152,6 @@ RECLAIM_E2E_STAGE2G_V2_MATERIAL_FILE=output/preprod-e2e/stage2g-v2/material.loca
 RECLAIM_E2E_STAGE2G_V2_EVIDENCE_FILE=output/preprod-e2e/stage2g-v2/evaluation.local.json \
 pnpm --dir apps/ownership-proof-web e2e:preprod:stage2g:v2:evaluate
 ```
-
-To reproduce the provider-only V1/V2 comparison against the same all-distinct
-material and canonical order, keep submission disabled and run:
-
-```bash
-unset RECLAIM_E2E_SUBMIT_TRANSACTIONS
-RECLAIM_E2E_LIVE_PREPROD=1 \
-RECLAIM_E2E_STAGE2G_V2_COMPARE=1 \
-RECLAIM_E2E_STAGE2G_V2_MATERIAL_FILE=output/preprod-e2e/stage2g-v2/material.local.json \
-pnpm --dir apps/ownership-proof-web e2e:preprod:stage2g:v2:compare
-```
-
-The comparison builds complete unsigned direct-script transactions for both
-profiles and reports redacted script identities/sizes, transaction-byte counts,
-per-redeemer provider units, totals, deltas, and headroom. It cannot sign or
-submit and, by itself, is not on-chain acceptance evidence.
 
 The evaluator must report all safety fields false for signing, submission,
 funding, minting, stake registration, and deployment. Passing requires total

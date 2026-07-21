@@ -43,9 +43,6 @@ import { isValidRecoveryWord, validateRecoveryPhrase } from "@proof-zk-recovery/
 import {
   CLAIM_DEFAULT_BATCH_CAP,
   CLAIM_HARD_BATCH_CAP,
-  CLAIM_LEGACY_DEFAULT_BATCH_CAP,
-  CLAIM_LEGACY_HARD_BATCH_CAP,
-  CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP,
   type ClaimBuildResponse,
   type ClaimDraftResponse,
   type ClaimProgressResponse,
@@ -5774,18 +5771,13 @@ export function selectClaimBatchRows(
     return [];
   }
   const pending = new Set(pendingOutrefs);
-  const statementBoundV2 = deployment.deployment.reclaimGlobalProofSlotEncoding === "full-proof-plus-public-input-digest-v2";
-  const defaultCap = statementBoundV2
-    ? CLAIM_DEFAULT_BATCH_CAP
-    : (deployment.deployment.batching?.default_utxo_count ?? CLAIM_LEGACY_DEFAULT_BATCH_CAP);
-  const configuredHardCap = deployment.deployment.batching?.hard_max_utxo_count ??
-    (statementBoundV2 ? CLAIM_HARD_BATCH_CAP : CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP);
+  const defaultCap = CLAIM_DEFAULT_BATCH_CAP;
   const hardCap = Math.min(
-    configuredHardCap,
-    statementBoundV2 ? CLAIM_HARD_BATCH_CAP : CLAIM_LEGACY_HARD_BATCH_CAP,
+    deployment.deployment.batching?.hard_max_utxo_count ?? CLAIM_HARD_BATCH_CAP,
+    CLAIM_HARD_BATCH_CAP,
   );
   const selectedCap =
-    statementBoundV2 && requestedCap === CLAIM_HARD_BATCH_CAP && supportsExplicitSevenSlotBatch(deployment)
+    requestedCap === CLAIM_HARD_BATCH_CAP && supportsExplicitSevenSlotBatch(deployment)
       ? CLAIM_HARD_BATCH_CAP
       : defaultCap;
   return rows

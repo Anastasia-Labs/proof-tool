@@ -1,0 +1,56 @@
+{
+  "schema": "proof-tool-formal-counterexample-v1",
+  "recorded_at": "2026-07-15",
+  "artifact": {
+    "name": "active ReclaimGlobalV2",
+    "file": "formal/artifacts/active-preprod/reclaim-global-v2.cbor.hex",
+    "script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+    "script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5"
+  },
+  "shared_replay": {
+    "fixture_file": "formal/assurance/context-goldens.json",
+    "fixture_file_sha256": "c284498e46ecec15483fbaafee810de9e3a201c3b0b2a6edaf8bbf5e59847032",
+    "source_proof": "contracts/ownership-verifier/testdata/ownership-destination-proof.hex",
+    "source_verifier_key": "contracts/ownership-verifier/testdata/ownership-destination-vk.hex",
+    "lean_step_limit": 2000000,
+    "ledger_model": "CardanoLedgerApi.V3.validScriptContext",
+    "artifact_binding": "ProofToolFormal.ModelBoundary.validActiveReclaimGlobalV2Context"
+  },
+  "counterexamples": [
+    {
+      "catalog_id": "RG-PARAM-DATUM",
+      "fixture": "active-reclaim-global-v2-noncanonical-param-datum-tag",
+      "mutation": "The inner ReclaimGlobalParams datum constructor tag is 1 instead of canonical tag 0; its sole 28-byte base-script-hash field is unchanged.",
+      "context_cbor_bytes": 1440,
+      "context_cbor_sha256": "78b0534f26b6145daf6bf5d9bf516265aaed75965fd178bc7b7aacb6233b2b4a",
+      "ledger_valid_theorem": "ProofToolFormal.ContextGoldens.reclaimGlobalV2NoncanonicalParamDatum_ledger_valid",
+      "artifact_binding_theorem": "ProofToolFormal.ContextGoldens.reclaimGlobalV2NoncanonicalParamDatum_bound_to_active_artifact",
+      "lean_replay_theorem": "ProofToolFormal.ConcreteReplay.exact_reclaimGlobalV2_noncanonical_param_datum_tag_succeeds",
+      "haskell_compiled_decision": "success",
+      "lean_classified_decision": "successfulHalt",
+      "result": "Falsified",
+      "impact": "The active global validator does not itself enforce the typed parameter-datum constructor. Exploitability depends on violating the separate parameter-NFT deployment-honesty assumption; the active public deployment fixture is canonical."
+    },
+    {
+      "catalog_id": "RG-BASE-DATUM",
+      "fixture": "active-reclaim-global-v2-noncanonical-base-datum-tag",
+      "mutation": "The inner ReclaimBaseDatum constructor tag is 1 instead of canonical tag 0; its sole 28-byte payment-credential field is unchanged.",
+      "context_cbor_bytes": 1440,
+      "context_cbor_sha256": "337d591e8e4f255611a0d60514c97a99b2deff2071f777119553bac35cecba51",
+      "ledger_valid_theorem": "ProofToolFormal.ContextGoldens.reclaimGlobalV2NoncanonicalBaseDatum_ledger_valid",
+      "artifact_binding_theorem": "ProofToolFormal.ContextGoldens.reclaimGlobalV2NoncanonicalBaseDatum_bound_to_active_artifact",
+      "lean_replay_theorem": "ProofToolFormal.ConcreteReplay.exact_reclaimGlobalV2_noncanonical_base_datum_tag_succeeds",
+      "haskell_compiled_decision": "success",
+      "lean_classified_decision": "successfulHalt",
+      "result": "Falsified",
+      "impact": "The active global validator accepts a noncanonical constructor tag. The deployed Preprod ReclaimBase rejects the corresponding spend, while the simplified current-source Base candidate intentionally ignores datum shape. This is a typed-format conformance mismatch, but not by itself an authorization bypass: GlobalV2 still consumes the same 28-byte credential field, verifies its destination-bound ownership statement, and enforces complete value coverage."
+    }
+  ],
+  "composition_check": {
+    "fixture": "active-reclaim-base-noncanonical-datum-tag",
+    "lean_theorem": "ProofToolFormal.ConcreteReplay.exact_reclaimBase_noncanonical_datum_tag_rejects_within_fuel",
+    "haskell_compiled_decision": "validator error",
+    "lean_classified_decision": "validatorError"
+  },
+  "remediation_status": "The user authorized simplifying the existing ReclaimBase source. The resulting candidate is not deployed; the active manifest and Preprod artifacts remain unchanged."
+}

@@ -52,8 +52,8 @@ describe("reclaim deployment manifest validation", () => {
 
   it("fails closed for incomplete or mismatched statement-bound V2 metadata", () => {
     const missingEncoding = validManifest();
-    missingEncoding.reclaim_global.batch_transcript_vk_hash =
-      missingEncoding.proof.cardano_vk_blake2b256;
+    delete (missingEncoding.reclaim_global as Partial<typeof missingEncoding.reclaim_global>)
+      .proof_slot_encoding;
     expect(errorFields(validateReclaimDeploymentManifest(missingEncoding))).toContain(
       "reclaim_global.proof_slot_encoding",
     );
@@ -112,10 +112,10 @@ describe("reclaim deployment manifest validation", () => {
     );
 
     const staleV2Capacity = validManifest();
-    staleV2Capacity.reclaim_global.proof_slot_encoding =
-      FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2;
-    staleV2Capacity.reclaim_global.batch_transcript_vk_hash =
-      staleV2Capacity.proof.cardano_vk_blake2b256;
+    staleV2Capacity.batching.default_utxo_count = 4;
+    staleV2Capacity.batching.optimization_utxo_count = 5;
+    staleV2Capacity.batching.hard_max_utxo_count = 5;
+    delete staleV2Capacity.batching.distinct_7_opt_in;
     expect(errorCodes(validateReclaimDeploymentManifest(staleV2Capacity))).toEqual(
       expect.arrayContaining([
         "distinct_7_opt_in_required",
@@ -130,27 +130,6 @@ describe("reclaim deployment manifest validation", () => {
 
     expect(errorCodes(validateReclaimDeploymentManifest(manifest))).toContain(
       "batch_hard_max_exceeds_policy",
-    );
-  });
-
-  it("keeps legacy profiles with higher batch capacities backward compatible", () => {
-    const manifest = validManifest();
-    manifest.batching.hard_max_utxo_count = 35;
-
-    expect(validateReclaimDeploymentManifest(manifest).available).toBe(true);
-  });
-
-  it("rejects explicit seven-slot opt-in metadata on a non-V2 profile", () => {
-    const manifest = validManifest();
-    manifest.batching.distinct_7_opt_in = {
-      request_parameter: "maxUtxos",
-      request_value: 7,
-      require_explicit_request: true,
-      require_measured_execution_units: true,
-    };
-
-    expect(errorCodes(validateReclaimDeploymentManifest(manifest))).toContain(
-      "distinct_7_opt_in_requires_v2",
     );
   });
 
@@ -433,6 +412,8 @@ function validManifest(): ReclaimDeploymentManifest {
       params_currency_symbol: paramsPolicy,
       verifier_vk_hash: verifierHash,
       proof_profile: "single-destination",
+      proof_slot_encoding: FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2,
+      batch_transcript_vk_hash: prefixedHash("1"),
     },
     params_utxo: {
       tx_hash: hash64("f"),
@@ -450,11 +431,17 @@ function validManifest(): ReclaimDeploymentManifest {
       cardano_vk_blake2b256: prefixedHash("1"),
     },
     batching: {
-      default_utxo_count: 4,
-      optimization_utxo_count: 5,
-      hard_max_utxo_count: 5,
-      max_tx_cpu_percent: 80,
+      default_utxo_count: 6,
+      optimization_utxo_count: 6,
+      hard_max_utxo_count: 7,
+      max_tx_cpu_percent: 90,
       max_tx_mem_percent: 80,
+      distinct_7_opt_in: {
+        request_parameter: "maxUtxos",
+        request_value: 7,
+        require_explicit_request: true,
+        require_measured_execution_units: true,
+      },
     },
     provider: {
       primary: "koios",

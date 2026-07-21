@@ -607,7 +607,7 @@ async function exportScript(mode, ...args) {
 }
 
 export function reclaimGlobalExportArgs(mode, paramsPolicyId, cardanoVkHex, cardanoVkHash) {
-  if (mode !== "global" && mode !== "global-multi" && mode !== "global-v2") {
+  if (mode !== "global-multi" && mode !== "global-v2") {
     throw new Error(`unsupported reclaim global export mode ${mode}`);
   }
   if (mode === "global-v2") {

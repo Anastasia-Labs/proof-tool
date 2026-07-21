@@ -15,8 +15,6 @@ export const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v2/bls12-381/g
 export const DESTINATION_KEY_VERSION = "ownership-destination-v2";
 export const DESTINATION_ADDRESS_ENCODING = "destination-address-v1";
 export const SINGLE_DESTINATION_PROOF_PROFILE = "single-destination";
-export const SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING =
-  "bytes-empty-same-as-previous-v1";
 export const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 =
   "full-proof-plus-public-input-digest-v2";
 const DISTINCT_7_REQUEST_PARAMETER = "maxUtxos";
@@ -48,8 +46,8 @@ export type ReclaimDeploymentManifest = {
     params_currency_symbol: string;
     verifier_vk_hash: string;
     proof_profile: typeof SINGLE_DESTINATION_PROOF_PROFILE;
-    proof_slot_encoding?: ReclaimGlobalProofSlotEncoding;
-    batch_transcript_vk_hash?: string;
+    proof_slot_encoding: ReclaimGlobalProofSlotEncoding;
+    batch_transcript_vk_hash: string;
   };
   params_utxo: {
     tx_hash: string;
@@ -450,24 +448,16 @@ export function validateReclaimDeploymentManifest(raw: unknown):
         SINGLE_DESTINATION_PROOF_PROFILE,
         errors,
       ),
-      ...(reclaimGlobal.proof_slot_encoding === undefined
-        ? {}
-        : {
-            proof_slot_encoding: proofSlotEncodingField(
-              reclaimGlobal.proof_slot_encoding,
-              "reclaim_global.proof_slot_encoding",
-              errors,
-            ),
-          }),
-      ...(reclaimGlobal.batch_transcript_vk_hash === undefined
-        ? {}
-        : {
-            batch_transcript_vk_hash: hashField(
-              reclaimGlobal.batch_transcript_vk_hash,
-              "reclaim_global.batch_transcript_vk_hash",
-              errors,
-            ),
-          }),
+      proof_slot_encoding: proofSlotEncodingField(
+        reclaimGlobal.proof_slot_encoding,
+        "reclaim_global.proof_slot_encoding",
+        errors,
+      ),
+      batch_transcript_vk_hash: hashField(
+        reclaimGlobal.batch_transcript_vk_hash,
+        "reclaim_global.batch_transcript_vk_hash",
+        errors,
+      ),
     },
     params_utxo: {
       tx_hash: hexField(paramsUtxo.tx_hash, "params_utxo.tx_hash", 64, errors),
@@ -527,37 +517,17 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       errors.push({ code: "deployment_id_mismatch", field: "deployment_id", message: "deployment_id must bind network, ReclaimBase script hash, and source_commit." });
     }
   }
-  const proofSlotEncoding = manifest.reclaim_global.proof_slot_encoding;
   const batchTranscriptVkHash = manifest.reclaim_global.batch_transcript_vk_hash;
-  if (proofSlotEncoding === undefined && batchTranscriptVkHash !== undefined) {
+  if (
+    batchTranscriptVkHash &&
+    manifest.proof.cardano_vk_blake2b256 &&
+    normalizedHash(batchTranscriptVkHash) !==
+      normalizedHash(manifest.proof.cardano_vk_blake2b256)
+  ) {
     errors.push({
-      code: "missing",
-      field: "reclaim_global.proof_slot_encoding",
-      message: "batch transcript key hash requires a proof-slot encoding.",
-    });
-  } else if (proofSlotEncoding === FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2) {
-    if (!batchTranscriptVkHash) {
-      errors.push({
-        code: "missing",
-        field: "reclaim_global.batch_transcript_vk_hash",
-        message: "statement-bound V2 requires the canonical Cardano verifier-key hash.",
-      });
-    } else if (
-      manifest.proof.cardano_vk_blake2b256 &&
-      normalizedHash(batchTranscriptVkHash) !==
-        normalizedHash(manifest.proof.cardano_vk_blake2b256)
-    ) {
-      errors.push({
-        code: "batch_transcript_vk_hash_mismatch",
-        field: "reclaim_global.batch_transcript_vk_hash",
-        message: "V2 batch transcript key hash must equal proof.cardano_vk_blake2b256.",
-      });
-    }
-  } else if (batchTranscriptVkHash !== undefined) {
-    errors.push({
-      code: "unsupported_value",
+      code: "batch_transcript_vk_hash_mismatch",
       field: "reclaim_global.batch_transcript_vk_hash",
-      message: "batch transcript key hash is only valid for statement-bound V2.",
+      message: "V2 batch transcript key hash must equal proof.cardano_vk_blake2b256.",
     });
   }
   if (sourceCommit && /dirty|uncommitted/iu.test(sourceCommit)) {
@@ -637,58 +607,50 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       message: "batching counts must satisfy default <= optimization <= hard max.",
     });
   }
-  if (proofSlotEncoding === FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2) {
-    if (manifest.batching.hard_max_utxo_count > DISTINCT_7_REQUEST_VALUE) {
-      errors.push({
-        code: "batch_hard_max_exceeds_policy",
-        field: "batching.hard_max_utxo_count",
-        message: "statement-bound V2 hard_max_utxo_count must not exceed the explicit seven-slot capacity policy.",
-      });
-    }
-    if (!manifest.batching.distinct_7_opt_in) {
-      errors.push({
-        code: "distinct_7_opt_in_required",
-        field: "batching.distinct_7_opt_in",
-        message: "statement-bound V2 requires explicit seven-slot opt-in metadata.",
-      });
-    }
-    requireDistinctSevenCapacityValue(
-      manifest.batching.default_utxo_count,
-      DISTINCT_7_DEFAULT_UTXO_COUNT,
-      "batching.default_utxo_count",
-      errors,
-    );
-    requireDistinctSevenCapacityValue(
-      manifest.batching.optimization_utxo_count,
-      DISTINCT_7_OPTIMIZATION_UTXO_COUNT,
-      "batching.optimization_utxo_count",
-      errors,
-    );
-    requireDistinctSevenCapacityValue(
-      manifest.batching.hard_max_utxo_count,
-      DISTINCT_7_REQUEST_VALUE,
-      "batching.hard_max_utxo_count",
-      errors,
-    );
-    requireDistinctSevenCapacityValue(
-      manifest.batching.max_tx_cpu_percent,
-      DISTINCT_7_MAX_TX_CPU_PERCENT,
-      "batching.max_tx_cpu_percent",
-      errors,
-    );
-    requireDistinctSevenCapacityValue(
-      manifest.batching.max_tx_mem_percent,
-      DISTINCT_7_MAX_TX_MEM_PERCENT,
-      "batching.max_tx_mem_percent",
-      errors,
-    );
-  } else if (manifest.batching.distinct_7_opt_in) {
+  if (manifest.batching.hard_max_utxo_count > DISTINCT_7_REQUEST_VALUE) {
     errors.push({
-      code: "distinct_7_opt_in_requires_v2",
-      field: "batching.distinct_7_opt_in",
-      message: "explicit seven-slot opt-in metadata is only valid for statement-bound V2.",
+      code: "batch_hard_max_exceeds_policy",
+      field: "batching.hard_max_utxo_count",
+      message: "statement-bound V2 hard_max_utxo_count must not exceed the explicit seven-slot capacity policy.",
     });
   }
+  if (!manifest.batching.distinct_7_opt_in) {
+    errors.push({
+      code: "distinct_7_opt_in_required",
+      field: "batching.distinct_7_opt_in",
+      message: "statement-bound V2 requires explicit seven-slot opt-in metadata.",
+    });
+  }
+  requireDistinctSevenCapacityValue(
+    manifest.batching.default_utxo_count,
+    DISTINCT_7_DEFAULT_UTXO_COUNT,
+    "batching.default_utxo_count",
+    errors,
+  );
+  requireDistinctSevenCapacityValue(
+    manifest.batching.optimization_utxo_count,
+    DISTINCT_7_OPTIMIZATION_UTXO_COUNT,
+    "batching.optimization_utxo_count",
+    errors,
+  );
+  requireDistinctSevenCapacityValue(
+    manifest.batching.hard_max_utxo_count,
+    DISTINCT_7_REQUEST_VALUE,
+    "batching.hard_max_utxo_count",
+    errors,
+  );
+  requireDistinctSevenCapacityValue(
+    manifest.batching.max_tx_cpu_percent,
+    DISTINCT_7_MAX_TX_CPU_PERCENT,
+    "batching.max_tx_cpu_percent",
+    errors,
+  );
+  requireDistinctSevenCapacityValue(
+    manifest.batching.max_tx_mem_percent,
+    DISTINCT_7_MAX_TX_MEM_PERCENT,
+    "batching.max_tx_mem_percent",
+    errors,
+  );
   if (manifest.enabled === false) {
     errors.push({ code: "deployment_disabled", field: "enabled", message: "deployment manifest is explicitly disabled." });
   }
@@ -819,8 +781,8 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
       params_currency_symbol: paramsCurrencySymbol,
       verifier_vk_hash: verifierVkHash,
       proof_profile: SINGLE_DESTINATION_PROOF_PROFILE,
-      ...(proofSlotEncoding ? { proof_slot_encoding: proofSlotEncoding } : {}),
-      ...(batchTranscriptVkHash ? { batch_transcript_vk_hash: batchTranscriptVkHash } : {}),
+      proof_slot_encoding: proofSlotEncoding,
+      batch_transcript_vk_hash: batchTranscriptVkHash,
     },
     params_utxo: {
       tx_hash: envValue(env, FLAT_ENV_FIELDS.paramsUtxoTxHash),
@@ -1342,20 +1304,11 @@ function proofSlotEncodingField(
   errors: ManifestValidationError[],
 ): ReclaimGlobalProofSlotEncoding {
   const encoding = stringField(value, field, errors);
-  if (
-    encoding !== SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING &&
-    encoding !== FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2
-  ) {
+  if (encoding !== FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2) {
     errors.push({
       code: "unsupported_value",
       field,
-      message:
-        field +
-        " must be " +
-        SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING +
-        " or " +
-        FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 +
-        ".",
+      message: field + " must be " + FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 + ".",
     });
   }
   return encoding as ReclaimGlobalProofSlotEncoding;

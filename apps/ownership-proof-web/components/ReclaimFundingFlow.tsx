@@ -967,6 +967,8 @@ function fixtureDeployment(): DeploymentResponse {
       paramsCurrencySymbol: "params-policy",
       paramsTokenName: "params-token",
       verifierVkHash: "vk-hash",
+      reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
+      reclaimGlobalBatchTranscriptVkHash: "vk-hash",
       contractVersion: "v1",
       sourceCommit: "commit",
     },

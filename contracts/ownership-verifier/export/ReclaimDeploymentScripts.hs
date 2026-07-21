@@ -22,7 +22,6 @@ import PlutusTx.Builtins (BuiltinByteString)
 import Ownership.OneShotNFT (oneShotNFTPolicyCode)
 import Ownership.ParamsHolder (paramsHolderValidatorCode)
 import Ownership.ReclaimBase (reclaimBaseValidatorCode)
-import Ownership.ReclaimGlobal (reclaimGlobalValidatorCode)
 import Ownership.ReclaimGlobalV2 (reclaimGlobalValidatorV2Code, v2VerifierKeyParametersMatch)
 import Ownership.ReclaimGlobalMulti (reclaimGlobalMultiValidatorCode)
 
@@ -38,16 +37,6 @@ main = do
             oneShotNFTPolicyCode
               `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef seedRef
       printScript "one-shot-params-nft" script
-    ["global", paramsPolicyIdHex, paramsTokenNameHex, verifierKeyHex] -> do
-      paramsPolicyId <- expectHexBytes "params policy id" 28 paramsPolicyIdHex
-      paramsTokenName <- expectHexAtMostBytes "params token name" 32 paramsTokenNameHex
-      verifierKey <- expectHexBytes "verifier key" 672 verifierKeyHex
-      let script =
-            reclaimGlobalValidatorCode
-              `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.CurrencySymbol (bytesToBuiltin paramsPolicyId))
-              `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.TokenName (bytesToBuiltin paramsTokenName))
-              `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (bytesToBuiltin verifierKey)
-      printGlobalScript script
     ["global-v2", paramsPolicyIdHex, paramsTokenNameHex, verifierKeyHex, verifierKeyHashHex] -> do
       paramsPolicyId <- expectHexBytes "params policy id" 28 paramsPolicyIdHex
       paramsTokenName <- expectHexAtMostBytes "params token name" 32 paramsTokenNameHex
@@ -87,7 +76,6 @@ main = do
     _ ->
       die $
         "usage: reclaim-scripts-export one-shot <seed-tx-hash-hex> <seed-output-index>\n"
-          <> "   or: reclaim-scripts-export global <params-policy-id-hex> <params-token-name-hex> <672-byte-cardano-verifier-key-hex>\n"
           <> "   or: reclaim-scripts-export global-v2 <params-policy-id-hex> <params-token-name-hex> <672-byte-cardano-verifier-key-hex> <blake2b-256-verifier-key-hash-hex>\n"
           <> "   or: reclaim-scripts-export global-multi <params-policy-id-hex> <params-token-name-hex> <672-byte-cardano-verifier-key-hex>\n"
           <> "   or: reclaim-scripts-export base <global-script-hash-hex>\n"
@@ -98,12 +86,6 @@ printScript name code =
   printf
     "{\n  \"schema\": \"proof-tool-reclaim-script-export-v1\",\n  \"name\": \"%s\",\n  \"type\": \"PlutusV3\",\n  \"script\": \"%s\"\n}\n"
     name
-    (shortByteStringHex (V3.serialiseCompiledCode code))
-
-printGlobalScript :: CompiledCode a -> IO ()
-printGlobalScript code =
-  printf
-    "{\n  \"schema\": \"proof-tool-reclaim-script-export-v1\",\n  \"name\": \"reclaim-global\",\n  \"type\": \"PlutusV3\",\n  \"script\": \"%s\",\n  \"proof_slot_encoding\": \"bytes-empty-same-as-previous-v1\"\n}\n"
     (shortByteStringHex (V3.serialiseCompiledCode code))
 
 printGlobalV2Script :: String -> CompiledCode a -> IO ()
