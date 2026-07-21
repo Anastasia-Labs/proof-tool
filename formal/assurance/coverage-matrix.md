@@ -1,6 +1,6 @@
 # Reclaim Contract Formal-Assurance Coverage Matrix
 
-Status: active assurance run; deployed surface locked and coherent current-source candidate pair classified, 2026-07-20
+Status: active assurance run; optimized Preprod deployment locked and classified, 2026-07-21
 
 This matrix fixes what must be proved, falsified, or explicitly retired before
 the formal-assurance goal can complete. Current classifications live in
@@ -16,23 +16,22 @@ It identifies:
 | Field | Locked value |
 | --- | --- |
 | Network | `Preprod` |
-| Deployment source | `c513fd78ecb14a4119769986675d602dffa741b4` |
-| Active ReclaimBase hash | `a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd` |
-| Current-source ReclaimBase candidate | `c234ceda7ee98fbc61ab7c3d5c1748411718353b636010a4df60da45` (not deployed; parameterized by the candidate GlobalV2 credential) |
-| Active ReclaimGlobal hash | `1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5` |
-| Current-source ReclaimGlobalV2 candidate | `f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582` (not deployed) |
-| Parameter policy | `82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174` |
+| Deployment source | `fccccbc8ab525c9da8d8ae334398f590459c3a3c` |
+| Deployment transaction | `c8d6d3b6ddd1a8aa43ee039acb54a79a4bb427f4bbacd95085754b09ecfada2f` |
+| Active ReclaimBase hash | `744cc4718e8149201c7e9cb3d3a550f34cb18dfc8076a33172d9354d` |
+| Active ReclaimGlobal hash | `a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8` |
+| Parameter policy | `d6777b8c3be1c6c0c9baba52a880c1980a662c16ffc0885ecaa03119` |
 | Parameter token name | `5245434c41494d504152414d53` (`RECLAIMPARAMS`) |
 | Proof-slot encoding | `full-proof-plus-public-input-digest-v2` |
 | Batch transcript key hash | `06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4` |
 | Params/reference holder hash | `ebb18a12777410738fdeaa77ec0fd582685d677b6b34de9a6e3b6d7e` |
 
-The deployed bytes and source-commit evidence remain locked in
-`artifact-regeneration.json` and `import-fidelity.json`. Current source now
-intentionally diverges for both `ReclaimBase` and `ReclaimGlobalV2`; their
-coherent exported pair is kept under `formal/artifacts/candidate/`. OneShotNFT
-and ParamsHolder remain byte-identical to active. No active manifest, parameter
-datum, or reference-script identity was changed.
+The deployed bytes, source-commit evidence, parameter datum, and reference
+scripts are locked in `artifact-regeneration.json`, `public-deployment-chain.json`,
+and `import-fidelity.json`. Current source is byte-identical to both active
+validators. The files under `formal/artifacts/candidate/` are legacy-named
+aliases retained for theorem-name stability; the verification gate rejects any
+divergence from the active pair.
 
 ## Classification rules
 
@@ -51,8 +50,8 @@ datum, or reference-script identity was changed.
 
 | Surface | Export mode | Purpose | Parameters fixed before execution | Runtime input | Reachability | Required disposition |
 | --- | --- | --- | --- | --- | --- | --- |
-| `Ownership.ReclaimBase.reclaimBaseValidatorCode` | `base` | Spending | Audited withdrawal-map key, applied as encoded `Data` | One V3 `ScriptContext` as `BuiltinData` | Deployed historical artifact plus a simplified current-source candidate; deployment not updated | Preserve exact deployed evidence and prove candidate `RB-*` withdrawal-only semantics before deployment |
-| `Ownership.ReclaimGlobalV2.reclaimGlobalValidatorV2Code` | `global-v2` | Rewarding | Parameter policy ID, token name, 672-byte Cardano verifier key, 32-byte verifier-key hash | One V3 `ScriptContext` as `BuiltinData` | Deployed historical V2 artifact plus a distinct current-source canonical V2 candidate; it is the only exported single-proof global mode | Preserve exact deployed evidence; retain coherent candidate replays; complete the applicable generalized `RG-*` bridges before deployment |
+| `Ownership.ReclaimBase.reclaimBaseValidatorCode` | `base` | Spending | Audited withdrawal-map key, applied as encoded `Data` | One V3 `ScriptContext` as `BuiltinData` | Active optimized Preprod artifact | Preserve exact deployed evidence and complete the pending `RB-*` compiled recursive-list bridge |
+| `Ownership.ReclaimGlobalV2.reclaimGlobalValidatorV2Code` | `global-v2` | Rewarding | Parameter policy ID, token name, 672-byte Cardano verifier key, 32-byte verifier-key hash | One V3 `ScriptContext` as `BuiltinData` | Active optimized Preprod artifact; the only exported single-proof global mode | Preserve exact deployed evidence and complete the applicable generalized `RG-*` bridges |
 | `Ownership.OneShotNFT.oneShotNFTPolicyCode` | `one-shot` | Minting | Deployment seed `TxOutRef` | One V3 `ScriptContext` as `BuiltinData` | Supporting; deployer derives the parameter policy ID from it and consumes the seed while creating the params/reference outputs | Generalized `NFT-*` proof plus exact policy provenance |
 | `Ownership.ParamsHolder.paramsHolderValidatorCode` | `params-holder` | Spending | None | One `BuiltinData` argument | Supporting; deployer locks params and reference scripts at its address | Generalized `PH-*` proof plus exact holder-hash provenance |
 | `Ownership.ReclaimGlobalMulti.reclaimGlobalMultiValidatorCode` | `global-multi` | Rewarding | Parameter policy ID, token name, 672-byte verifier key | One V3 `ScriptContext` as `BuiltinData` | Exported alternative; CLI and `reclaimGlobalExportArgs` accept it, while the normal deployer does not select it | Prove a multi catalog or approval-gate retirement/production guard |
@@ -80,10 +79,10 @@ proof results.
 
 ### ReclaimBase
 
-- The current-source Base condition is exactly membership of the applied Data
-  key in the transaction withdrawal map; withdrawal amount is irrelevant. The
-  locked candidate applies the current-source GlobalV2 candidate credential,
-  matching deployer construction order.
+- The active Base condition is exactly membership of the applied Data key in
+  the transaction withdrawal map; withdrawal amount is irrelevant. The active
+  Base applies the active GlobalV2 credential, matching deployer construction
+  order and the parameter datum.
 - Purpose, datum availability/shape, credential width, and parameter
   constructor do not affect this local decision.
 - Ledger invocation and GlobalV2 own the spending-purpose, datum-credential,

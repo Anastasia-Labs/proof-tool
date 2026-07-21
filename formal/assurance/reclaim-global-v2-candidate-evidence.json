@@ -1,20 +1,21 @@
 {
-  "schema": "proof-tool-reclaim-global-v2-candidate-evidence-v1",
-  "recorded_at": "2026-07-20",
-  "deployment_status": "candidate only; no manifest, parameter datum, reference script, or chain deployment changed",
+  "schema": "proof-tool-reclaim-global-v2-active-alias-evidence-v1",
+  "recorded_at": "2026-07-21",
+  "deployment_status": "active Preprod deployment; current source and active reference-script bytes are identical",
   "contract_baseline_commit": "7c7ea7fbb7b0ae9d9c777d4e2c5b97a3e6c2db0e",
   "applied_parameters": {
-    "params_policy_id": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
+    "params_policy_id": "d6777b8c3be1c6c0c9baba52a880c1980a662c16ffc0885ecaa03119",
     "params_token_name": "5245434c41494d504152414d53",
     "verifier_key_blake2b256": "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4"
   },
   "artifact_file": "formal/artifacts/candidate/reclaim-global-v2.cbor.hex",
   "artifact_json_file": "formal/artifacts/candidate/reclaim-global-v2.plutus.json",
   "script_cbor_bytes": 3356,
-  "script_cbor_sha256": "5979568d5689ee65c5be038bface43807865e3aed88cb56d58d53758bf436489",
-  "script_hash": "f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582",
-  "active_preprod_script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
-  "active_preprod_script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+  "script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
+  "script_hash": "a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8",
+  "active_preprod_script_hash": "a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8",
+  "active_preprod_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
+  "artifact_alias_note": "The candidate-named path and theorem names are retained for proof-history stability; the bytes and identity are exactly the active Preprod deployment.",
   "concrete_replays": [
     {
       "fixture": "candidate-reclaim-global-v2-success",

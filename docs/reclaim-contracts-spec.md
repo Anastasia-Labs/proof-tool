@@ -103,14 +103,14 @@ A key credential can satisfy the local membership check if a deployment is
 misconfigured that way. Preventing that configuration is an explicit one-time
 deployment audit obligation rather than a repeated on-chain check.
 
-Deployment status: this specification describes the simplified current source.
-It exports as Base hash
-`736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd` when parameterized
-by the coherent current-source GlobalV2 candidate
-`41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7`. The public
-Preprod deployment remains on the historical Base hash
-`a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd`; no deployment
-or manifest update is implied by this source change.
+Deployment status: this specification describes the active Preprod source and
+deployment. ReclaimBase hash
+`744cc4718e8149201c7e9cb3d3a550f34cb18dfc8076a33172d9354d` is parameterized
+by ReclaimGlobalV2 credential
+`a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8`. The parameter
+datum and both reference scripts were created by transaction
+`c8d6d3b6ddd1a8aa43ee039acb54a79a4bb427f4bbacd95085754b09ecfada2f`;
+the enabled public manifest pins those exact identities and output indices.
 
 ## Contract 2: ReclaimGlobalV2 Rewarding Validator
 

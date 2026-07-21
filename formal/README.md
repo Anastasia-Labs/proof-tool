@@ -3,9 +3,9 @@
 This directory is the Lean 4 workspace for proving properties of the compiled
 Plutus V3 validators in `contracts/ownership-verifier`.
 
-It locks and imports the exact deployed Preprod artifacts, and separately
-imports the coherent current-source ReclaimBase and ReclaimGlobalV2 candidate
-pair. It checks public deployment identities and establishes the
+It locks and imports the exact deployed Preprod artifacts. Legacy
+`candidate`-named imports are retained as byte-identical proof aliases for the
+now-active ReclaimBase and ReclaimGlobalV2 pair. It checks public deployment identities and establishes the
 cross-language/model boundary used by subsequent generalized proofs. Concrete
 golden replays are boundary tests, not substitutes for the universal
 properties in the theorem catalog.
@@ -48,13 +48,12 @@ scripts/verify-formal-assurance.sh --require-complete
 ```
 
 `lock-active-artifacts.mjs` rebuilds the active artifacts from the deployment
-commit pinned by the public manifest in an isolated temporary Git archive. It
-does not rebuild deployed evidence from divergent current source.
+commit pinned by the public manifest in an isolated temporary Git archive.
 `verify-current-candidates.mjs` independently rebuilds the current exporter
 in deployment order: GlobalV2 first, then Base parameterized by the resulting
-candidate credential. It checks both non-deployed candidates' bytes,
-decoded-CBOR digests, Cardano script hashes, and pairing. Do not overwrite
-`active-preprod` or the public manifest when working on candidates.
+credential. It requires current source, active artifacts, and the legacy-named
+proof aliases to be byte-identical and checks decoded-CBOR digests, Cardano
+script hashes, and pairing.
 
 `lake update` is only needed when intentionally changing the pinned dependency
 set. Commit the resulting `lake-manifest.json` so future builds resolve the same

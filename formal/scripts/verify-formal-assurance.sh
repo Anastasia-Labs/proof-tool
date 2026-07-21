@@ -161,7 +161,7 @@ else
   pass "project-authored formal modules are admission-free"
 fi
 
-if (cd "${formal_dir}" && lake build ProofToolFormal) \
+if (cd "${formal_dir}" && lake build +ProofToolFormal) \
     >/tmp/proof-tool-formal-lake-build.log 2>&1; then
   if rg -q "Build completed successfully" /tmp/proof-tool-formal-lake-build.log &&
      rg -q "blasterProven" /tmp/proof-tool-formal-lake-build.log &&

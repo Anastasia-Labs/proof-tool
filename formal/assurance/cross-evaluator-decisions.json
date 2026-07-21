@@ -1,16 +1,16 @@
 {
   "schema": "proof-tool-cross-evaluator-decisions-v1",
-  "recorded_at": "2026-07-20",
+  "recorded_at": "2026-07-21",
   "network": "Preprod",
   "context_goldens": "formal/assurance/context-goldens.json",
-  "context_goldens_sha256": "7c6b3e919a0822be3025d6c39c8a9e872e55f6f0a910aee4db045332119afda0",
+  "context_goldens_sha256": "546d3e5698349de0a7c6190f0849c776b3d5f4662eb67b41cb4c873f1edd3b40",
   "lean_semantics": "PlutusV3 post-Conway BuiltinSemanticsVariant E",
   "lean_step_limit": 2000000,
   "exhaustion_policy": "A step-limit result is distinct from validator error and cannot satisfy a decision replay.",
   "replays": [
     {
       "fixture": "active-one-shot-ledger-shape",
-      "artifact_script_cbor_sha256": "63f75c395f950ac36f0d3465db66e16b03771161ca807017070e294979b9bc7e",
+      "artifact_script_cbor_sha256": "3c4f3fc40c01c81f11647e4af560996f40dd765d4af61aca99c11db912a7c0a3",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ConcreteReplay.exact_oneShot_golden_succeeds",
@@ -18,7 +18,7 @@
     },
     {
       "fixture": "active-reclaim-base-ledger-shape",
-      "artifact_script_cbor_sha256": "ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af",
+      "artifact_script_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ConcreteReplay.exact_reclaimBase_golden_succeeds",
@@ -26,7 +26,7 @@
     },
     {
       "fixture": "active-reclaim-base-missing-withdrawal",
-      "artifact_script_cbor_sha256": "ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af",
+      "artifact_script_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e",
       "fixture_note": "Ledger-valid exact-artifact context lacking the active GlobalV2 withdrawal authorization.",
       "haskell_compiled_decision": "validator error",
       "lean_classified_decision": "validatorError",
@@ -35,25 +35,25 @@
     },
     {
       "fixture": "active-reclaim-base-short-datum",
-      "artifact_script_cbor_sha256": "ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af",
-      "fixture_note": "Ledger-valid exact-artifact context whose authoritative datum credential is five rather than 28 bytes.",
-      "haskell_compiled_decision": "validator error",
-      "lean_classified_decision": "validatorError",
-      "lean_theorem": "ProofToolFormal.ConcreteReplay.exact_reclaimBase_short_datum_rejects_within_fuel",
+      "artifact_script_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e",
+      "fixture_note": "Ledger-valid exact-artifact context whose datum credential is five rather than 28 bytes; active ReclaimBase intentionally delegates datum validation to GlobalV2.",
+      "haskell_compiled_decision": "success",
+      "lean_classified_decision": "successfulHalt",
+      "lean_theorem": "ProofToolFormal.ConcreteReplay.exact_reclaimBase_short_datum_succeeds",
       "agreement": true
     },
     {
       "fixture": "active-reclaim-base-noncanonical-datum-tag",
-      "artifact_script_cbor_sha256": "ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af",
-      "fixture_note": "Ledger-valid exact-artifact context whose inner base datum constructor tag is 1 instead of the canonical tag 0.",
-      "haskell_compiled_decision": "validator error",
-      "lean_classified_decision": "validatorError",
-      "lean_theorem": "ProofToolFormal.ConcreteReplay.exact_reclaimBase_noncanonical_datum_tag_rejects_within_fuel",
+      "artifact_script_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e",
+      "fixture_note": "Ledger-valid exact-artifact context whose inner base datum constructor tag is 1; active ReclaimBase intentionally delegates datum validation to GlobalV2.",
+      "haskell_compiled_decision": "success",
+      "lean_classified_decision": "successfulHalt",
+      "lean_theorem": "ProofToolFormal.ConcreteReplay.exact_reclaimBase_noncanonical_datum_tag_succeeds",
       "agreement": true
     },
     {
       "fixture": "active-reclaim-global-v2-success",
-      "artifact_script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+      "artifact_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
       "fixture_note": "Ledger-valid rewarding context built from the committed production verifier key and 336-byte destination-bound proof, active parameters, matching base input, exact digest, and value-covering destination output.",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
@@ -62,7 +62,7 @@
     },
     {
       "fixture": "active-reclaim-global-v2-substituted-digest",
-      "artifact_script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+      "artifact_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
       "fixture_note": "The real-proof context with the first digest bit changed; all transaction fields and the proof remain unchanged.",
       "haskell_compiled_decision": "validator error",
       "lean_classified_decision": "validatorError",
@@ -71,7 +71,7 @@
     },
     {
       "fixture": "active-reclaim-global-v2-noncanonical-param-datum-tag",
-      "artifact_script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+      "artifact_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
       "fixture_note": "The real-proof context with only the inner parameter datum constructor tag changed from canonical 0 to 1.",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
@@ -80,7 +80,7 @@
     },
     {
       "fixture": "active-reclaim-global-v2-noncanonical-base-datum-tag",
-      "artifact_script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+      "artifact_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
       "fixture_note": "The real-proof context with only the matching base input datum constructor tag changed from canonical 0 to 1.",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
@@ -89,7 +89,7 @@
     },
     {
       "fixture": "active-reclaim-global-v2-malformed-redeemer",
-      "artifact_script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+      "artifact_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
       "fixture_note": "Ledger-valid rewarding context with deliberately schema-invalid unit redeemer.",
       "haskell_compiled_decision": "validator error",
       "lean_classified_decision": "validatorError",
@@ -98,8 +98,8 @@
     },
     {
       "fixture": "candidate-reclaim-base-ledger-shape",
-      "artifact_script_cbor_sha256": "c6877d5c9180826d92a8e9c6463f8a693ae797d704810e20751b8c9a026b31d3",
-      "fixture_note": "Ledger-valid spending context bound to the coherent candidate Base hash and containing the candidate GlobalV2 withdrawal credential.",
+      "artifact_script_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e",
+      "fixture_note": "Legacy-named proof alias for the active Base bytes, with the active GlobalV2 withdrawal credential.",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ReclaimBaseCandidate.exact_candidate_golden_succeeds",
@@ -107,7 +107,7 @@
     },
     {
       "fixture": "candidate-reclaim-base-missing-withdrawal",
-      "artifact_script_cbor_sha256": "c6877d5c9180826d92a8e9c6463f8a693ae797d704810e20751b8c9a026b31d3",
+      "artifact_script_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e",
       "haskell_compiled_decision": "validator error",
       "lean_classified_decision": "validatorError",
       "lean_theorem": "ProofToolFormal.ReclaimBaseCandidate.exact_candidate_missing_withdrawal_rejects_within_fuel",
@@ -115,7 +115,7 @@
     },
     {
       "fixture": "candidate-reclaim-base-short-datum",
-      "artifact_script_cbor_sha256": "c6877d5c9180826d92a8e9c6463f8a693ae797d704810e20751b8c9a026b31d3",
+      "artifact_script_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ReclaimBaseCandidate.exact_candidate_short_datum_succeeds",
@@ -123,7 +123,7 @@
     },
     {
       "fixture": "candidate-reclaim-base-noncanonical-datum-tag",
-      "artifact_script_cbor_sha256": "c6877d5c9180826d92a8e9c6463f8a693ae797d704810e20751b8c9a026b31d3",
+      "artifact_script_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ReclaimBaseCandidate.exact_candidate_noncanonical_datum_succeeds",
@@ -131,8 +131,8 @@
     },
     {
       "fixture": "candidate-reclaim-global-v2-success",
-      "artifact_script_cbor_sha256": "5979568d5689ee65c5be038bface43807865e3aed88cb56d58d53758bf436489",
-      "fixture_note": "Ledger-valid rewarding context bound to the candidate GlobalV2 credential and referencing the coherent candidate Base hash.",
+      "artifact_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
+      "fixture_note": "Legacy-named proof alias for the active GlobalV2 bytes, referencing the active Base hash.",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_real_proof_succeeds",
@@ -140,7 +140,7 @@
     },
     {
       "fixture": "candidate-reclaim-global-v2-substituted-digest",
-      "artifact_script_cbor_sha256": "5979568d5689ee65c5be038bface43807865e3aed88cb56d58d53758bf436489",
+      "artifact_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
       "haskell_compiled_decision": "validator error",
       "lean_classified_decision": "validatorError",
       "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_substituted_digest_rejects_within_fuel",
@@ -148,7 +148,7 @@
     },
     {
       "fixture": "candidate-reclaim-global-v2-noncanonical-param-datum-tag",
-      "artifact_script_cbor_sha256": "5979568d5689ee65c5be038bface43807865e3aed88cb56d58d53758bf436489",
+      "artifact_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_noncanonical_param_datum_tag_succeeds",
@@ -156,7 +156,7 @@
     },
     {
       "fixture": "candidate-reclaim-global-v2-noncanonical-base-datum-tag",
-      "artifact_script_cbor_sha256": "5979568d5689ee65c5be038bface43807865e3aed88cb56d58d53758bf436489",
+      "artifact_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
       "haskell_compiled_decision": "success",
       "lean_classified_decision": "successfulHalt",
       "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_noncanonical_base_datum_tag_succeeds",
@@ -164,7 +164,7 @@
     },
     {
       "fixture": "candidate-reclaim-global-v2-malformed-redeemer",
-      "artifact_script_cbor_sha256": "5979568d5689ee65c5be038bface43807865e3aed88cb56d58d53758bf436489",
+      "artifact_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
       "haskell_compiled_decision": "validator error",
       "lean_classified_decision": "validatorError",
       "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_unit_redeemer_rejects_within_fuel",

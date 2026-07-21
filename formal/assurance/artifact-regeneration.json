@@ -1,37 +1,37 @@
 {
   "schema": "proof-tool-active-artifact-regeneration-v1",
   "network": "Preprod",
-  "deployment_transaction": "a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db",
-  "deployment_source_commit": "c513fd78ecb14a4119769986675d602dffa741b4",
+  "deployment_transaction": "c8d6d3b6ddd1a8aa43ee039acb54a79a4bb427f4bbacd95085754b09ecfada2f",
+  "deployment_source_commit": "fccccbc8ab525c9da8d8ae334398f590459c3a3c",
   "workspace_contract_baseline_commit": "7c7ea7fbb7b0ae9d9c777d4e2c5b97a3e6c2db0e",
   "source_identity": {
     "contracts/ownership-verifier/src": {
-      "deployment": "49d3a4bffa1f2435eb5b35fc628e7caeb66da0c7",
+      "deployment": "52da89cfeffc8db9ccca3fb615959a7db2aa1fd5",
       "contract_baseline": "52da89cfeffc8db9ccca3fb615959a7db2aa1fd5",
-      "match": false
+      "match": true
     },
     "contracts/ownership-verifier/export": {
-      "deployment": "4e49b616bcb8c4826ad65fd4d585e3a465ab9806",
+      "deployment": "01282770a451f3e454a61211ac302d54c038ebd0",
       "contract_baseline": "01282770a451f3e454a61211ac302d54c038ebd0",
-      "match": false
+      "match": true
     },
     "contracts/ownership-verifier/ownership-verifier.cabal": {
-      "deployment": "1f03583cc630fb88f5b4f8579e06b6943d9f7a43",
+      "deployment": "c686bc35e96546d1e8953ac77946bc9a7dcc98c7",
       "contract_baseline": "c686bc35e96546d1e8953ac77946bc9a7dcc98c7",
-      "match": false
+      "match": true
     }
   },
   "inputs": {
     "active_manifest": "apps/ownership-proof-web/public/proof-assets/reclaim-deployment.json",
-    "active_manifest_sha256": "5b8ac9cab861cc46715c4588f09de30a1f40a025985654a7b1b0aae25620189d",
+    "active_manifest_sha256": "e6f707987d9b985d8e8d811f597b95f25140ecf73ed87e6ecf619704b5074b89",
     "public_chain_evidence": "formal/assurance/public-deployment-chain.json",
-    "public_chain_evidence_sha256": "3761b0f3ce5639205cc4b43edff2ec1081fb1030f58181f7ab2ec90e0b7af017",
+    "public_chain_evidence_sha256": "d5a0da13e4fcc95bfd6700611f86ddc03900a689eb3d71a3982e630dc9115d4b",
     "cardano_verifier_key": "contracts/ownership-verifier/testdata/ownership-destination-vk.hex",
     "cardano_verifier_key_file_sha256": "1dfaf4bc5168c8b5f93c3275cb649b87cbfa4555e8d5fc5e015ed601dd4592c1",
     "cardano_verifier_key_blake2b256": "06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4"
   },
   "exporter": {
-    "source": "git archive c513fd78ecb14a4119769986675d602dffa741b4:contracts/ownership-verifier",
+    "source": "git archive fccccbc8ab525c9da8d8ae334398f590459c3a3c:contracts/ownership-verifier",
     "cwd": "<temporary deployment-source archive>/contracts/ownership-verifier",
     "executable": "<cabal list-bin exe:reclaim-scripts-export>",
     "command_shape": "<deployment-source exporter> <mode> <public parameters>"
@@ -43,15 +43,15 @@
       "type": "PlutusV3",
       "import_format": "single_cbor_hex",
       "script_cbor_bytes": 2982,
-      "script_cbor_sha256": "63f75c395f950ac36f0d3465db66e16b03771161ca807017070e294979b9bc7e",
+      "script_cbor_sha256": "3c4f3fc40c01c81f11647e4af560996f40dd765d4af61aca99c11db912a7c0a3",
       "identity_kind": "policy_id",
-      "actual_identity": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
-      "expected_identity": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
+      "actual_identity": "d6777b8c3be1c6c0c9baba52a880c1980a662c16ffc0885ecaa03119",
+      "expected_identity": "d6777b8c3be1c6c0c9baba52a880c1980a662c16ffc0885ecaa03119",
       "identity_matches": true,
       "lean_import_file": "formal/artifacts/active-preprod/one-shot-params-nft.cbor.hex",
-      "seed_tx_out_ref": "a1d0677b0b29281b422c0cd2fb6614d615d773e908d02eed20b6f98c772a0b8b#3",
+      "seed_tx_out_ref": "a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db#3",
       "chain_script_cbor_bytes": 2982,
-      "chain_script_cbor_sha256": "63f75c395f950ac36f0d3465db66e16b03771161ca807017070e294979b9bc7e"
+      "chain_script_cbor_sha256": "3c4f3fc40c01c81f11647e4af560996f40dd765d4af61aca99c11db912a7c0a3"
     },
     "params_holder": {
       "file": "formal/artifacts/active-preprod/reclaim-params-holder.plutus.json",
@@ -71,15 +71,15 @@
       "exporter_name": "reclaim-global-v2",
       "type": "PlutusV3",
       "import_format": "single_cbor_hex",
-      "script_cbor_bytes": 3648,
-      "script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+      "script_cbor_bytes": 3356,
+      "script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
       "identity_kind": "script_hash",
-      "actual_identity": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
-      "expected_identity": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
+      "actual_identity": "a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8",
+      "expected_identity": "a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8",
       "identity_matches": true,
       "lean_import_file": "formal/artifacts/active-preprod/reclaim-global-v2.cbor.hex",
-      "chain_script_cbor_bytes": 3648,
-      "chain_script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+      "chain_script_cbor_bytes": 3356,
+      "chain_script_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
       "proof_slot_encoding": "full-proof-plus-public-input-digest-v2",
       "batch_transcript": "statement-bound-v2",
       "verifier_vk_hash": "06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4"
@@ -89,15 +89,15 @@
       "exporter_name": "reclaim-base",
       "type": "PlutusV3",
       "import_format": "single_cbor_hex",
-      "script_cbor_bytes": 435,
-      "script_cbor_sha256": "ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af",
+      "script_cbor_bytes": 132,
+      "script_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e",
       "identity_kind": "script_hash",
-      "actual_identity": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
-      "expected_identity": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
+      "actual_identity": "744cc4718e8149201c7e9cb3d3a550f34cb18dfc8076a33172d9354d",
+      "expected_identity": "744cc4718e8149201c7e9cb3d3a550f34cb18dfc8076a33172d9354d",
       "identity_matches": true,
       "lean_import_file": "formal/artifacts/active-preprod/reclaim-base.cbor.hex",
-      "chain_script_cbor_bytes": 435,
-      "chain_script_cbor_sha256": "ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af"
+      "chain_script_cbor_bytes": 132,
+      "chain_script_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e"
     }
   },
   "all_identities_match": true

@@ -1,9 +1,9 @@
 {
   "schema": "proof-tool-formal-theorem-catalog-v1",
   "catalog_status": "proof-execution-in-progress",
-  "recorded_at": "2026-07-20",
+  "recorded_at": "2026-07-21",
   "workspace_baseline_commit": "7c7ea7fbb7b0ae9d9c777d4e2c5b97a3e6c2db0e",
-  "deployment_source_commit": "c513fd78ecb14a4119769986675d602dffa741b4",
+  "deployment_source_commit": "fccccbc8ab525c9da8d8ae334398f590459c3a3c",
   "active_manifest": "apps/ownership-proof-web/public/proof-assets/reclaim-deployment.json",
   "result_vocabulary": {
     "Valid": "Blaster or Lean establishes the universally quantified statement within the declared scope.",
@@ -26,7 +26,7 @@
       "catalog_id": "PROV-1",
       "kind": "artifact_gate",
       "severity": "critical",
-      "target": "deployed Preprod artifacts and the coherent current-source candidate pair",
+      "target": "deployed Preprod artifacts and byte-identical current source",
       "planned_name": "artifact_regeneration_matches_active_manifest",
       "quantification": "All active script parameters and recorded verifier material are fixed by the manifest; regeneration is deterministic.",
       "preconditions": ["deployment source and toolchain are available", "public verifier material hashes match the manifest"],
@@ -36,12 +36,12 @@
       "evidence_required": ["provenance-lock.json", "regeneration command output", "byte digest and script-hash equality"],
       "evidence_observed": [
         "formal/assurance/artifact-regeneration.json and formal/assurance/public-deployment-chain.json preserve the deployed Preprod lock",
-        "the active exporter is rebuilt from the manifest-pinned deployment commit in an isolated temporary git archive rather than from divergent current source",
-        "the unchanged OneShotNFT and ParamsHolder artifacts remain tied to the active deployment",
-        "current source GlobalV2 exports as non-deployed candidate f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582 rather than deployed 1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
-        "the simplified current-source ReclaimBase is regenerated after GlobalV2 and applies that exact candidate credential, producing non-deployed candidate c234ceda7ee98fbc61ab7c3d5c1748411718353b636010a4df60da45 rather than deployed a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
-        "19 ledger-bound exact Haskell/Lean decisions agree across the deployed artifacts and coherent candidate pair",
-        "no deployment, active manifest, or public reference-script identity has been changed"
+        "the active exporter is rebuilt from the manifest-pinned deployment commit in an isolated temporary git archive",
+        "OneShotNFT, ParamsHolder, ReclaimBase, and ReclaimGlobalV2 identities match the public deployment transaction and manifest",
+        "current-source GlobalV2 regenerates as active a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8",
+        "current-source ReclaimBase is regenerated after GlobalV2 and applies that exact credential, reproducing active 744cc4718e8149201c7e9cb3d3a550f34cb18dfc8076a33172d9354d",
+        "19 ledger-bound exact Haskell/Lean decisions agree across canonical active imports and byte-identical legacy proof aliases",
+        "deployment transaction c8d6d3b6ddd1a8aa43ee039acb54a79a4bb427f4bbacd95085754b09ecfada2f is publicly confirmed and valid"
       ]
     },
     {
@@ -81,7 +81,7 @@
       "evidence_observed": [
         "formal/assurance/context-goldens.json contains Haskell-generated V3 contexts spanning minting, spending, rewarding, withdrawals, inline datums, reference inputs, Values, authoritative first-four-field V2 redeemers, proof/digest lists, and destination outputs",
         "ProofToolFormal.ContextGoldens proves exact CBOR-to-typed-context decoding plus ledger validity and active-artifact binding",
-        "formal/assurance/cross-evaluator-decisions.json records seven matching exact-artifact decisions",
+        "formal/assurance/cross-evaluator-decisions.json records 19 matching exact-artifact decisions",
         "the active GlobalV2 success fixture uses the committed real proof/verifier key and a derived destination-bound digest; a one-bit digest substitution is rejected by both evaluators"
       ]
     },
@@ -187,7 +187,7 @@
       "catalog_id": "RB-1",
       "kind": "lean_theorem",
       "severity": "critical",
-      "target": "exact current-source ReclaimBase candidate and reusable parameterized closed term",
+      "target": "exact active ReclaimBase artifact and reusable parameterized closed term",
       "planned_name": "reclaimBase_success_iff_configured_withdrawal",
       "quantification": "forall (globalCredential : Credential) (ctx : ScriptContext)",
       "preconditions": ["execution is within fuel"],
@@ -198,7 +198,7 @@
       "evidence_required": ["parameterized helper theorem", "exact artifact corollary", "#print axioms"],
       "evidence_observed": [
         "ProofToolFormal.ReclaimBaseParameterized proves the generalized typed withdrawal-membership biconditional without project axioms",
-        "ProofToolFormal.ReclaimBaseCandidate replays exact candidate success and missing-withdrawal rejection at 2,000,000 CEK steps",
+        "ProofToolFormal.ReclaimBaseCandidate replays exact active bytes (under a legacy module name) for success and missing-withdrawal rejection at 2,000,000 CEK steps",
         "the full Haskell suite passes all 114 tests, including at least 12,800 randomized Base cases in the observed coverage-expanded runs",
         "the exact universal compiled bridge over the recursively encoded withdrawals list remains pending because finite symbolic CEK expansion is not accepted as induction"
       ]
@@ -207,7 +207,7 @@
       "catalog_id": "RB-2",
       "kind": "lean_theorem",
       "severity": "critical",
-      "target": "exact current-source ReclaimBase candidate",
+      "target": "exact active ReclaimBase artifact",
       "planned_name": "reclaimBase_missing_or_wrong_configured_withdrawal_rejects",
       "quantification": "forall (ctx : ScriptContext)",
       "preconditions": [
@@ -220,7 +220,7 @@
       "evidence_required": ["Lean theorem", "branch-specific corollaries", "compiled replay"],
       "evidence_observed": [
         "the generalized typed membership theorem covers absent and wrong keys",
-        "ProofToolFormal.ReclaimBaseCandidate exact_candidate_missing_withdrawal_rejects_within_fuel replays genuine candidate rejection",
+        "ProofToolFormal.ReclaimBaseCandidate exact_candidate_missing_withdrawal_rejects_within_fuel replays genuine active-artifact rejection",
         "the exact universal compiled recursive-list bridge remains pending"
       ]
     },
@@ -228,17 +228,17 @@
       "catalog_id": "RB-3",
       "kind": "lean_theorem",
       "severity": "high",
-      "target": "exact current-source ReclaimBase candidate",
+      "target": "exact active ReclaimBase artifact",
       "planned_name": "reclaimBase_decision_is_independent_of_purpose_and_datum",
       "quantification": "forall (globalCredential : Credential) (ctx1 ctx2 : ScriptContext) with equal withdrawal maps",
       "preconditions": ["execution is within fuel"],
       "statement": "Changing ScriptInfo, datum availability, datum constructor, datum fields, credential width, or configured credential constructor does not change the decision when withdrawal membership is unchanged.",
       "expected_result": "Valid",
       "status": "Pending",
-      "evidence_required": ["Lean theorem", "exact candidate replay", "typed-oracle comparison"],
+      "evidence_required": ["Lean theorem", "exact active replay", "typed-oracle comparison"],
       "evidence_observed": [
         "ProofToolFormal.ReclaimBaseParameterized proves ScriptInfo irrelevance for the typed withdrawal predicate without project axioms",
-        "ProofToolFormal.ReclaimBaseCandidate exact_candidate_short_datum_succeeds and exact_candidate_noncanonical_datum_succeeds replay the exact candidate",
+        "ProofToolFormal.ReclaimBaseCandidate exact_candidate_short_datum_succeeds and exact_candidate_noncanonical_datum_succeeds replay the exact active bytes under legacy theorem names",
         "the focused Haskell suite exercises spending/rewarding/minting purpose, missing/malformed datums, arbitrary credential widths, and key-shaped parameters",
         "the exact universal compiled recursive-list bridge remains pending"
       ]
@@ -247,18 +247,18 @@
       "catalog_id": "RB-CEX-1",
       "kind": "expected_counterexample",
       "severity": "high",
-      "target": "exact current-source ReclaimBase candidate",
+      "target": "exact active ReclaimBase artifact",
       "planned_name": "unsafe_reclaimBase_candidate_never_succeeds_with_configured_withdrawal",
       "quantification": "forall (globalCredential : Credential) (ctx : ScriptContext)",
       "preconditions": ["validScriptContext ctx"],
-      "statement": "No valid context containing the configured withdrawal can make the candidate succeed.",
+      "statement": "No valid context containing the configured withdrawal can make the active Base succeed.",
       "expected_result": "Falsified",
       "status": "Falsified",
       "evidence_required": ["ledger-valid generated counterexample", "compiled replay"],
       "evidence_observed": [
         "ProofToolFormal.ReclaimBaseCandidate exact_candidate_golden_succeeds",
         "the source-backed golden context is ledger-valid and contains the configured withdrawal",
-        "the exact candidate successfully halts in the 2,000,000-step Lean replay"
+        "the exact active artifact successfully halts in the 2,000,000-step Lean replay"
       ]
     },
     {
@@ -275,9 +275,9 @@
       "evidence_required": ["Lean theorem", "wrong-purpose/index/NFT/datum corollaries", "#print axioms"],
       "evidence_observed": [
         "ProofToolFormal.Result.runStepsClassified_add gives an exact resumable classified-prefix decomposition without conflating exhaustion and error",
-        "ProofToolFormal.ReclaimGlobalV2.exact_success_requires_rewarding_purpose proves that any successful 2,000,000-step execution of the exact active artifact has RewardingScriptInfo",
-        "ProofToolFormal.ReclaimGlobalV2.exact_success_requires_rewarding_purpose gives the lifecycle-preserving rejection result by contraposition for deregistration and every other non-rewarding purpose",
-        "the selected reference input, parameter NFT, and base-hash scan portions of this combined catalog property remain pending"
+        "ProofToolFormal.ReclaimGlobalV2.shallow_exact_success_requires_rewarding_purpose proves the property for the 100-step prepared feasibility model only",
+        "ProofToolFormal.ReclaimGlobalV2.real_proof_context_has_rewarding_purpose confirms that the exact active real-proof witness uses RewardingScriptInfo",
+        "the universal exact-active rewarding-purpose bridge, selected reference input, parameter NFT, and base-hash scan portions of this combined catalog property remain pending"
       ]
     },
     {
@@ -316,7 +316,7 @@
       "evidence_observed": [
         "formal/assurance/counterexamples/global-v2-noncanonical-datum-tags.json",
         "a ledger-valid, active-artifact-bound GlobalV2 context with inner base datum constructor tag 1 successfully halts in both exact compiled evaluators",
-        "the deployed Preprod ReclaimBase artifact independently rejects the corresponding ledger-valid spending context, while the simplified current-source candidate intentionally accepts its local gate"
+        "the active withdrawal-only ReclaimBase intentionally accepts the corresponding local gate; GlobalV2 reads and authenticates the authoritative credential field"
       ],
       "classification_note": "The noncanonical constructor tag is an ABI-conformance witness, not an authorization counterexample. The universal exact-artifact bridge from success to the authoritative field remains pending."
     },
@@ -353,7 +353,7 @@
       "evidence_observed": [
         "formal/assurance/counterexamples/global-v2-noncanonical-datum-tags.json",
         "changing only a matching input's inner datum constructor tag from 0 to 1 preserves successful GlobalV2 halt in both exact compiled evaluators",
-        "the authoritative 28-byte credential, destination-bound proof statement, and complete value coverage remain unchanged; the deployed historical Base rejects the same spending context"
+        "the authoritative 28-byte credential, destination-bound proof statement, and complete value coverage remain unchanged; active Base intentionally ignores datum shape locally"
       ]
     },
     {

@@ -1,13 +1,13 @@
 import PlutusCore.UPLC
 
 /-!
-Exact public Preprod artifacts plus explicitly separated current-source
-candidates and helpers.
+Exact public Preprod artifacts plus legacy-named proof aliases and helpers.
 
 Each file is the lowercase `script` field emitted by the production Cabal
 exporter in `single_cbor_hex` format. The artifact-lock script verifies files
-under `active-preprod` against the public deployment. Candidate files are
-round-tripped and hashed separately and are never attributed to that lock.
+under `active-preprod` against the public deployment. The files under
+`candidate` are byte-identical aliases retained so existing proof names remain
+stable; the verification script rejects any divergence from active bytes.
 -/
 
 namespace ProofToolFormal.Artifacts
@@ -16,16 +16,12 @@ namespace ProofToolFormal.Artifacts
 #import_uplc paramsHolder PlutusV3 single_cbor_hex "artifacts/active-preprod/reclaim-params-holder.cbor.hex"
 #import_uplc reclaimBase PlutusV3 single_cbor_hex "artifacts/active-preprod/reclaim-base.cbor.hex"
 /-
-Current source-exported ReclaimBase candidate after the withdrawal-only
-simplification. It is intentionally separate from the deployed Preprod artifact
-until a later deployment updates the public identity.
+Legacy-named alias of the active withdrawal-only ReclaimBase artifact.
 -/
 #import_uplc reclaimBaseCandidate PlutusV3 single_cbor_hex "artifacts/candidate/reclaim-base.cbor.hex"
 #import_uplc reclaimGlobalV2 PlutusV3 single_cbor_hex "artifacts/active-preprod/reclaim-global-v2.cbor.hex"
 /-
-Current source-exported canonical ReclaimGlobalV2 candidate after the V1
-retirement. It is not byte-identical to the deployed Preprod artifact and is
-therefore imported under a distinct name and identity.
+Legacy-named alias of the active canonical ReclaimGlobalV2 artifact.
 -/
 #import_uplc reclaimGlobalV2Candidate PlutusV3 single_cbor_hex "artifacts/candidate/reclaim-global-v2.cbor.hex"
 

@@ -286,13 +286,18 @@ pnpm --dir apps/ownership-proof-web test
 Omitting `RECLAIM_E2E_SUBMIT_TRANSACTIONS=1` is also a useful fail-closed
 preflight check, but it is not live-flow completion evidence.
 
-## Optimized V2 Live Cutover Evidence (2026-07-12)
+## Optimized Contract Deployment Evidence (2026-07-21)
 
-The optimized destination circuit is active on the live Preprod web application
-at deployment
-`preprod:a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd:c513fd78ecb14a4119769986675d602dffa741b4`.
+The optimized contract pair is deployed on Preprod. The live web application
+will select it when the accompanying signed release and manifest merge, using
+deployment
+`preprod:744cc4718e8149201c7e9cb3d3a550f34cb18dfc8076a33172d9354d:fccccbc8ab525c9da8d8ae334398f590459c3a3c`.
 The deployment transaction is
-`a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db`.
+`c8d6d3b6ddd1a8aa43ee039acb54a79a4bb427f4bbacd95085754b09ecfada2f`.
+Koios confirmed the parameter NFT and both reference-script outputs unspent on
+2026-07-21; the public response summary is locked in
+`formal/assurance/public-deployment-chain.json`. The write-once web release is
+`proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-reclaim-744cc471-r1`.
 The deployed coherence set pins:
 
 - circuit ID `root-ownership-destination-v2/bls12-381/groth16`;
@@ -301,7 +306,7 @@ The deployed coherence set pins:
 - Cardano/on-chain VK hash
   `06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4`;
 - signed asset prefix `proof-assets/preprod-9fac96b-g3a/`;
-- proving key size 1,288,707,133 bytes, 77 chunks, and CCS size
+- proving key size 1,288,707,133 bytes, 615 two-MiB chunks, and CCS size
   129,221,468 bytes.
 
 The Stage 2g all-distinct-seven evaluator lane passed with V2 CPU
