@@ -23,7 +23,7 @@
   },
   "inputs": {
     "active_manifest": "apps/ownership-proof-web/public/proof-assets/reclaim-deployment.json",
-    "active_manifest_sha256": "98d757731f619adccab2e564effb441da1595742e240769cce93b70b31bb5ed7",
+    "active_manifest_sha256": "5b8ac9cab861cc46715c4588f09de30a1f40a025985654a7b1b0aae25620189d",
     "public_chain_evidence": "formal/assurance/public-deployment-chain.json",
     "public_chain_evidence_sha256": "3761b0f3ce5639205cc4b43edff2ec1081fb1030f58181f7ab2ec90e0b7af017",
     "cardano_verifier_key": "contracts/ownership-verifier/testdata/ownership-destination-vk.hex",
