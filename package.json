@@ -14,7 +14,7 @@
     "test:fast": "bash scripts/test-all.sh --fast"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.4",
-    "lefthook": "1.13.6"
+    "@biomejs/biome": "2.5.5",
+    "lefthook": "2.1.10"
   }
 }
