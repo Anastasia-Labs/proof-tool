@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { HomeLanding } from "./HomeLanding";
+import { I18nProvider } from "./I18nProvider";
 
 describe("HomeLanding", () => {
   it("routes public users to claim and lock/donate flows", () => {
@@ -33,5 +34,18 @@ describe("HomeLanding", () => {
       "https://github.com/Anastasia-Labs/proof-tool/tree/main/docs",
     );
     expect(screen.getByText(/built for cardano mainnet/i)).toBeInTheDocument();
+  });
+
+  it("renders Japanese copy and locale-preserving routes at /jp", () => {
+    render(
+      <I18nProvider locale="ja">
+        <HomeLanding locale="ja" />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "侵害されたCardanoウォレットから資金を取り戻す" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /資金を奪われた方.*資金を請求/u })).toHaveAttribute("href", "/jp/claim");
+    expect(screen.getByRole("link", { name: /資金をロック・寄付.*救出者/u })).toHaveAttribute("href", "/jp/reclaim");
+    expect(screen.getByRole("link", { name: "English" })).toHaveAttribute("href", "/language?locale=en&returnTo=%2F");
   });
 });

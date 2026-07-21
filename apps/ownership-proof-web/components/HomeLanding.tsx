@@ -10,6 +10,9 @@ import {
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { Localize } from "./I18nProvider";
+import type { AppLocale } from "../lib/i18n/locales";
+import { alternateLocale, languageSwitchPath, localizedPath } from "../lib/i18n/locales";
 
 const ICON = { sm: 16, md: 20, lg: 24, xl: 32 } as const;
 
@@ -60,14 +63,19 @@ const howItWorksSteps: HowItWorksStep[] = [
   },
 ];
 
-export function HomeLanding() {
+export function HomeLanding({ locale = "en" }: { locale?: AppLocale }) {
+  const homePath = localizedPath(locale, "/");
+  const claimPath = localizedPath(locale, "/claim");
+  const reclaimPath = localizedPath(locale, "/reclaim");
+  const nextLocale = alternateLocale(locale);
+  const languageLabel = nextLocale === "ja" ? "日本語" : "English";
   return (
-    <>
+    <Localize>
       <main className="landing-page">
         <section className="landing-hero" aria-labelledby="landing-title">
           <div className="landing-hero-copy">
             <header className="landing-header">
-              <a className="landing-brand" href="/">
+              <a className="landing-brand" href={homePath}>
                 <strong>ReclaimGlobal</strong>
                 <span>Cardano ownership recovery</span>
               </a>
@@ -81,7 +89,7 @@ export function HomeLanding() {
             </div>
 
             <div className="landing-actions" role="group" aria-label="Recovery paths">
-              <a className="landing-action primary" href="/claim">
+              <a className="landing-action primary" href={claimPath}>
                 <ShieldCheck size={ICON.xl} aria-hidden="true" />
                 <span className="landing-action-copy">
                   <span className="landing-action-badge">
@@ -93,7 +101,7 @@ export function HomeLanding() {
                 </span>
                 <ArrowRight size={ICON.lg} aria-hidden="true" />
               </a>
-              <a className="landing-action secondary" href="/reclaim">
+              <a className="landing-action secondary" href={reclaimPath}>
                 <HeartHandshake size={ICON.xl} aria-hidden="true" />
                 <span className="landing-action-copy">
                   <span className="landing-action-label">Lock / Donate funds</span>
@@ -168,7 +176,7 @@ export function HomeLanding() {
               Locking places funds in an owner-bound UTxO on Cardano. Use it after sweeping from compromised
               credentials, or to donate in a way an attacker cannot claim without the original owner&rsquo;s proof.
             </p>
-            <a className="landing-inline-link" href="/reclaim">
+            <a className="landing-inline-link" href={reclaimPath}>
               Open lock / donate flow
               <ArrowRight size={ICON.sm} aria-hidden="true" />
             </a>
@@ -196,8 +204,11 @@ export function HomeLanding() {
         <a href={DOCS_URL} target="_blank" rel="noreferrer">
           Documentation
         </a>
+        <a href={languageSwitchPath(nextLocale, localizedPath(nextLocale, "/"))} hrefLang={nextLocale}>
+          {languageLabel}
+        </a>
         <span className="landing-footer-network">Built for Cardano mainnet</span>
       </footer>
-    </>
+    </Localize>
   );
 }

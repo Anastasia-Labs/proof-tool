@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { bech32 } from "bech32";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaimFlow, selectClaimBatchRows } from "./ClaimFlow";
+import { I18nProvider } from "./I18nProvider";
 import { acknowledgePairing, broadcastPairing, subscribeToPairing } from "../lib/proving/helper-pairing-relay";
 
 const credential = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
@@ -134,6 +135,21 @@ describe("ClaimFlow", () => {
 
     expect(await screen.findByRole("heading", { name: "Create proofs" })).toBeInTheDocument();
     expect(screen.getByText(/Browser proving is not enabled for this build yet/i)).toBeInTheDocument();
+  });
+
+  it("renders the local proof-creation fixture in Japanese", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CLAIM_UI_FIXTURE", "1");
+    window.history.replaceState(null, "", "/jp/claim?fixtureState=create-proofs-ready");
+
+    render(
+      <I18nProvider locale="ja">
+        <ClaimFlow />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "証明を作成", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "24単語" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("入力した単語は保存されません。この手順を離れると消去されます。")).toBeInTheDocument();
   });
 
   it("pastes the clipboard phrase into the default 24-word proof inputs", async () => {

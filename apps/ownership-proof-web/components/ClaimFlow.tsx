@@ -79,6 +79,8 @@ import {
   subscribeToPairing,
 } from "../lib/proving/helper-pairing-relay";
 import type { BrowserProvingStatus, DestinationProofResponse, ProofProgressEvent } from "../lib/proving/types";
+import { languageSwitchPath, localizedPath } from "../lib/i18n/locales";
+import { Localize, useAppLocale } from "./I18nProvider";
 
 type ClaimScreen =
   | "deployment-review"
@@ -804,6 +806,7 @@ const defaultCreateWorker = () =>
   }) as WorkerLike;
 
 export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps = {}) {
+  const locale = useAppLocale();
   useEffect(() => () => disposePreparedBrowserProvingSession(), []);
   const [screen, setScreen] = useState<ClaimScreen>("deployment-review");
   // Mirror of `screen` for async completions that must know where the user is
@@ -2338,7 +2341,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
   const finishRecovery = () => {
     resetClaimFlowState();
     if (typeof window !== "undefined") {
-      window.location.assign("/");
+      window.location.assign(localizedPath(locale, "/"));
     }
   };
 
@@ -2353,40 +2356,42 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
         <ClaimTopNav />
         <div className="claim-page">
           {!fixtureEnabled && resumePromptSnapshot && screen === "deployment-review" ? (
-            <div className="claim-notice info" role="status" data-testid="claim-resume-banner">
-              <span className="claim-icon-circle">
-                <RefreshCw size={28} aria-hidden="true" />
-              </span>
-              <div>
-                <strong>Resume your claim in progress?</strong>
-                <p>
-                  Last saved {formatRelativeTime(resumePromptSnapshot.updatedAt)}. Resuming restores the saved claim
-                  batch on this device; starting over discards it.
-                </p>
-                <div className="claim-modal-actions">
-                  <button
-                    className="claim-primary-button"
-                    type="button"
-                    onClick={() => {
-                      restoreResumeSnapshot(resumePromptSnapshot);
-                      setResumePromptSnapshot(null);
-                    }}
-                  >
-                    Resume
-                  </button>
-                  <button
-                    className="claim-secondary-button"
-                    type="button"
-                    onClick={() => {
-                      clearClaimFlowResumeSnapshot();
-                      setResumePromptSnapshot(null);
-                    }}
-                  >
-                    Start over
-                  </button>
+            <Localize>
+              <div className="claim-notice info" role="status" data-testid="claim-resume-banner">
+                <span className="claim-icon-circle">
+                  <RefreshCw size={28} aria-hidden="true" />
+                </span>
+                <div>
+                  <strong>Resume your claim in progress?</strong>
+                  <p>
+                    Last saved {formatRelativeTime(resumePromptSnapshot.updatedAt)}. Resuming restores the saved claim
+                    batch on this device; starting over discards it.
+                  </p>
+                  <div className="claim-modal-actions">
+                    <button
+                      className="claim-primary-button"
+                      type="button"
+                      onClick={() => {
+                        restoreResumeSnapshot(resumePromptSnapshot);
+                        setResumePromptSnapshot(null);
+                      }}
+                    >
+                      Resume
+                    </button>
+                    <button
+                      className="claim-secondary-button"
+                      type="button"
+                      onClick={() => {
+                        clearClaimFlowResumeSnapshot();
+                        setResumePromptSnapshot(null);
+                      }}
+                    >
+                      Start over
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            </Localize>
           ) : null}
           {renderScreen(visibleScreen, goNext, goBack, setScreen, {
             deployment,
@@ -2868,30 +2873,41 @@ function renderScreen(
 }
 
 function ClaimTopNav() {
+  const locale = useAppLocale();
+  const nextLocale = locale === "ja" ? "en" : "ja";
   return (
-    <header className="claim-topbar">
-      <nav className="claim-primary-nav" aria-label="Main">
-        <a href="/reclaim" className="claim-nav-link">
-          <LockKeyhole size={24} aria-hidden="true" />
-          Lock funds
-        </a>
-        <a href="/claim" className="claim-nav-link active" aria-current="page">
-          <Coins size={25} aria-hidden="true" />
-          Claim funds
-        </a>
-      </nav>
-      <div className="claim-top-actions">
-        <a
-          className="claim-ghost-action"
-          href="https://github.com/Anastasia-Labs/proof-tool/tree/main/docs"
-          target="_blank"
-          rel="noreferrer"
-        >
-          <HelpCircle size={22} aria-hidden="true" />
-          Help
-        </a>
-      </div>
-    </header>
+    <Localize>
+      <header className="claim-topbar">
+        <nav className="claim-primary-nav" aria-label="Main">
+          <a href={localizedPath(locale, "/reclaim")} className="claim-nav-link">
+            <LockKeyhole size={24} aria-hidden="true" />
+            Lock funds
+          </a>
+          <a href={localizedPath(locale, "/claim")} className="claim-nav-link active" aria-current="page">
+            <Coins size={25} aria-hidden="true" />
+            Claim funds
+          </a>
+        </nav>
+        <div className="claim-top-actions">
+          <a
+            className="claim-ghost-action"
+            href="https://github.com/Anastasia-Labs/proof-tool/tree/main/docs"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <HelpCircle size={22} aria-hidden="true" />
+            Help
+          </a>
+          <a
+            className="claim-ghost-action"
+            href={languageSwitchPath(nextLocale, localizedPath(nextLocale, "/claim"))}
+            hrefLang={nextLocale}
+          >
+            {nextLocale === "ja" ? "日本語" : "English"}
+          </a>
+        </div>
+      </header>
+    </Localize>
   );
 }
 
@@ -2901,84 +2917,90 @@ function ClaimTopNav() {
 function HelperPairingCourier({ status }: { status: "relaying" | "relayed" }) {
   const relayed = status === "relayed";
   return (
-    <main className="claim-shell" data-claim-state="helper-courier">
-      <section className="claim-workspace">
-        <ClaimTopNav />
-        <div className="claim-page">
-          <div className="claim-notice info" role="status" data-testid="helper-courier">
-            <span className="claim-icon-circle">
-              {relayed ? (
-                <CheckCircle2 size={28} aria-hidden="true" />
-              ) : (
-                <RefreshCw size={28} className="spin" aria-hidden="true" />
-              )}
-            </span>
-            <div>
-              <strong>{relayed ? "Proof Helper paired" : "Connecting Proof Helper…"}</strong>
-              <p>
-                {relayed
-                  ? "Your claim is paired in the tab you already had open. This tab will close itself — if it stays open, you can close it and continue there."
-                  : "Handing the Proof Helper connection to your open claim tab. This only takes a moment."}
-              </p>
+    <Localize>
+      <main className="claim-shell" data-claim-state="helper-courier">
+        <section className="claim-workspace">
+          <ClaimTopNav />
+          <div className="claim-page">
+            <div className="claim-notice info" role="status" data-testid="helper-courier">
+              <span className="claim-icon-circle">
+                {relayed ? (
+                  <CheckCircle2 size={28} aria-hidden="true" />
+                ) : (
+                  <RefreshCw size={28} className="spin" aria-hidden="true" />
+                )}
+              </span>
+              <div>
+                <strong>{relayed ? "Proof Helper paired" : "Connecting Proof Helper…"}</strong>
+                <p>
+                  {relayed
+                    ? "Your claim is paired in the tab you already had open. This tab will close itself — if it stays open, you can close it and continue there."
+                    : "Handing the Proof Helper connection to your open claim tab. This only takes a moment."}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </Localize>
   );
 }
 
 function ClaimSidebar({ activeStep, screen }: { activeStep: number; screen: ClaimScreen }) {
   return (
-    <aside className="claim-sidebar" aria-label="Claim progress">
-      <div className="claim-brand">
-        <div className="claim-brand-mark" aria-hidden="true">
-          <ShieldCheck size={36} />
+    <Localize>
+      <aside className="claim-sidebar" aria-label="Claim progress">
+        <div className="claim-brand">
+          <div className="claim-brand-mark" aria-hidden="true">
+            <ShieldCheck size={36} />
+          </div>
+          <div>
+            <strong>ReclaimGlobal</strong>
+            <span>Cardano ownership recovery</span>
+          </div>
         </div>
-        <div>
-          <strong>ReclaimGlobal</strong>
-          <span>Cardano ownership recovery</span>
+
+        <ol className="claim-step-list">
+          {steps.map((step) => {
+            const status =
+              step.id < activeStep || (screen === "claim-review-complete" && step.id === 7)
+                ? "complete"
+                : step.id === activeStep
+                  ? "active"
+                  : "pending";
+            return <ClaimStep key={step.id} step={step} status={status} />;
+          })}
+        </ol>
+
+        <div className="claim-assurance">
+          <ShieldCheck size={31} aria-hidden="true" />
+          <p>
+            Secured by an on-chain smart contract — no one, including us, can move funds without the owner&apos;s proof.
+          </p>
         </div>
-      </div>
-
-      <ol className="claim-step-list">
-        {steps.map((step) => {
-          const status =
-            step.id < activeStep || (screen === "claim-review-complete" && step.id === 7)
-              ? "complete"
-              : step.id === activeStep
-                ? "active"
-                : "pending";
-          return <ClaimStep key={step.id} step={step} status={status} />;
-        })}
-      </ol>
-
-      <div className="claim-assurance">
-        <ShieldCheck size={31} aria-hidden="true" />
-        <p>
-          Secured by an on-chain smart contract — no one, including us, can move funds without the owner&apos;s proof.
-        </p>
-      </div>
-    </aside>
+      </aside>
+    </Localize>
   );
 }
 
 function ClaimStep({ step, status }: { step: Step; status: StepStatus }) {
   const Icon = step.icon;
   return (
-    <li className={`claim-step ${status}`}>
-      <div className="claim-step-line" aria-hidden="true" />
-      <div className="claim-step-token" aria-hidden="true">
-        {status === "complete" ? <Check size={22} /> : step.id}
-      </div>
-      <Icon className="claim-step-icon" size={31} aria-hidden="true" />
-      <div>
-        <strong>
-          {step.id}. {step.label}
-        </strong>
-        <span>{status === "complete" ? "Complete" : status === "active" ? "In progress" : "Pending"}</span>
-      </div>
-    </li>
+    <Localize>
+      <li className={`claim-step ${status}`}>
+        <div className="claim-step-line" aria-hidden="true" />
+        <div className="claim-step-token" aria-hidden="true">
+          {status === "complete" ? <Check size={22} /> : step.id}
+        </div>
+        <Icon className="claim-step-icon" size={31} aria-hidden="true" />
+        <div>
+          <strong>
+            {step.id}. {step.label}
+          </strong>
+          <span>{status === "complete" ? "Complete" : status === "active" ? "In progress" : "Pending"}</span>
+        </div>
+      </li>
+    </Localize>
   );
 }
 
@@ -3128,8 +3150,7 @@ function ImpactedWallet({
       <div className="claim-two-column">
         <div className="claim-stack">
           <Notice icon={Wallet} title={`${INCIDENT_NAME} is in maintenance mode.`}>
-            If you used {INCIDENT_NAME}, import that wallet&apos;s recovery phrase into Lace or another Cardano browser
-            wallet first, then connect it here.
+            {`If you used ${INCIDENT_NAME}, import that wallet's recovery phrase into Lace or another Cardano browser wallet first, then connect it here.`}
           </Notice>
           <Notice
             tone={wrongNetwork ? "bad" : "info"}
@@ -3490,8 +3511,7 @@ function SafeWallet({
       <div className="claim-two-column">
         <div className="claim-stack">
           <Notice icon={ShieldCheck} title="Use a clean destination">
-            Do not connect the impacted wallet here. Choose a wallet whose recovery phrase and devices were not exposed
-            during the {INCIDENT_NAME} incident.
+            {`Do not connect the impacted wallet here. Choose a wallet whose recovery phrase and devices were not exposed during the ${INCIDENT_NAME} incident.`}
           </Notice>
           <Notice icon={HelpCircle} title="Why this comes before proofs">
             Claim proofs are destination-bound, so we need the safe wallet address before proofs are created.
@@ -3988,7 +4008,7 @@ function CreateProofs({
                         setPasteStatus(null);
                       }}
                     >
-                      {wordCount} words
+                      {`${wordCount} words`}
                     </button>
                   ))}
                 </div>
@@ -4224,8 +4244,7 @@ function CreateProofsGenerating({
               <>
                 <ProofQueue rows={queueRows} totalCount={total} />
                 <p className="claim-table-note">
-                  {total} total claim{total === 1 ? "" : "s"} -{" "}
-                  {browserMode ? "proving in this browser" : "helper request in progress"}
+                  {`${total} total claim${total === 1 ? "" : "s"} - ${browserMode ? "proving in this browser" : "helper request in progress"}`}
                 </p>
               </>
             ) : (
@@ -4652,7 +4671,7 @@ function CurrentBatch({
       </Panel>
       <Panel title="Next claim batch" className="claim-table-panel">
         <div className="claim-panel-toolbar">
-          <span className="claim-soft-badge">{rows.length} UTxOs ready</span>
+          <span className="claim-soft-badge">{`${rows.length} UTxOs ready`}</span>
           {onRescanClaims ? (
             <button className="claim-table-action" type="button" onClick={onRescanClaims}>
               Need to rescan? Go back to Available claims.
@@ -4983,7 +5002,7 @@ function ClaimScreenFrame({
   nextDisabled?: boolean;
 }) {
   return (
-    <>
+    <Localize>
       <header className="claim-page-heading">
         <h1 tabIndex={-1}>{title}</h1>
         <p>{subtitle}</p>
@@ -5006,7 +5025,7 @@ function ClaimScreenFrame({
           </button>
         </div>
       </footer>
-    </>
+    </Localize>
   );
 }
 
@@ -5116,25 +5135,27 @@ function SummaryTileView({ tile }: { tile: SummaryTile }) {
   const Icon = tile.icon;
   const StatusIcon = tile.statusIcon ?? CheckCircle2;
   return (
-    <section className={`claim-summary-tile ${tile.emphasis ? "emphasis" : ""}`}>
-      <Icon size={31} aria-hidden="true" />
-      <div>
-        <span>{tile.label}</span>
-        <strong>{tile.value}</strong>
-        {tile.detail ? <small>{tile.detail}</small> : null}
-        {tile.status ? (
-          <small className={`claim-status-line ${tile.statusTone ?? "ok"}`}>
-            <StatusIcon size={15} aria-hidden="true" />
-            {tile.status}
-          </small>
-        ) : null}
-        {tile.actionLabel && tile.onAction ? (
-          <button className="claim-tile-action" type="button" onClick={tile.onAction}>
-            {tile.actionLabel}
-          </button>
-        ) : null}
-      </div>
-    </section>
+    <Localize>
+      <section className={`claim-summary-tile ${tile.emphasis ? "emphasis" : ""}`}>
+        <Icon size={31} aria-hidden="true" />
+        <div>
+          <span>{tile.label}</span>
+          <strong>{tile.value}</strong>
+          {tile.detail ? <small>{tile.detail}</small> : null}
+          {tile.status ? (
+            <small className={`claim-status-line ${tile.statusTone ?? "ok"}`}>
+              <StatusIcon size={15} aria-hidden="true" />
+              {tile.status}
+            </small>
+          ) : null}
+          {tile.actionLabel && tile.onAction ? (
+            <button className="claim-tile-action" type="button" onClick={tile.onAction}>
+              {tile.actionLabel}
+            </button>
+          ) : null}
+        </div>
+      </section>
+    </Localize>
   );
 }
 
@@ -5215,138 +5236,140 @@ function LocalProofMethodDialog({
   const dialogRef = useDialogFocus<HTMLDivElement>(onClose);
 
   return (
-    <div className="claim-modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        className="claim-proof-method-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="proof-method-dialog-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="claim-proof-method-header">
-          <div>
-            <h2 id="proof-method-dialog-title">Choose how to create proofs</h2>
-            <p>Proofs are created locally on this device before you claim funds.</p>
-          </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close proof method chooser">
-            <X size={20} />
-          </button>
-        </header>
+    <Localize>
+      <div className="claim-modal-backdrop" role="presentation" onMouseDown={onClose}>
+        <div
+          ref={dialogRef}
+          tabIndex={-1}
+          className="claim-proof-method-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="proof-method-dialog-title"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <header className="claim-proof-method-header">
+            <div>
+              <h2 id="proof-method-dialog-title">Choose how to create proofs</h2>
+              <p>Proofs are created locally on this device before you claim funds.</p>
+            </div>
+            <button className="icon-button" type="button" onClick={onClose} aria-label="Close proof method chooser">
+              <X size={20} />
+            </button>
+          </header>
 
-        <div className="claim-proof-method-options" role="radiogroup" aria-label="Local proof method">
-          <button
-            className={`claim-proof-method-option ${activeMethod === "desktop" ? "selected" : ""}`}
-            type="button"
-            role="radio"
-            aria-checked={activeMethod === "desktop"}
-            onClick={() => onSelect("desktop")}
-          >
-            <span className="claim-proof-method-radio" aria-hidden="true" />
-            <span className="claim-proof-method-icon">
-              <Monitor size={28} aria-hidden="true" />
-            </span>
-            <span className="claim-proof-method-copy">
-              <span className="claim-proof-method-title">
-                Proof Helper Desktop
-                <span className="claim-pill">Recommended for speed</span>
+          <div className="claim-proof-method-options" role="radiogroup" aria-label="Local proof method">
+            <button
+              className={`claim-proof-method-option ${activeMethod === "desktop" ? "selected" : ""}`}
+              type="button"
+              role="radio"
+              aria-checked={activeMethod === "desktop"}
+              onClick={() => onSelect("desktop")}
+            >
+              <span className="claim-proof-method-radio" aria-hidden="true" />
+              <span className="claim-proof-method-icon">
+                <Monitor size={28} aria-hidden="true" />
               </span>
-              <span>Install or open the desktop app. Best for large batches and older browsers.</span>
-              <small>
-                <Download size={15} aria-hidden="true" />
-                Opens the installer chooser for Windows, macOS, or Linux if needed.
-              </small>
-            </span>
-            <span className="claim-proof-method-state">Install available</span>
-          </button>
+              <span className="claim-proof-method-copy">
+                <span className="claim-proof-method-title">
+                  Proof Helper Desktop
+                  <span className="claim-pill">Recommended for speed</span>
+                </span>
+                <span>Install or open the desktop app. Best for large batches and older browsers.</span>
+                <small>
+                  <Download size={15} aria-hidden="true" />
+                  Opens the installer chooser for Windows, macOS, or Linux if needed.
+                </small>
+              </span>
+              <span className="claim-proof-method-state">Install available</span>
+            </button>
 
-          <button
-            className={`claim-proof-method-option ${browserSelected ? "selected" : ""}`}
-            type="button"
-            role="radio"
-            aria-checked={browserSelected}
-            onClick={() => onSelect("browser")}
-          >
-            <span className="claim-proof-method-radio" aria-hidden="true" />
-            <span className="claim-proof-method-icon">
-              <Globe2 size={28} aria-hidden="true" />
-            </span>
-            <span className="claim-proof-method-copy">
-              <span className="claim-proof-method-title">
-                Prove in this browser
-                <span className="claim-pill">No download</span>
+            <button
+              className={`claim-proof-method-option ${browserSelected ? "selected" : ""}`}
+              type="button"
+              role="radio"
+              aria-checked={browserSelected}
+              onClick={() => onSelect("browser")}
+            >
+              <span className="claim-proof-method-radio" aria-hidden="true" />
+              <span className="claim-proof-method-icon">
+                <Globe2 size={28} aria-hidden="true" />
+              </span>
+              <span className="claim-proof-method-copy">
+                <span className="claim-proof-method-title">
+                  Prove in this browser
+                  <span className="claim-pill">No download</span>
+                </span>
+                <span>
+                  No app install required. About 2 minutes per proof on a fast machine; needs a supported browser.
+                </span>
+                <small>
+                  <Clock3 size={15} aria-hidden="true" />
+                  Keep this tab open while proofs are generated.
+                </small>
+              </span>
+              <span className="claim-proof-method-state">
+                {browserReady ? "Ready" : browserChecking ? "Checking" : "Unavailable"}
+              </span>
+            </button>
+          </div>
+
+          {browserSelected ? (
+            <section className="claim-browser-readiness" aria-label="Browser proving readiness">
+              <div>
+                <strong>
+                  {browserReady
+                    ? "This browser can generate proofs"
+                    : browserChecking
+                      ? "Checking browser support..."
+                      : "This browser cannot generate proofs yet"}
+                </strong>
+                <small role={browserContinueBlocked && !browserChecking ? "alert" : "status"}>
+                  {browserReady
+                    ? "Cross-origin isolation, memory, and pinned proof assets all verified."
+                    : browserChecking
+                      ? "Verifying WebAssembly, workers, isolation, and proof assets."
+                      : browserProvingDetail || "Browser proving is not enabled for this build yet."}
+                </small>
+              </div>
+              <span>
+                {browserReady ? <Check size={15} aria-hidden="true" /> : <X size={15} aria-hidden="true" />}{" "}
+                Cross-origin isolated
               </span>
               <span>
-                No app install required. About 2 minutes per proof on a fast machine; needs a supported browser.
+                <Clock3 size={15} aria-hidden="true" /> ~2 min per proof
               </span>
-              <small>
-                <Clock3 size={15} aria-hidden="true" />
-                Keep this tab open while proofs are generated.
-              </small>
-            </span>
-            <span className="claim-proof-method-state">
-              {browserReady ? "Ready" : browserChecking ? "Checking" : "Unavailable"}
-            </span>
-          </button>
-        </div>
+              <span>
+                <Check size={15} aria-hidden="true" /> Keep this tab open
+              </span>
+            </section>
+          ) : null}
 
-        {browserSelected ? (
-          <section className="claim-browser-readiness" aria-label="Browser proving readiness">
-            <div>
-              <strong>
-                {browserReady
-                  ? "This browser can generate proofs"
+          <footer className="claim-proof-method-footer">
+            <p>
+              <Lock size={17} aria-hidden="true" />
+              Your recovery phrase stays local and is read only after you choose a method.
+            </p>
+            <div className="claim-modal-actions">
+              <button className="claim-secondary-button" type="button" onClick={onClose}>
+                Cancel
+              </button>
+              <button
+                className="claim-primary-button"
+                type="button"
+                onClick={() => onContinue(activeMethod)}
+                disabled={browserContinueBlocked}
+              >
+                {activeMethod === "desktop"
+                  ? "Continue to desktop app"
                   : browserChecking
-                    ? "Checking browser support..."
-                    : "This browser cannot generate proofs yet"}
-              </strong>
-              <small role={browserContinueBlocked && !browserChecking ? "alert" : "status"}>
-                {browserReady
-                  ? "Cross-origin isolation, memory, and pinned proof assets all verified."
-                  : browserChecking
-                    ? "Verifying WebAssembly, workers, isolation, and proof assets."
-                    : browserProvingDetail || "Browser proving is not enabled for this build yet."}
-              </small>
+                    ? "Checking support..."
+                    : "Continue"}
+              </button>
             </div>
-            <span>
-              {browserReady ? <Check size={15} aria-hidden="true" /> : <X size={15} aria-hidden="true" />} Cross-origin
-              isolated
-            </span>
-            <span>
-              <Clock3 size={15} aria-hidden="true" /> ~2 min per proof
-            </span>
-            <span>
-              <Check size={15} aria-hidden="true" /> Keep this tab open
-            </span>
-          </section>
-        ) : null}
-
-        <footer className="claim-proof-method-footer">
-          <p>
-            <Lock size={17} aria-hidden="true" />
-            Your recovery phrase stays local and is read only after you choose a method.
-          </p>
-          <div className="claim-modal-actions">
-            <button className="claim-secondary-button" type="button" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              className="claim-primary-button"
-              type="button"
-              onClick={() => onContinue(activeMethod)}
-              disabled={browserContinueBlocked}
-            >
-              {activeMethod === "desktop"
-                ? "Continue to desktop app"
-                : browserChecking
-                  ? "Checking support..."
-                  : "Continue"}
-            </button>
-          </div>
-        </footer>
+          </footer>
+        </div>
       </div>
-    </div>
+    </Localize>
   );
 }
 
@@ -5363,78 +5386,80 @@ function ProofHelperInstallDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        className="install-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="install-dialog-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="dialog-heading">
-          <div>
-            <h3 id="install-dialog-title">Choose your installer</h3>
-            <p>Select the operating system for this computer.</p>
+    <Localize>
+      <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+        <div
+          ref={dialogRef}
+          tabIndex={-1}
+          className="install-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="install-dialog-title"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="dialog-heading">
+            <div>
+              <h3 id="install-dialog-title">Choose your installer</h3>
+              <p>Select the operating system for this computer.</p>
+            </div>
+            <button className="icon-button" type="button" onClick={onClose} aria-label="Close installer chooser">
+              <X size={18} />
+            </button>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close installer chooser">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="platform-list">
-          {proofHelperDownloadChoices.map((choice) => (
-            <a
-              className="platform-choice"
-              key={choice.platform}
-              href={choice.href}
-              target="_blank"
-              rel="noreferrer"
-              onClick={onClose}
-            >
-              <span>
-                <strong>{choice.label}</strong>
-                <small>{choice.description}</small>
-              </span>
-              <span className="platform-action">
-                {choice.action}
-                <ExternalLink size={16} />
-              </span>
+          <div className="platform-list">
+            {proofHelperDownloadChoices.map((choice) => (
+              <a
+                className="platform-choice"
+                key={choice.platform}
+                href={choice.href}
+                target="_blank"
+                rel="noreferrer"
+                onClick={onClose}
+              >
+                <span>
+                  <strong>{choice.label}</strong>
+                  <small>{choice.description}</small>
+                </span>
+                <span className="platform-action">
+                  {choice.action}
+                  <ExternalLink size={16} />
+                </span>
+              </a>
+            ))}
+          </div>
+          <div className="helper-start-command">
+            <div>
+              <strong>Verify the Linux AppImage</strong>
+              <p>Compare the download against the published SHA-256 before running it.</p>
+            </div>
+            <code>{linuxAppImageSha256}</code>
+            <code>{`sha256sum -c ${linuxAppImageFilename}.sha256`}</code>
+            <a className="claim-external-link" href={linuxAppImageChecksumDownload} target="_blank" rel="noreferrer">
+              Download checksum
+              <ExternalLink size={16} aria-hidden="true" />
             </a>
-          ))}
-        </div>
-        <div className="helper-start-command">
-          <div>
-            <strong>Verify the Linux AppImage</strong>
-            <p>Compare the download against the published SHA-256 before running it.</p>
+            <a className="claim-external-link" href={linuxVerificationInstructions} target="_blank" rel="noreferrer">
+              Verification and launch instructions
+              <ExternalLink size={16} aria-hidden="true" />
+            </a>
           </div>
-          <code>{linuxAppImageSha256}</code>
-          <code>{`sha256sum -c ${linuxAppImageFilename}.sha256`}</code>
-          <a className="claim-external-link" href={linuxAppImageChecksumDownload} target="_blank" rel="noreferrer">
-            Download checksum
-            <ExternalLink size={16} aria-hidden="true" />
-          </a>
-          <a className="claim-external-link" href={linuxVerificationInstructions} target="_blank" rel="noreferrer">
-            Verification and launch instructions
-            <ExternalLink size={16} aria-hidden="true" />
-          </a>
-        </div>
-        <div className="helper-start-command">
-          <div>
-            <strong>Windows zip start command</strong>
-            <p>
-              After extracting the zip, open Command Prompt in that folder and run this command so Proof Helper pairs
-              back to this claim page.
-            </p>
+          <div className="helper-start-command">
+            <div>
+              <strong>Windows zip start command</strong>
+              <p>
+                After extracting the zip, open Command Prompt in that folder and run this command so Proof Helper pairs
+                back to this claim page.
+              </p>
+            </div>
+            <code>{startCommand}</code>
+            <button className="claim-secondary-button" type="button" onClick={copyStartCommand}>
+              {copyState === "copied" ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+              {copyState === "copied" ? "Copied" : "Copy command"}
+            </button>
           </div>
-          <code>{startCommand}</code>
-          <button className="claim-secondary-button" type="button" onClick={copyStartCommand}>
-            {copyState === "copied" ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
-            {copyState === "copied" ? "Copied" : "Copy command"}
-          </button>
         </div>
       </div>
-    </div>
+    </Localize>
   );
 }
 
@@ -5463,19 +5488,21 @@ function Panel({
   className?: string;
 }) {
   return (
-    <section className={`claim-panel ${className ?? ""}`}>
-      {title ? (
-        <header className="claim-panel-header">
-          {Icon ? (
-            <span className="claim-icon-circle">
-              <Icon size={24} aria-hidden="true" />
-            </span>
-          ) : null}
-          <h2>{title}</h2>
-        </header>
-      ) : null}
-      <div className="claim-panel-body">{children}</div>
-    </section>
+    <Localize>
+      <section className={`claim-panel ${className ?? ""}`}>
+        {title ? (
+          <header className="claim-panel-header">
+            {Icon ? (
+              <span className="claim-icon-circle">
+                <Icon size={24} aria-hidden="true" />
+              </span>
+            ) : null}
+            <h2>{title}</h2>
+          </header>
+        ) : null}
+        <div className="claim-panel-body">{children}</div>
+      </section>
+    </Localize>
   );
 }
 
@@ -5497,15 +5524,17 @@ function Notice({
   // A11y (C37): errors are announced assertively, warnings politely.
   const role = tone === "bad" ? "alert" : tone === "warn" || announce ? "status" : undefined;
   return (
-    <div className={`claim-notice ${tone}`} role={role}>
-      <span className="claim-icon-circle">
-        <Icon className={iconSpinning ? "spin" : undefined} size={28} aria-hidden="true" />
-      </span>
-      <div>
-        {title ? <strong>{title}</strong> : null}
-        <p>{children}</p>
+    <Localize>
+      <div className={`claim-notice ${tone}`} role={role}>
+        <span className="claim-icon-circle">
+          <Icon className={iconSpinning ? "spin" : undefined} size={28} aria-hidden="true" />
+        </span>
+        <div>
+          {title ? <strong>{title}</strong> : null}
+          <p>{children}</p>
+        </div>
       </div>
-    </div>
+    </Localize>
   );
 }
 
@@ -5521,48 +5550,54 @@ function InfoPanel({
   compact?: boolean;
 }) {
   return (
-    <aside className={`claim-info-panel ${compact ? "compact" : ""}`}>
-      <h2>{title}</h2>
-      <div className="claim-info-list">
-        {items.map((item) => {
-          const Icon = item.icon;
-          return (
-            <section key={item.title} className="claim-info-item">
-              <span className="claim-icon-circle">
-                <Icon size={26} aria-hidden="true" />
-              </span>
-              <div>
-                <strong>{item.title}</strong>
-                <p>{item.body}</p>
-              </div>
-            </section>
-          );
-        })}
-      </div>
-      {footer ? <p className="claim-info-footer">{footer}</p> : null}
-    </aside>
+    <Localize>
+      <aside className={`claim-info-panel ${compact ? "compact" : ""}`}>
+        <h2>{title}</h2>
+        <div className="claim-info-list">
+          {items.map((item) => {
+            const Icon = item.icon;
+            return (
+              <section key={item.title} className="claim-info-item">
+                <span className="claim-icon-circle">
+                  <Icon size={26} aria-hidden="true" />
+                </span>
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.body}</p>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+        {footer ? <p className="claim-info-footer">{footer}</p> : null}
+      </aside>
+    </Localize>
   );
 }
 
 function MetricStripItem({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
   return (
-    <section className="claim-metric-strip-item">
-      <Icon size={36} aria-hidden="true" />
-      <div>
-        <span>{label}</span>
-        <strong>{value}</strong>
-      </div>
-    </section>
+    <Localize>
+      <section className="claim-metric-strip-item">
+        <Icon size={36} aria-hidden="true" />
+        <div>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      </section>
+    </Localize>
   );
 }
 
 function MetricText({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
-    <div className="claim-metric-text">
-      <span>{label}</span>
-      {value ? <strong>{value}</strong> : null}
-      {detail ? <small>{detail}</small> : null}
-    </div>
+    <Localize>
+      <div className="claim-metric-text">
+        <span>{label}</span>
+        {value ? <strong>{value}</strong> : null}
+        {detail ? <small>{detail}</small> : null}
+      </div>
+    </Localize>
   );
 }
 
@@ -5584,15 +5619,19 @@ function ReviewRow({
   breakValue?: boolean;
 }) {
   return (
-    <div className="claim-review-row">
-      <span>{label}</span>
-      <code style={breakValue ? { overflowWrap: "anywhere", wordBreak: "break-all", whiteSpace: "normal" } : undefined}>
-        {value}
-      </code>
-      {Icon ? <Icon size={18} aria-hidden="true" /> : null}
-      {!noCopy ? <CopyButton label={`Copy ${label}`} value={copyValue ?? value} /> : null}
-      {detail ? <small>{detail}</small> : null}
-    </div>
+    <Localize>
+      <div className="claim-review-row">
+        <span>{label}</span>
+        <code
+          style={breakValue ? { overflowWrap: "anywhere", wordBreak: "break-all", whiteSpace: "normal" } : undefined}
+        >
+          {value}
+        </code>
+        {Icon ? <Icon size={18} aria-hidden="true" /> : null}
+        {!noCopy ? <CopyButton label={`Copy ${label}`} value={copyValue ?? value} /> : null}
+        {detail ? <small>{detail}</small> : null}
+      </div>
+    </Localize>
   );
 }
 
@@ -5623,15 +5662,17 @@ function CopyButton({ label, value }: { label: string; value: string }) {
     resetTimerRef.current = setTimeout(() => setCopied(false), 2000);
   };
   return (
-    <button
-      className="claim-copy-button"
-      type="button"
-      aria-label={copied ? `${label} — copied` : label}
-      title={copied ? "Copied" : label}
-      onClick={() => void copyToClipboard()}
-    >
-      {copied ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
-    </button>
+    <Localize>
+      <button
+        className="claim-copy-button"
+        type="button"
+        aria-label={copied ? `${label} — copied` : label}
+        title={copied ? "Copied" : label}
+        onClick={() => void copyToClipboard()}
+      >
+        {copied ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
+      </button>
+    </Localize>
   );
 }
 
@@ -5663,37 +5704,39 @@ function WalletChooser({
         id: wallet.name.toLowerCase(),
       }));
   return (
-    <section className={`claim-wallet-chooser ${layout}`}>
-      <h2>Choose a Cardano browser wallet</h2>
-      <p>Works with CIP-30 wallets such as Lace, Eternl, and Yoroi.</p>
-      {layout === "grid" ? <p>Use a different wallet than the impacted wallet.</p> : null}
-      <div>
-        {walletOptions.length === 0 ? (
-          <button className="claim-wallet-option claim-wallet-empty" type="button" disabled>
-            <span className="claim-wallet-logo">?</span>
-            <strong>No wallet found</strong>
-            <span>Install or unlock a Cardano browser wallet, then refresh this page.</span>
-          </button>
-        ) : null}
-        {walletOptions.map((wallet) => (
-          <button
-            key={wallet.id}
-            className="claim-wallet-option"
-            type="button"
-            onClick={() => onSelectWallet?.(wallet.id)}
-            aria-pressed={selectedWallet === wallet.id}
-          >
-            <span className={`claim-wallet-logo ${wallet.name.toLowerCase()}`}>{wallet.name[0]}</span>
-            <strong>
-              {wallet.name}
-              {wallet.recommended ? <small>Recommended</small> : null}
-            </strong>
-            {layout === "list" ? <span>{wallet.detail}</span> : null}
-            {layout === "list" ? <ChevronRight size={25} aria-hidden="true" /> : null}
-          </button>
-        ))}
-      </div>
-    </section>
+    <Localize>
+      <section className={`claim-wallet-chooser ${layout}`}>
+        <h2>Choose a Cardano browser wallet</h2>
+        <p>Works with CIP-30 wallets such as Lace, Eternl, and Yoroi.</p>
+        {layout === "grid" ? <p>Use a different wallet than the impacted wallet.</p> : null}
+        <div>
+          {walletOptions.length === 0 ? (
+            <button className="claim-wallet-option claim-wallet-empty" type="button" disabled>
+              <span className="claim-wallet-logo">?</span>
+              <strong>No wallet found</strong>
+              <span>Install or unlock a Cardano browser wallet, then refresh this page.</span>
+            </button>
+          ) : null}
+          {walletOptions.map((wallet) => (
+            <button
+              key={wallet.id}
+              className="claim-wallet-option"
+              type="button"
+              onClick={() => onSelectWallet?.(wallet.id)}
+              aria-pressed={selectedWallet === wallet.id}
+            >
+              <span className={`claim-wallet-logo ${wallet.name.toLowerCase()}`}>{wallet.name[0]}</span>
+              <strong>
+                {wallet.name}
+                {wallet.recommended ? <small>Recommended</small> : null}
+              </strong>
+              {layout === "list" ? <span>{wallet.detail}</span> : null}
+              {layout === "list" ? <ChevronRight size={25} aria-hidden="true" /> : null}
+            </button>
+          ))}
+        </div>
+      </section>
+    </Localize>
   );
 }
 
@@ -5745,7 +5788,7 @@ function ClaimsTable({
   const firstRow = totalRows === 0 ? 0 : (page - 1) * pageSize + 1;
   const lastRow = Math.min(page * pageSize, totalRows);
   return (
-    <>
+    <Localize>
       <div className="claim-table-wrap">
         <table className="claim-table">
           <thead>
@@ -5789,9 +5832,7 @@ function ClaimsTable({
         <span>
           <HelpCircle size={16} aria-hidden="true" /> Use View to inspect every asset and quantity inside a UTxO.
         </span>
-        <span>
-          Showing {firstRow}-{lastRow} of {totalRows} UTxOs
-        </span>
+        <span>{`Showing ${firstRow}-${lastRow} of ${totalRows} UTxOs`}</span>
         <nav className="claim-pagination" aria-label="Claims pages">
           <button disabled={page <= 1} type="button" onClick={() => onPageChange(page - 1)}>
             Previous
@@ -5818,7 +5859,7 @@ function ClaimsTable({
           </button>
         </nav>
       </div>
-    </>
+    </Localize>
   );
 }
 
@@ -5855,11 +5896,13 @@ function TableEmpty({
   spin?: boolean;
 }) {
   return (
-    <div className="claim-table-empty">
-      <Icon size={36} aria-hidden="true" className={spin ? "spin" : undefined} />
-      <strong>{title}</strong>
-      <p>{body}</p>
-    </div>
+    <Localize>
+      <div className="claim-table-empty">
+        <Icon size={36} aria-hidden="true" className={spin ? "spin" : undefined} />
+        <strong>{title}</strong>
+        <p>{body}</p>
+      </div>
+    </Localize>
   );
 }
 
@@ -5891,95 +5934,101 @@ function AssetModal({ row, onClose }: { row: ClaimRow; onClose: () => void }) {
     setTxCopyState("copied");
   };
   return (
-    <div className="claim-modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
-        ref={dialogRef}
-        tabIndex={-1}
-        className="claim-asset-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="asset-modal-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="claim-modal-header">
-          <div>
-            <h2 id="asset-modal-title">UTxO assets</h2>
-            <p>{outRefId}</p>
+    <Localize>
+      <div className="claim-modal-backdrop" role="presentation" onMouseDown={onClose}>
+        <section
+          ref={dialogRef}
+          tabIndex={-1}
+          className="claim-asset-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="asset-modal-title"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <header className="claim-modal-header">
+            <div>
+              <h2 id="asset-modal-title">UTxO assets</h2>
+              <p>{outRefId}</p>
+            </div>
+            <button className="claim-icon-button" type="button" onClick={onClose} aria-label="Close asset modal">
+              <X size={22} aria-hidden="true" />
+            </button>
+          </header>
+          <div className="claim-card-grid four compact">
+            <MetricText label="Credential" value={abbreviateMiddle(credential, 18)} />
+            <MetricText label="ADA" value={row.ada} />
+            <MetricText label="Unique assets" value={String(assetDetails.length)} />
+            <MetricText label="Claim status" value="Ready" />
           </div>
-          <button className="claim-icon-button" type="button" onClick={onClose} aria-label="Close asset modal">
-            <X size={22} aria-hidden="true" />
-          </button>
-        </header>
-        <div className="claim-card-grid four compact">
-          <MetricText label="Credential" value={abbreviateMiddle(credential, 18)} />
-          <MetricText label="ADA" value={row.ada} />
-          <MetricText label="Unique assets" value={String(assetDetails.length)} />
-          <MetricText label="Claim status" value="Ready" />
-        </div>
-        <Notice icon={ShieldCheck} title={undefined}>
-          Review the asset list before continuing. Claiming this UTxO sends all listed value to your safe wallet.
-        </Notice>
-        <div className="claim-table-tools">
-          <label className="claim-search">
-            <Search size={18} aria-hidden="true" />
-            <input
-              placeholder="Search policy id or asset name"
-              aria-label="Search assets by policy id or asset name"
-              value={assetSearch}
-              onChange={(event) => setAssetSearch(event.target.value)}
-            />
-          </label>
-          <button className="claim-secondary-button" type="button" onClick={() => void copyTxReference()}>
-            {txCopyState === "copied" ? <Check size={18} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}
-            {txCopyState === "copied" ? "Copied" : "Copy tx reference"}
-          </button>
-        </div>
-        <div className="claim-asset-table-wrap">
-          <table className="claim-table">
-            <thead>
-              <tr>
-                <th>Policy id</th>
-                <th>Asset name</th>
-                <th>Quantity</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleAssets.length > 0 ? (
-                visibleAssets.map((asset) => (
-                  <tr key={asset.unit}>
-                    <td>
-                      {abbreviateMiddle(asset.policyId, 18)}{" "}
-                      <CopyButton label={`Copy policy ${asset.policyId}`} value={asset.policyId} />
-                    </td>
-                    <td>{asset.assetName}</td>
-                    <td>{asset.quantity}</td>
-                  </tr>
-                ))
+          <Notice icon={ShieldCheck} title={undefined}>
+            Review the asset list before continuing. Claiming this UTxO sends all listed value to your safe wallet.
+          </Notice>
+          <div className="claim-table-tools">
+            <label className="claim-search">
+              <Search size={18} aria-hidden="true" />
+              <input
+                placeholder="Search policy id or asset name"
+                aria-label="Search assets by policy id or asset name"
+                value={assetSearch}
+                onChange={(event) => setAssetSearch(event.target.value)}
+              />
+            </label>
+            <button className="claim-secondary-button" type="button" onClick={() => void copyTxReference()}>
+              {txCopyState === "copied" ? (
+                <Check size={18} aria-hidden="true" />
               ) : (
-                <tr>
-                  <td colSpan={3}>
-                    {assetDetails.length === 0 ? "No native assets in this UTxO." : "No assets match this search."}
-                  </td>
-                </tr>
+                <Copy size={18} aria-hidden="true" />
               )}
-            </tbody>
-          </table>
-        </div>
-        <footer className="claim-modal-footer">
-          <span>
-            {visibleAssets.length > 0
-              ? `Showing 1-${visibleAssets.length} of ${assetDetails.length} asset${assetDetails.length === 1 ? "" : "s"}`
-              : "Showing 0 assets"}
-          </span>
-          <span>{visibleAssets.length > 12 ? "Scroll to view more assets" : "All matching assets shown"}</span>
-        </footer>
-        <div className="claim-modal-actions">
-          <button className="claim-primary-button" type="button" onClick={onClose}>
-            Done
-          </button>
-        </div>
-      </section>
-    </div>
+              {txCopyState === "copied" ? "Copied" : "Copy tx reference"}
+            </button>
+          </div>
+          <div className="claim-asset-table-wrap">
+            <table className="claim-table">
+              <thead>
+                <tr>
+                  <th>Policy id</th>
+                  <th>Asset name</th>
+                  <th>Quantity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleAssets.length > 0 ? (
+                  visibleAssets.map((asset) => (
+                    <tr key={asset.unit}>
+                      <td>
+                        {abbreviateMiddle(asset.policyId, 18)}{" "}
+                        <CopyButton label={`Copy policy ${asset.policyId}`} value={asset.policyId} />
+                      </td>
+                      <td>{asset.assetName}</td>
+                      <td>{asset.quantity}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={3}>
+                      {assetDetails.length === 0 ? "No native assets in this UTxO." : "No assets match this search."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <footer className="claim-modal-footer">
+            <span>
+              {visibleAssets.length > 0
+                ? `Showing 1-${visibleAssets.length} of ${assetDetails.length} asset${assetDetails.length === 1 ? "" : "s"}`
+                : "Showing 0 assets"}
+            </span>
+            <span>{visibleAssets.length > 12 ? "Scroll to view more assets" : "All matching assets shown"}</span>
+          </footer>
+          <div className="claim-modal-actions">
+            <button className="claim-primary-button" type="button" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        </section>
+      </div>
+    </Localize>
   );
 }
 
@@ -6016,46 +6065,48 @@ function ProofPlan({
 function ProofQueue({ rows, totalCount }: { rows: ProofRow[]; totalCount?: number }) {
   const hiddenCount = totalCount !== undefined ? Math.max(totalCount - rows.length, 0) : 0;
   return (
-    <table className="claim-table">
-      <thead>
-        <tr>
-          <th>Claim</th>
-          <th>Value</th>
-          <th>Proof</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.claim}>
-            <td>{row.claim}</td>
-            <td>{row.value}</td>
-            <td>
-              <span className={`claim-badge ${row.status}`}>{row.proof}</span>
-            </td>
-            <td>
-              {row.status === "ready" ? (
-                <CheckCircle2 size={20} aria-hidden="true" />
-              ) : row.status === "generating" ? (
-                <RefreshCw className="spin" size={20} aria-hidden="true" />
-              ) : (
-                <span className="claim-waiting-dot" aria-hidden="true" />
-              )}
-              <span className="visually-hidden">
-                {row.status === "ready" ? "Generated" : row.status === "generating" ? "Generating" : "Waiting"}
-              </span>
-            </td>
-          </tr>
-        ))}
-        {hiddenCount > 0 ? (
+    <Localize>
+      <table className="claim-table">
+        <thead>
           <tr>
-            <td colSpan={4}>
-              …and {hiddenCount} more claim{hiddenCount === 1 ? "" : "s"}
-            </td>
+            <th>Claim</th>
+            <th>Value</th>
+            <th>Proof</th>
+            <th>Status</th>
           </tr>
-        ) : null}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.claim}>
+              <td>{row.claim}</td>
+              <td>{row.value}</td>
+              <td>
+                <span className={`claim-badge ${row.status}`}>{row.proof}</span>
+              </td>
+              <td>
+                {row.status === "ready" ? (
+                  <CheckCircle2 size={20} aria-hidden="true" />
+                ) : row.status === "generating" ? (
+                  <RefreshCw className="spin" size={20} aria-hidden="true" />
+                ) : (
+                  <span className="claim-waiting-dot" aria-hidden="true" />
+                )}
+                <span className="visually-hidden">
+                  {row.status === "ready" ? "Generated" : row.status === "generating" ? "Generating" : "Waiting"}
+                </span>
+              </td>
+            </tr>
+          ))}
+          {hiddenCount > 0 ? (
+            <tr>
+              <td colSpan={4}>
+                …and {hiddenCount} more claim{hiddenCount === 1 ? "" : "s"}
+              </td>
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+    </Localize>
   );
 }
 
@@ -6078,43 +6129,45 @@ function BatchProofTable({
     );
   }
   return (
-    <table className="claim-table">
-      <thead>
-        <tr>
-          <th>Claim</th>
-          <th>Proofs</th>
-          <th>Destination</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((input, index) => (
-          <tr key={input.outRefId}>
-            <td>{abbreviateMiddle(input.outRefId, 18)}</td>
-            <td>{index + 1}</td>
-            <td>
-              {safeWalletLabel}{" "}
-              {safeWallet ? (
-                <CopyButton label={`Copy claim ${index + 1} destination`} value={safeWallet.changeAddress} />
-              ) : null}
-            </td>
-            <td>
-              <span className="claim-badge ready">Ready</span>
-            </td>
+    <Localize>
+      <table className="claim-table">
+        <thead>
+          <tr>
+            <th>Claim</th>
+            <th>Proofs</th>
+            <th>Destination</th>
+            <th>Status</th>
           </tr>
-        ))}
-        <tr>
-          <td>
-            <strong>Total</strong>
-          </td>
-          <td>
-            <strong>{rows.length}</strong>
-          </td>
-          <td>-</td>
-          <td>-</td>
-        </tr>
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((input, index) => (
+            <tr key={input.outRefId}>
+              <td>{abbreviateMiddle(input.outRefId, 18)}</td>
+              <td>{index + 1}</td>
+              <td>
+                {safeWalletLabel}{" "}
+                {safeWallet ? (
+                  <CopyButton label={`Copy claim ${index + 1} destination`} value={safeWallet.changeAddress} />
+                ) : null}
+              </td>
+              <td>
+                <span className="claim-badge ready">Ready</span>
+              </td>
+            </tr>
+          ))}
+          <tr>
+            <td>
+              <strong>Total</strong>
+            </td>
+            <td>
+              <strong>{rows.length}</strong>
+            </td>
+            <td>-</td>
+            <td>-</td>
+          </tr>
+        </tbody>
+      </table>
+    </Localize>
   );
 }
 
@@ -6123,18 +6176,78 @@ function BatchTable({ draft }: { draft?: ClaimDraftResponse | null }) {
     const fixtureMode = process.env.NEXT_PUBLIC_CLAIM_UI_FIXTURE === "1";
     if (!fixtureMode) {
       return (
-        <div className="claim-table-wrap">
-          <TableEmpty
-            icon={FileText}
-            title="No active claim draft"
-            body="Create a real claim draft before reviewing batch rows."
-          />
-        </div>
+        <Localize>
+          <div className="claim-table-wrap">
+            <TableEmpty
+              icon={FileText}
+              title="No active claim draft"
+              body="Create a real claim draft before reviewing batch rows."
+            />
+          </div>
+        </Localize>
       );
     }
     const batchRows = claimFixtureData().batchRows;
     const summary = summarizeClaimRows(batchRows);
     return (
+      <Localize>
+        <table className="claim-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Tx reference</th>
+              <th>ADA</th>
+              <th>Assets (tokens)</th>
+              <th>Asset summary</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {batchRows.map((row, index) => {
+              const rowAssetCount = row.assetCount ?? row.summary.length;
+              return (
+                <tr key={row.id}>
+                  <td>{index + 1}</td>
+                  <td>
+                    {row.tx}{" "}
+                    <CopyButton
+                      label={`Copy tx reference ${row.id}`}
+                      value={row.outRefId ?? `${row.tx}#${row.output}`}
+                    />
+                  </td>
+                  <td>{row.ada.replace(" ADA", "")}</td>
+                  <td>{rowAssetCount > 0 ? rowAssetCount : "—"}</td>
+                  <td>
+                    <AssetDots labels={row.summary} assetCount={rowAssetCount} />
+                  </td>
+                  <td>
+                    <span className="claim-badge ready">Ready</span>
+                  </td>
+                </tr>
+              );
+            })}
+            <tr>
+              <td>
+                <strong>Total</strong>
+              </td>
+              <td />
+              <td>
+                <strong>{formatLovelace(summary.lovelace)}</strong>
+              </td>
+              <td>
+                <strong>{summary.assetCount}</strong>
+              </td>
+              <td />
+              <td />
+            </tr>
+          </tbody>
+        </table>
+      </Localize>
+    );
+  }
+  const totalAssets = sumAssetMaps(draft.orderedInputs.map((input) => input.value));
+  return (
+    <Localize>
       <table className="claim-table">
         <thead>
           <tr>
@@ -6147,19 +6260,21 @@ function BatchTable({ draft }: { draft?: ClaimDraftResponse | null }) {
           </tr>
         </thead>
         <tbody>
-          {batchRows.map((row, index) => {
-            const rowAssetCount = row.assetCount ?? row.summary.length;
+          {draft.orderedInputs.map((input, index) => {
+            const lovelace = lovelaceFromAssets(input.value);
+            const assetCount = assetCountFrom(input.value);
+            const labels = assetLabels(input.value);
             return (
-              <tr key={row.id}>
+              <tr key={input.outRefId}>
                 <td>{index + 1}</td>
                 <td>
-                  {row.tx}{" "}
-                  <CopyButton label={`Copy tx reference ${row.id}`} value={row.outRefId ?? `${row.tx}#${row.output}`} />
+                  {abbreviateMiddle(input.outRefId, 18)}{" "}
+                  <CopyButton label={`Copy tx reference ${index + 1}`} value={input.outRefId} />
                 </td>
-                <td>{row.ada.replace(" ADA", "")}</td>
-                <td>{rowAssetCount > 0 ? rowAssetCount : "—"}</td>
+                <td>{formatLovelace(lovelace)}</td>
+                <td>{assetCount || "—"}</td>
                 <td>
-                  <AssetDots labels={row.summary} assetCount={rowAssetCount} />
+                  <AssetDots labels={labels} assetCount={assetCount} />
                 </td>
                 <td>
                   <span className="claim-badge ready">Ready</span>
@@ -6173,88 +6288,41 @@ function BatchTable({ draft }: { draft?: ClaimDraftResponse | null }) {
             </td>
             <td />
             <td>
-              <strong>{formatLovelace(summary.lovelace)}</strong>
+              <strong>{formatLovelace(lovelaceFromAssets(totalAssets))}</strong>
             </td>
             <td>
-              <strong>{summary.assetCount}</strong>
+              <strong>{assetCountFrom(totalAssets)}</strong>
             </td>
             <td />
             <td />
           </tr>
         </tbody>
       </table>
-    );
-  }
-  const totalAssets = sumAssetMaps(draft.orderedInputs.map((input) => input.value));
-  return (
-    <table className="claim-table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Tx reference</th>
-          <th>ADA</th>
-          <th>Assets (tokens)</th>
-          <th>Asset summary</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {draft.orderedInputs.map((input, index) => {
-          const lovelace = lovelaceFromAssets(input.value);
-          const assetCount = assetCountFrom(input.value);
-          const labels = assetLabels(input.value);
-          return (
-            <tr key={input.outRefId}>
-              <td>{index + 1}</td>
-              <td>
-                {abbreviateMiddle(input.outRefId, 18)}{" "}
-                <CopyButton label={`Copy tx reference ${index + 1}`} value={input.outRefId} />
-              </td>
-              <td>{formatLovelace(lovelace)}</td>
-              <td>{assetCount || "—"}</td>
-              <td>
-                <AssetDots labels={labels} assetCount={assetCount} />
-              </td>
-              <td>
-                <span className="claim-badge ready">Ready</span>
-              </td>
-            </tr>
-          );
-        })}
-        <tr>
-          <td>
-            <strong>Total</strong>
-          </td>
-          <td />
-          <td>
-            <strong>{formatLovelace(lovelaceFromAssets(totalAssets))}</strong>
-          </td>
-          <td>
-            <strong>{assetCountFrom(totalAssets)}</strong>
-          </td>
-          <td />
-          <td />
-        </tr>
-      </tbody>
-    </table>
+    </Localize>
   );
 }
 
 function AssetDots({ labels, assetCount }: { labels: string[]; assetCount?: number }) {
   if (labels.length === 0) {
-    return <span>No tokens</span>;
+    return (
+      <Localize>
+        <span>No tokens</span>
+      </Localize>
+    );
   }
   const shown = labels.slice(0, 2);
   // Prefer the true asset count from the row: `labels` is often pre-sliced by
   // callers, so labels.length alone under-reports the remainder (C46).
   const remainder = Math.max((assetCount ?? labels.length) - shown.length, 0);
   return (
-    <span className="claim-asset-dots">
-      {shown.map((label) => (
-        <span key={label}>{label.slice(0, 1)}</span>
-      ))}
-      {remainder > 0 ? `+ ${remainder} more` : null}
-    </span>
+    <Localize>
+      <span className="claim-asset-dots">
+        {shown.map((label) => (
+          <span key={label}>{label.slice(0, 1)}</span>
+        ))}
+        {remainder > 0 ? `+ ${remainder} more` : null}
+      </span>
+    </Localize>
   );
 }
 
@@ -6269,47 +6337,51 @@ function TransactionTable({
 }) {
   const explorerHost = cexplorerHost(explorerNetwork);
   return (
-    <table className="claim-table">
-      <thead>
-        <tr>
-          <th>Batch</th>
-          <th>Tx hash</th>
-          <th>Recovered value</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.txHash}>
-            <td>{row.batch}</td>
-            <td>
-              <a className="claim-tx-link" href={cexplorerTxUrl(row.txHash, explorerNetwork)} title={row.txHash}>
-                {row.displayHash} <ExternalLink size={14} aria-hidden="true" />
-              </a>
-              <small>
-                {explorerHost}/tx/{row.displayHash}
-              </small>
-            </td>
-            <td>{row.value}</td>
-            <td>
-              <span className={`claim-badge ${row.status === "Confirmed" ? "ready" : "generating"}`}>{row.status}</span>
-            </td>
-          </tr>
-        ))}
-        {totalRecovered ? (
+    <Localize>
+      <table className="claim-table">
+        <thead>
           <tr>
-            <td>
-              <strong>Total recovered</strong>
-            </td>
-            <td />
-            <td>
-              <strong>{totalRecovered}</strong>
-            </td>
-            <td />
+            <th>Batch</th>
+            <th>Tx hash</th>
+            <th>Recovered value</th>
+            <th>Status</th>
           </tr>
-        ) : null}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.txHash}>
+              <td>{row.batch}</td>
+              <td>
+                <a className="claim-tx-link" href={cexplorerTxUrl(row.txHash, explorerNetwork)} title={row.txHash}>
+                  {row.displayHash} <ExternalLink size={14} aria-hidden="true" />
+                </a>
+                <small>
+                  {explorerHost}/tx/{row.displayHash}
+                </small>
+              </td>
+              <td>{row.value}</td>
+              <td>
+                <span className={`claim-badge ${row.status === "Confirmed" ? "ready" : "generating"}`}>
+                  {row.status}
+                </span>
+              </td>
+            </tr>
+          ))}
+          {totalRecovered ? (
+            <tr>
+              <td>
+                <strong>Total recovered</strong>
+              </td>
+              <td />
+              <td>
+                <strong>{totalRecovered}</strong>
+              </td>
+              <td />
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+    </Localize>
   );
 }
 

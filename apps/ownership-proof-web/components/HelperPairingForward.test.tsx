@@ -32,6 +32,12 @@ describe("HelperPairingForward", () => {
     expect(replace).toHaveBeenCalledWith("/claim#helper=http%3A%2F%2F127.0.0.1%3A53412&pair=abc123");
   });
 
+  it("preserves the Japanese claim route when forwarding a pairing fragment", () => {
+    const replace = stubLocation("#helper=http%3A%2F%2F127.0.0.1%3A53412&pair=abc123");
+    render(<HelperPairingForward claimPath="/jp/claim" />);
+    expect(replace).toHaveBeenCalledWith("/jp/claim#helper=http%3A%2F%2F127.0.0.1%3A53412&pair=abc123");
+  });
+
   it("does nothing without a fragment", () => {
     const replace = stubLocation("");
     render(<HelperPairingForward />);
