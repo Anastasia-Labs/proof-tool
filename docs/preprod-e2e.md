@@ -245,10 +245,12 @@ missing approval dialog is a failure, so the runner cannot silently reuse the
 impacted account.
 
 The provider-backed scan must contain the exact prepared outref. The lane then
-isolates that outref in the browser response before drafting so a long-lived
-Lace test profile cannot accidentally include and spend unrelated, still-valid
-test claims. Transaction review and submission must still contain exactly that
-prepared input.
+isolates that outref in browser responses through the post-submit rescan so a
+long-lived Lace test profile cannot accidentally include and spend unrelated,
+still-valid test claims or keep the isolated journey open after its fixture is
+spent. The initial response must contain the prepared outref exactly once;
+later responses may omit it only after submission. Transaction review and
+submission must still contain exactly that prepared input.
 
 The app also refreshes wallet discovery on the Cardano initialization event,
 focus or visibility changes, and a bounded ten-second fallback poll to handle

@@ -154,6 +154,11 @@ describe("local production PR claim flow", () => {
     expect(() => isolatePreparedClaimResponse(payload, "cc#2")).toThrowError(
       expect.objectContaining({ code: "prepared_claim_not_discovered" }),
     );
+    expect(isolatePreparedClaimResponse(payload, "cc#2", { allowMissing: true })).toEqual({
+      available: true,
+      page: { cursor: null, limit: 100, nextCursor: null, total: 0 },
+      utxos: [],
+    });
     expect(() => isolatePreparedClaimResponse({ available: false }, "bb#1")).toThrowError(
       expect.objectContaining({ code: "prepared_claim_index_response_invalid" }),
     );

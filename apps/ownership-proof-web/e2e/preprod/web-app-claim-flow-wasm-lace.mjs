@@ -225,7 +225,9 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     await capture("02-impacted-wallet.png", page, "impacted-wallet");
     await walletDriver.connectRole(page, COMPROMISED_ROLE, "claim-wallet-option");
     const scanBarrier = await createResponseBarrier(page, "/claim-api/reclaim-utxos", {
-      transformJson: (payload) => isolatePreparedClaimResponse(payload, expectedOutref),
+      transformEveryResponse: true,
+      transformJson: (payload, { first }) =>
+        isolatePreparedClaimResponse(payload, expectedOutref, { allowMissing: !first }),
     });
     await page.getByRole("button", { name: "Connect impacted wallet", exact: true }).click();
     await walletDriver.approveDappConnection(COMPROMISED_ROLE, {
@@ -573,7 +575,7 @@ async function assertExpectedOutrefVisible(page, outRef) {
   }
 }
 
-export function isolatePreparedClaimResponse(payload, expectedOutref) {
+export function isolatePreparedClaimResponse(payload, expectedOutref, options = {}) {
   if (
     !payload ||
     typeof payload !== "object" ||
@@ -591,7 +593,7 @@ export function isolatePreparedClaimResponse(payload, expectedOutref) {
   const matches = payload.utxos.filter(
     (utxo) => typeof utxo?.outRefId === "string" && utxo.outRefId.toLowerCase() === normalizedOutref,
   );
-  if (matches.length !== 1) {
+  if (matches.length !== 1 && !(options.allowMissing === true && matches.length === 0)) {
     throw new WebAppClaimFlowContractError(
       "prepared_claim_not_discovered",
       "The provider response did not contain the exact prepared outref once.",
@@ -603,7 +605,7 @@ export function isolatePreparedClaimResponse(payload, expectedOutref) {
       ...payload.page,
       cursor: null,
       nextCursor: null,
-      total: 1,
+      total: matches.length,
     },
     utxos: matches,
   };
@@ -641,19 +643,28 @@ async function createResponseBarrier(page, pathname, options = {}) {
   });
   let used = false;
   const handler = async (route) => {
-    if (used || new URL(route.request().url()).pathname !== pathname) {
+    if (new URL(route.request().url()).pathname !== pathname) {
+      await route.continue();
+      return;
+    }
+    const first = !used;
+    if (!first && options.transformEveryResponse !== true) {
       await route.continue();
       return;
     }
     used = true;
     const response = await route.fetch();
     const fulfillment = options.transformJson
-      ? { response, json: options.transformJson(await response.json()) }
+      ? { response, json: options.transformJson(await response.json(), { first }) }
       : { response };
-    interceptedResolve();
-    await released;
+    if (first) {
+      interceptedResolve();
+      await released;
+    }
     await route.fulfill(fulfillment);
-    await page.unroute(`**${pathname}*`, handler).catch(() => undefined);
+    if (options.transformEveryResponse !== true) {
+      await page.unroute(`**${pathname}*`, handler).catch(() => undefined);
+    }
   };
   await page.route(`**${pathname}*`, handler);
   return {
