@@ -255,76 +255,6 @@ def exactActiveReplayResult (ctx : ScriptContext) : BoundedCekResult :=
     (rewardingInputs ctx)
     replaySteps
 
-def exactActivePrefix500 (ctx : ScriptContext) : BoundedCekResult :=
-  executeProgramClassified
-    reclaimGlobalV2.script
-    (rewardingInputs ctx)
-    500
-
-set_option maxRecDepth 100000 in
-set_option maxHeartbeats 1000000 in
-theorem exact_success_implies_prefix500_canStillSucceed
-    (ctx : ScriptContext)
-    (successful : (exactActiveReplayResult ctx).isSuccessful) :
-    (exactActivePrefix500 ctx).canStillSucceed := by
-  change
-    (executeProgramClassified reclaimGlobalV2.script (rewardingInputs ctx)
-      replaySteps).isSuccessful at successful
-  change
-    (executeProgramClassified reclaimGlobalV2.script (rewardingInputs ctx)
-      500).canStillSucceed
-  have fuelSplit : replaySteps = 500 + 1_999_500 := by rfl
-  rw [fuelSplit] at successful
-  exact successful_program_implies_prefix_canStillSucceed
-    reclaimGlobalV2.script (rewardingInputs ctx) 500 1_999_500
-      (semanticsVariant := default) successful
-
-set_option maxHeartbeats 2000000 in
-theorem exact_prefix500_canStillSucceed_requires_rewarding_purpose
-    (ctx : ScriptContext) :
-    (exactActivePrefix500 ctx).canStillSucceed →
-      isRewardingScriptInfo ctx = true := by
-  blaster
-
-def exactActivePrefix900 (ctx : ScriptContext) : BoundedCekResult :=
-  executeProgramClassified
-    reclaimGlobalV2.script
-    (rewardingInputs ctx)
-    900
-
-set_option maxRecDepth 100000 in
-set_option maxHeartbeats 1000000 in
-theorem exact_success_implies_prefix900_canStillSucceed
-    (ctx : ScriptContext)
-    (successful : (exactActiveReplayResult ctx).isSuccessful) :
-    (exactActivePrefix900 ctx).canStillSucceed := by
-  change
-    (executeProgramClassified reclaimGlobalV2.script (rewardingInputs ctx)
-      replaySteps).isSuccessful at successful
-  change
-    (executeProgramClassified reclaimGlobalV2.script (rewardingInputs ctx)
-      900).canStillSucceed
-  have fuelSplit : replaySteps = 900 + 1_999_100 := by rfl
-  rw [fuelSplit] at successful
-  exact successful_program_implies_prefix_canStillSucceed
-    reclaimGlobalV2.script (rewardingInputs ctx) 900 1_999_100
-      (semanticsVariant := default) successful
-
-set_option maxRecDepth 100000 in
-set_option maxHeartbeats 1000000 in
-/-
-Rewarding-only execution is a lifecycle property, not merely an invocation-shape
-property. In particular, it rules out successful certifying execution that could
-deregister the script stake credential, return its deposit, and make subsequent
-reclaim withdrawals ledger-invalid until registration is restored.
--/
-theorem exact_success_requires_rewarding_purpose
-    (ctx : ScriptContext)
-    (successful : (exactActiveReplayResult ctx).isSuccessful) :
-    isRewardingScriptInfo ctx = true :=
-  exact_prefix500_canStillSucceed_requires_rewarding_purpose ctx
-    (exact_success_implies_prefix500_canStillSucceed ctx successful)
-
 def unsafeNoLedgerValidActiveContextSucceeds : Prop :=
   ∀ ctx : ScriptContext,
     validActiveReclaimGlobalV2Context ctx = true →
@@ -435,7 +365,6 @@ theorem real_proof_context_has_rewarding_purpose :
   native_decide
 
 #print axioms shallow_exact_success_requires_rewarding_purpose
-#print axioms exact_success_requires_rewarding_purpose
 #print axioms real_proof_falsifies_unsafe_no_success_claim
 #print axioms real_proof_falsifies_unsafe_coverage_claim
 #print axioms real_proof_falsifies_unsafe_statement_claim

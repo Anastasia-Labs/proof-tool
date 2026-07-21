@@ -3,11 +3,9 @@ import ProofToolFormal.ContextGoldens
 import ProofToolFormal.Result
 
 /-!
-Concrete replays for the exact current-source ReclaimGlobalV2 candidate. These
-fixtures establish that the separately locked candidate is executable and
-retains the expected positive and adversarial decisions. They are finite
-regression anchors, not a universal correctness proof and not evidence about
-the distinct deployed Preprod bytes.
+Concrete replays for the exact active ReclaimGlobalV2 artifact under a legacy
+module name retained for proof history. They are finite regression anchors,
+not a universal correctness proof.
 -/
 
 namespace ProofToolFormal.ReclaimGlobalV2Candidate

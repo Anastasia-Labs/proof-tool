@@ -336,10 +336,10 @@ renderLeanModule proof candidateReclaimBaseHashHex candidateReclaimGlobalV2HashH
     candidateGlobalMalformedContext = reclaimGlobalMalformedRedeemerContextFor candidateReclaimGlobalV2Credential
 
 activePolicyHex, activeParamsHolderHashHex, activeBaseHashHex, activeGlobalHashHex :: String
-activePolicyHex = "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174"
-activeParamsHolderHashHex = "ebb18ad0448d132c861d47fe498cf66d43bd73f3538c07b2c51b6d7e"
-activeBaseHashHex = "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd"
-activeGlobalHashHex = "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5"
+activePolicyHex = "d6777b8c3be1c6c0c9baba52a880c1980a662c16ffc0885ecaa03119"
+activeParamsHolderHashHex = "ebb18a12777410738fdeaa77ec0fd582685d677b6b34de9a6e3b6d7e"
+activeBaseHashHex = "744cc4718e8149201c7e9cb3d3a550f34cb18dfc8076a33172d9354d"
+activeGlobalHashHex = "a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8"
 
 activePolicy :: V3.CurrencySymbol
 activePolicy = V3.CurrencySymbol (builtinFromHex activePolicyHex)
@@ -357,7 +357,7 @@ activeSeedRef =
   V3.TxOutRef
     { V3.txOutRefId =
         V3.TxId
-          (builtinFromHex "a1d0677b0b29281b422c0cd2fb6614d615d773e908d02eed20b6f98c772a0b8b")
+          (builtinFromHex "a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db")
     , V3.txOutRefIdx = 3
     }
 

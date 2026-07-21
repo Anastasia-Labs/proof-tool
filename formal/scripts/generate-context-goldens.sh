@@ -50,5 +50,5 @@ generator="$(cd "${haskell_dir}" && cabal list-bin exe:generate-context-goldens)
     .lake/build/lib/lean/ProofToolFormal/Artifacts.ilean \
     .lake/build/ir/ProofToolFormal/Artifacts.c \
     .lake/build/ir/ProofToolFormal/Artifacts.c.o
-  lake build ProofToolFormal.ConcreteReplay
+  lake build +ProofToolFormal.ConcreteReplay
 )

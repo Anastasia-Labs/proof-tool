@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-// Reproduce the current GlobalV2/Base candidate pair in deployer order while
-// preserving the separately locked active deployment evidence.
+// Reproduce the current GlobalV2/Base pair in deployer order and require it to
+// be byte-identical to the active deployment. The legacy "candidate" artifact
+// paths remain as proof-input aliases so existing theorem names stay stable.
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -211,19 +212,17 @@ const unchangedActiveArtifacts = {
   ),
 };
 
-const activeGlobalV2 = readJson(
-  path.join(activeArtifactDir, "reclaim-global-v2.plutus.json"),
-);
-expect(
-  currentGlobalV2.script !== activeGlobalV2.script,
-  "current GlobalV2 must not be silently relabeled as the active deployed artifact",
+const activeGlobalIdentity = expectActiveBytes(
+  "ReclaimGlobalV2",
+  currentGlobalV2,
+  "reclaim-global-v2.plutus.json",
 );
 const globalCandidateBytes = Buffer.from(currentGlobalV2.script, "hex");
 const globalCandidateRecord = {
-  schema: "proof-tool-reclaim-global-v2-candidate-evidence-v1",
-  recorded_at: "2026-07-20",
+  schema: "proof-tool-reclaim-global-v2-active-alias-evidence-v1",
+  recorded_at: "2026-07-21",
   deployment_status:
-    "candidate only; no manifest, parameter datum, reference script, or chain deployment changed",
+    "active Preprod deployment; current source and active reference-script bytes are identical",
   contract_baseline_commit: contractBaselineCommit,
   applied_parameters: {
     params_policy_id: manifest.params_utxo.policy_id,
@@ -239,9 +238,9 @@ const globalCandidateRecord = {
     script: currentGlobalV2.script,
   }).toLowerCase(),
   active_preprod_script_hash: manifest.reclaim_global.script_hash,
-  active_preprod_script_cbor_sha256: sha256(
-    Buffer.from(activeGlobalV2.script, "hex"),
-  ),
+  active_preprod_script_cbor_sha256: activeGlobalIdentity.script_cbor_sha256,
+  artifact_alias_note:
+    "The candidate-named path and theorem names are retained for proof-history stability; the bytes and identity are exactly the active Preprod deployment.",
   concrete_replays: [
     {
       fixture: "candidate-reclaim-global-v2-success",
@@ -306,9 +305,7 @@ expect(
 );
 
 // Deployment constructs GlobalV2 first and applies its resulting credential to
-// ReclaimBase. Lock the pair in that same order; using the active GlobalV2 hash
-// here would produce two individually reproducible but mutually incoherent
-// candidates.
+// ReclaimBase. Lock the pair in that same order.
 const parameter = globalCandidateRecord.script_hash;
 const exported = exportCurrent(["base", parameter]);
 
@@ -320,14 +317,19 @@ const identity = validatorToScriptHash({
   script: exported.script,
 }).toLowerCase();
 expect(
-  identity !== manifest.reclaim_base.script_hash,
-  "candidate must not be silently labeled as the active deployed Base",
+  identity === manifest.reclaim_base.script_hash,
+  "current ReclaimBase identity differs from the active deployed Base",
+);
+const activeBaseIdentity = expectActiveBytes(
+  "ReclaimBase",
+  exported,
+  "reclaim-base.plutus.json",
 );
 
 const baseCandidateRecord = {
   ...evidence.current_source_candidate,
   deployment_status:
-    "candidate only; no manifest, parameter datum, reference script, or chain deployment changed",
+    "active Preprod deployment; current source and active reference-script bytes are identical",
   artifact_file: path.relative(repoRoot, baseCandidateHexPath),
   export_json: path.relative(repoRoot, baseCandidateJsonPath),
   contract_baseline_commit: contractBaselineCommit,
@@ -338,7 +340,7 @@ const baseCandidateRecord = {
 };
 const refreshedBaseEvidence = {
   ...evidence,
-  recorded_at: "2026-07-20",
+  recorded_at: "2026-07-21",
   current_source_candidate: baseCandidateRecord,
 };
 if (refresh) {
@@ -376,6 +378,7 @@ process.stdout.write(
     script_cbor_sha256: digest,
     script_hash: identity,
     active_preprod_script_hash: manifest.reclaim_base.script_hash,
+    active_preprod_script_cbor_sha256: activeBaseIdentity.script_cbor_sha256,
     reclaim_global_v2_candidate: globalCandidateRecord,
     unchanged_active_artifacts: unchangedActiveArtifacts,
   }, null, 2)}\n`,

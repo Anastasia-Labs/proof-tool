@@ -1,9 +1,9 @@
 {
   "schema": "proof-tool-formal-helper-artifacts-v1",
-  "recorded_at": "2026-07-20",
+  "recorded_at": "2026-07-21",
   "helpers": {
     "reclaim_base_parameterized": {
-      "purpose": "Prove the current-source ReclaimBase withdrawal-membership gate for arbitrary typed configured credentials before deployment parameter application.",
+      "purpose": "Prove the active-source ReclaimBase withdrawal-membership gate for arbitrary typed configured credentials before deployment parameter application.",
       "source_symbol": "Ownership.ReclaimBase.reclaimBaseValidatorCode",
       "source_file": "contracts/ownership-verifier/src/Ownership/ReclaimBase.hs",
       "generator": "formal/haskell/src/Main.hs",

@@ -1,21 +1,20 @@
 # Trust report
 
-Status: current for the 2026-07-20 formal-assurance run.
+Status: current for the 2026-07-21 optimized Preprod deployment.
 
 ## Claim boundary
 
 This package provides **compiled-UPLC, ledger-constrained, SMT-backed formal
 assurance**. It is not a proof checked solely by the Lean kernel. The active
-Preprod OneShotNFT, ParamsHolder, and historical ReclaimBase results are
-classified. The coherent current-source ReclaimBase/ReclaimGlobalV2 pair is
-imported separately and has exact ledger-bound concrete replays; Base also has
-generalized typed lemmas. The candidates' exact universal compiled bridges
-remain pending. Current-source GlobalV2 helper semantics and exact active and
-candidate replays are strong evidence, while exact classified-prefix
-composition proves that every bounded success of the distinct active GlobalV2
-has a rewarding purpose. This rejects deregistration-purpose execution that
-could return the stake-address deposit and disable subsequent reclaim
-withdrawals. The rest of the generalized exact-monolith bridge remains open.
+Preprod OneShotNFT, ParamsHolder, ReclaimBase, and ReclaimGlobalV2 results are
+classified. The coherent current-source pair is byte-identical to active and
+has exact ledger-bound concrete replays; Base also has generalized typed
+lemmas. The exact universal compiled bridges remain pending. Current-source
+GlobalV2 helper semantics and exact active replays are strong evidence. A
+100-step prepared feasibility model requires rewarding purpose, and the exact
+real-proof witness has rewarding purpose, but the universal exact-active bridge
+that would reject every deregistration-purpose execution remains open together
+with the rest of the generalized exact-monolith bridge.
 The overall
 contract family must not be described as verified while any critical catalog
 entry is `Pending`.
@@ -79,11 +78,11 @@ only when it is a genuine machine error within the declared bound.
 The ordinary 500-step `#prep_uplc` probe cannot reach the deep verifier path and
 is not a justified top-level completeness bound. Separately, the project proves
 a kernel-checked resumption law for its exhaustion-preserving classified
-runner. That law composes eventual exact success with an SMT-analyzed prefix and
-supports the universal rewarding-purpose theorem without labeling exhaustion
-as rejection. The real proof and negative mutations use a 2,000,000-step
-classified replay. That closed replay establishes nonvacuity, not a universal
-protocol fuel theorem.
+runner. The optimized artifact has not yet been connected to a sufficiently
+deep, tractable SMT-analyzed prefix, so the law does not currently establish a
+universal rewarding-purpose theorem. The real proof and negative mutations use
+a 2,000,000-step classified replay. That closed replay establishes nonvacuity,
+not a universal protocol fuel theorem.
 
 ## Cryptographic and protocol assumptions
 
@@ -113,9 +112,9 @@ submit another person's public proof without gaining redirection authority.
 ## Artifact and encoding assumptions
 
 The deployed public exporter bytes remain compared to the active manifest and
-public reference-script identities. The current-source Base and GlobalV2 are
-separately exported and imported as a coherent non-deployed candidate pair.
-Although
+public reference-script identities. Current-source Base and GlobalV2 are
+separately regenerated in deployer order and required to be byte-identical.
+Legacy `candidate`-named imports are proof aliases only. Although
 the PlutusCoreBlaster revision supplies no Flat encoder, the project now has an
 independent inverse encoder for serializable UPLC. Closed `native_decide`
 theorems re-encode every imported production AST and canonical single-CBOR
@@ -134,7 +133,7 @@ The active public manifest, deployment source commit, verifier key/hash,
 parameter NFT, token name, and reference scripts form one coherence set. The
 active lock rebuilds that deployment from the manifest-pinned commit in an
 isolated temporary archive. Current-source regeneration is checked in deployer
-order: GlobalV2 first, then Base parameterized by the resulting candidate
+order: GlobalV2 first, then Base parameterized by the resulting active
 credential. This completes `PROV-1`; it does not authorize a transaction or
 deployment. The former `global` V1 export has been removed. `global-multi`
 remains callable from the manual exporter and is not covered by the active V2

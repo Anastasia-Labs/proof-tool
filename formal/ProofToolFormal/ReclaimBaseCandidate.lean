@@ -4,14 +4,10 @@ import ProofToolFormal.ModelBoundary
 import ProofToolFormal.Result
 
 /-!
-Exact current-source ReclaimBase artifact after the withdrawal-only
-simplification. Generalized business semantics are stated independently below;
-the exact compiled replays are non-vacuity and cross-evaluator anchors, not a
+Exact active ReclaimBase artifact under a legacy module name retained for proof
+history. Generalized business semantics are stated independently below; the
+exact compiled replays are non-vacuity and cross-evaluator anchors, not a
 substitute for the still-pending inductive compiled-list bridge.
-
-This module is separate from `ReclaimBase.lean`, which remains evidence about
-the currently deployed Preprod bytes until a later deployment updates the
-public artifact identity.
 -/
 
 namespace ProofToolFormal.ReclaimBaseCandidate

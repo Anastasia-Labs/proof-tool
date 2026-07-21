@@ -92,12 +92,12 @@ theorem exact_reclaimBase_missing_withdrawal_rejects_within_fuel :
     classifyBoundedResult true reclaimBaseMissingWithdrawalResult = .validatorError := by
   native_decide
 
-theorem exact_reclaimBase_short_datum_rejects_within_fuel :
-    classifyBoundedResult true reclaimBaseShortDatumResult = .validatorError := by
+theorem exact_reclaimBase_short_datum_succeeds :
+    classifyBoundedResult true reclaimBaseShortDatumResult = .successfulHalt := by
   native_decide
 
-theorem exact_reclaimBase_noncanonical_datum_tag_rejects_within_fuel :
-    classifyBoundedResult true reclaimBaseNoncanonicalDatumResult = .validatorError := by
+theorem exact_reclaimBase_noncanonical_datum_tag_succeeds :
+    classifyBoundedResult true reclaimBaseNoncanonicalDatumResult = .successfulHalt := by
   native_decide
 
 theorem exact_reclaimGlobalV2_unit_redeemer_rejects_within_fuel :

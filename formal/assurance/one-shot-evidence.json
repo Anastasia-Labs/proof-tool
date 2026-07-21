@@ -1,6 +1,6 @@
 {
   "schema": "proof-tool-one-shot-formal-evidence-v1",
-  "recorded_at": "2026-07-15",
+  "recorded_at": "2026-07-21",
   "lean_target": "ProofToolFormal.OneShotNFT",
   "lean_result": "Pass",
   "scope": {
@@ -32,6 +32,6 @@
     "symbolic_theorems": "#print axioms reports Blaster.Tactic.blasterProven plus propext, Classical.choice, and Quot.sound.",
     "counterexample_replay": "#print axioms reports native reduction/compiler trust axioms plus standard quotient/classical axioms; it does not depend on blasterProven or sorryAx."
   },
-  "build_command": "cd formal && lake build ProofToolFormal.OneShotNFT",
+  "build_command": "cd formal && lake build +ProofToolFormal.OneShotNFT",
   "build_result": "Pass"
 }

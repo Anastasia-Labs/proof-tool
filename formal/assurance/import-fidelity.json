@@ -1,6 +1,6 @@
 {
   "schema": "proof-tool-lean-import-fidelity-v1",
-  "recorded_at": "2026-07-20",
+  "recorded_at": "2026-07-21",
   "status": "Pass",
   "format": "PlutusV3 single_cbor_hex",
   "lean_import_module": "formal/ProofToolFormal/Artifacts.lean",
@@ -8,8 +8,8 @@
     {
       "name": "oneShotParamsNFT",
       "file": "formal/artifacts/active-preprod/one-shot-params-nft.cbor.hex",
-      "decoded_cbor_sha256": "63f75c395f950ac36f0d3465db66e16b03771161ca807017070e294979b9bc7e",
-      "identity": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174"
+      "decoded_cbor_sha256": "3c4f3fc40c01c81f11647e4af560996f40dd765d4af61aca99c11db912a7c0a3",
+      "identity": "d6777b8c3be1c6c0c9baba52a880c1980a662c16ffc0885ecaa03119"
     },
     {
       "name": "paramsHolder",
@@ -20,26 +20,26 @@
     {
       "name": "reclaimBase",
       "file": "formal/artifacts/active-preprod/reclaim-base.cbor.hex",
-      "decoded_cbor_sha256": "ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af",
-      "identity": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd"
+      "decoded_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e",
+      "identity": "744cc4718e8149201c7e9cb3d3a550f34cb18dfc8076a33172d9354d"
     },
     {
       "name": "reclaimGlobalV2",
       "file": "formal/artifacts/active-preprod/reclaim-global-v2.cbor.hex",
-      "decoded_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
-      "identity": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5"
+      "decoded_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
+      "identity": "a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8"
     },
     {
       "name": "reclaimBaseCandidate",
       "file": "formal/artifacts/candidate/reclaim-base.cbor.hex",
-      "decoded_cbor_sha256": "c6877d5c9180826d92a8e9c6463f8a693ae797d704810e20751b8c9a026b31d3",
-      "identity": "c234ceda7ee98fbc61ab7c3d5c1748411718353b636010a4df60da45"
+      "decoded_cbor_sha256": "5a489b076c8ba7ff74e96c03f0353705967a31d6ac19d5d0fc880afd25e5b72e",
+      "identity": "744cc4718e8149201c7e9cb3d3a550f34cb18dfc8076a33172d9354d"
     },
     {
       "name": "reclaimGlobalV2Candidate",
       "file": "formal/artifacts/candidate/reclaim-global-v2.cbor.hex",
-      "decoded_cbor_sha256": "5979568d5689ee65c5be038bface43807865e3aed88cb56d58d53758bf436489",
-      "identity": "f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582"
+      "decoded_cbor_sha256": "fa139639b03080ef17b4e5eda46b6a32dd020987d1dad06defff2f662424c8e6",
+      "identity": "a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8"
     }
   ],
   "checks": [
@@ -57,5 +57,5 @@
     "ProofToolFormal.FlatRoundTrip.reclaimBaseCandidate_import_roundtrips_to_exporter_bytes",
     "ProofToolFormal.FlatRoundTrip.reclaimGlobalV2Candidate_import_roundtrips_to_exporter_bytes"
   ],
-  "upstream_boundary": "PlutusCoreBlaster exposes a Flat decoder but no encoder. The project supplies an independent inverse encoder for serializable UPLC constants and terms; unsupported or type-ambiguous constants return none. All four imported active/supporting ASTs and both coherent current-source candidates re-encode to their exact canonical single-CBOR exporter bytes. Closed equality uses native_decide and therefore trusts Lean.ofReduceBool and Lean.trustCompiler."
+  "upstream_boundary": "PlutusCoreBlaster exposes a Flat decoder but no encoder. The project supplies an independent inverse encoder for serializable UPLC constants and terms; unsupported or type-ambiguous constants return none. All four imported active/supporting ASTs and both legacy-named active proof aliases re-encode to their exact canonical single-CBOR exporter bytes. Closed equality uses native_decide and therefore trusts Lean.ofReduceBool and Lean.trustCompiler."
 }

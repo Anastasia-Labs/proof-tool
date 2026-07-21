@@ -39,21 +39,21 @@ still relies on unique, ordered, ledger-normalized maps supplied by
 
 Status: open critical obligation.
 
-The active ReclaimGlobalV2 script is 3,648 CBOR bytes and a real-proof replay
+The active ReclaimGlobalV2 script is 3,356 CBOR bytes and a real-proof replay
 needs roughly two million Lean CEK steps. A 500-step `#prep_uplc` probe is
 already memory-heavy and reaches only an early structural prefix. Increasing
 finite preprocessing does not solve the semantic problem: upstream
 preprocessing maps exhaustion to `State.Error`, so its finite result cannot be
 used as a completeness or rejection theorem.
 
-The project now has a sound classified-prefix alternative.
+The project has a sound classified-prefix composition primitive.
 `Result.runStepsClassified_add` proves that an exhausted prefix resumes to the
 same longer execution, and that eventual success means the prefix cannot
-already be a machine error. Applied to the exact imported artifact, a
-500-step prefix plus SMT proves the universal top-level result
-`exact_success_requires_rewarding_purpose`. This is nonvacuous because it is
-composed with the successful two-million-step real-proof execution, not with a
-prefix-success antecedent.
+already be a machine error. The optimized exact artifact has not yet been
+connected to a sufficiently deep, tractable SMT prefix. The 100-step prepared
+feasibility model requires rewarding purpose and the successful two-million-step
+real-proof witness has rewarding purpose, but these do not prove a universal
+top-level active-artifact result.
 
 The approach also exposes the current tool boundary precisely. A 100-step
 classified prefix does not yet enforce purpose, a 750-step prefix does not yet

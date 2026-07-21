@@ -40,20 +40,17 @@ already proved.
 
 “Active” in the safety and completeness statements means the mutually coherent
 Base and GlobalV2 artifacts selected by the deployment being analyzed. The
-current source pair is a candidate until deployment: Preprod still uses Base
-hash `a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd` and GlobalV2
-hash `1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5`. The coherent
-current-source candidates are Base
-`c234ceda7ee98fbc61ab7c3d5c1748411718353b636010a4df60da45`, parameterized by
-GlobalV2 `f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582`.
+active Preprod pair is Base
+`744cc4718e8149201c7e9cb3d3a550f34cb18dfc8076a33172d9354d`, parameterized by
+GlobalV2 `a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8`. Current source
+is byte-identical to both reference scripts.
 
 ## Scope and meaning of success
 
 The deployment-critical pair is a parameterized `ReclaimBase` spending
 validator and statement-bound `ReclaimGlobalV2` rewarding validator. The
 supporting contracts are `OneShotNFT` and `ParamsHolder`. Every theorem and
-counterexample must say whether it concerns the deployed Preprod pair or a
-non-deployed source candidate.
+counterexample must identify the exact deployed artifact under analysis.
 
 A contract “succeeds” only when execution of the exact production-exported
 Plutus V3 artifact reaches a successful CEK halt. Running out of the declared
@@ -72,9 +69,10 @@ Regenerating the active contracts from the recorded source, parameters, and
 public verifier material must produce exactly the deployed bytes and Cardano
 script hashes. A proof about a source-level approximation or differently
 parameterized program is not a proof about the active deployment.
-An intentional source change must instead be exported, hashed, and proved as a
-candidate; its evidence cannot be relabeled as active until deployment updates
-the manifest, parameter datum, reference scripts, and related coherence set.
+An intentional future source change must instead be exported, hashed, and
+classified separately; its evidence cannot be relabeled as active until a
+deployment updates the manifest, parameter datum, reference scripts, and
+related coherence set.
 
 ### PROV-2 — Exact Lean import
 
@@ -110,8 +108,8 @@ different artifact cannot witness or refute a claim about the active one.
 
 ### RB-1 — Configured-withdrawal handoff
 
-For the current-source `ReclaimBase` candidate, successful execution is
-equivalent to presence of the exact configured candidate GlobalV2 withdrawal
+For the active `ReclaimBase`, successful execution is intended to be
+equivalent to presence of the exact configured active GlobalV2 withdrawal
 key in `txInfoWdrl`. The withdrawal amount is irrelevant. A different
 withdrawal key or an absent key must fail, and genuine rejection must be
 distinguished from execution-budget exhaustion.
