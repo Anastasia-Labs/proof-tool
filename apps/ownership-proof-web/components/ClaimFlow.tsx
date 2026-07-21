@@ -3636,9 +3636,10 @@ function CreateProofs({
     // Any grid change invalidates a previous checksum failure notice.
     onPhraseEdited?.();
   }, [onPhraseEdited]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: changing the phrase mode or grid length replaces DOM inputs whose values must be re-read.
   useEffect(() => {
     recomputeWordStatuses();
-  }, [recomputeWordStatuses]);
+  }, [mode, recoveryPhraseWordCount, recomputeWordStatuses]);
   const invalidWordNumbers = wordStatuses.flatMap((status, index) => (status === "invalid" ? [index + 1] : []));
   const phraseComplete =
     wordStatuses.length === recoveryPhraseWordCount && wordStatuses.every((status) => status === "valid");
