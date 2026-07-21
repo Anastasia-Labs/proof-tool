@@ -13,10 +13,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@scure/bip39": "^1.6.0"
+    "@scure/bip39": "^2.2.0"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }
