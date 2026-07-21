@@ -2,8 +2,8 @@
 
 This document specifies the reclaim contract family implemented in
 `contracts/ownership-verifier/src/Ownership/ReclaimBase.hs` and
-`contracts/ownership-verifier/src/Ownership/ReclaimGlobal.hs`. The aggregate
-single-proof path is implemented in
+`contracts/ownership-verifier/src/Ownership/ReclaimGlobalV2.hs`. The separate
+aggregate-proof path is implemented in
 `contracts/ownership-verifier/src/Ownership/ReclaimGlobalMulti.hs`. The
 supporting one-shot NFT minting policy lives in
 `contracts/ownership-verifier/src/Ownership/OneShotNFT.hs`.
@@ -20,9 +20,9 @@ Developer entrypoints:
   destination, and multi public-input checks.
 - `src/Ownership/ReclaimBase.hs`: spending validator that requires the global
   rewarding credential.
-- `src/Ownership/ReclaimGlobal.hs`: one destination-bound proof per matching
-  input, with its batch-verification optimization kept semantically equivalent
-  to individual verification.
+- `src/Ownership/ReclaimGlobalV2.hs`: the canonical single-proof global
+  validator, with one full destination-bound proof and one authenticated
+  statement digest per matching input.
 - `src/Ownership/ReclaimGlobalMulti.hs`: one count-specific proof for an
   ordered set of matching inputs.
 - `test/VerifySpec.hs`: real-proof positives plus proof/order/destination/value
@@ -44,9 +44,11 @@ by the global reclaim script when the UTxO is spent.
 ### Parameters
 
 - `globalCredential :: Credential`
-  The staking/rewarding credential for the global reclaim script.
-  This must be a `ScriptCredential`; key credentials are rejected even if a
-  matching key-controlled withdrawal is present.
+  The withdrawal-map key configured during the one-time deployment. The
+  deployment must audit that this is the intended global rewarding script
+  credential. `ReclaimBase` deliberately does not revalidate the constructor or
+  compare the parameter with deployment metadata on every spend; it uses the
+  applied value directly as the required withdrawal key.
 
 ### Datum
 
@@ -58,6 +60,8 @@ data ReclaimBaseDatum = ReclaimBaseDatum
 
 `reclaimPaymentKeyHash` must be exactly 28 bytes. It is the Cardano payment key
 hash passed to `Ownership.Verify.verifyOwnershipWithVK`.
+This is a GlobalV2 proof-input requirement and datum-format conformance rule;
+the minimal Base gate does not inspect it.
 
 ### Redeemer
 
@@ -69,39 +73,69 @@ off-chain workflow needs tagging.
 For every spend from `ReclaimBase(globalCredential)`:
 
 1. The transaction must include a withdrawal under `globalCredential`.
-2. `globalCredential` must be a `ScriptCredential`.
-3. The validator must not validate proofs itself.
-4. The validator must not inspect other reclaim-base inputs. Global proof
-   coverage belongs to the rewarding script.
-5. Missing datum or malformed datum should fail. For V3, the datum can be read
-   from `scriptContextScriptInfo = SpendingScript ownRef (Just datum)`.
+2. The withdrawal amount is ignored.
+3. A different withdrawal key does not satisfy the gate.
+4. The validator does not inspect `ScriptInfo`, the datum, credential width,
+   proofs, other reclaim inputs, destinations, or values. Those checks belong
+   to ledger invocation and `ReclaimGlobalV2`.
 
-The minimal validator condition is equivalent to:
+The complete validator condition is equivalent to:
 
 ```haskell
 globalCredential `elem` keys (txInfoWdrl txInfo)
 ```
 
-The withdrawal amount is not meaningful; only the credential's presence is.
+The compiled Base projects `txInfoWdrl` directly from field 6 of the
+ledger-built Plutus V3 `TxInfo`. It deliberately does not recheck the
+single-constructor `ScriptContext`/`TxInfo` tags or recursively bounds-check
+that fixed record projection. A layout regression test pins the field against
+`plutus-ledger-api-1.38.0.0`; upgrading the ledger API requires rerunning that
+test and the artifact/coherence gates.
 
-## Contract 2: Reclaim Global Rewarding Validator
+For the intended deployment, ledger validation of the configured script
+withdrawal executes `ReclaimGlobalV2`. GlobalV2 must then scan every matching
+base input, extract its datum credential, enforce the 28-byte verifier input,
+verify the destination-bound statement, and require complete value coverage.
+A missing or malformed datum can pass this local base gate but must make the
+composed transaction fail in GlobalV2.
+
+A key credential can satisfy the local membership check if a deployment is
+misconfigured that way. Preventing that configuration is an explicit one-time
+deployment audit obligation rather than a repeated on-chain check.
+
+Deployment status: this specification describes the simplified current source.
+It exports as Base hash
+`736798165096f9ed71648661f7ebc0e817f8aa0b5bfd75e2f24afdfd` when parameterized
+by the coherent current-source GlobalV2 candidate
+`41ab67afb3be184d6df1c5b5ea645f965eb929da8ccc9805a2f419e7`. The public
+Preprod deployment remains on the historical Base hash
+`a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd`; no deployment
+or manifest update is implied by this source change.
+
+## Contract 2: ReclaimGlobalV2 Rewarding Validator
 
 ### Purpose
 
-`ReclaimGlobal` is invoked through withdrawals. It verifies ownership proofs for
-all `ReclaimBase` inputs in the transaction, using a verifier key fixed by the
-script instance and deployment metadata stored in an immutable NFT parameter
-UTxO.
+`ReclaimGlobalV2` is invoked through withdrawals. It verifies ownership proofs
+for all `ReclaimBase` inputs in the transaction, using a verifier key fixed by
+the script instance and deployment metadata stored in an immutable NFT
+parameter UTxO. It is the sole supported single-proof global validator; there
+is no V1 implementation or export mode.
 
 ### Parameters
 
 - `paramsCurrencySymbol :: CurrencySymbol`
   The currency symbol of the one-shot NFT that identifies the global parameter
   UTxO.
+- `paramsTokenName :: TokenName`
+  The exact token name of that parameter NFT.
 - `verifierKey :: BuiltinByteString`
   The committed Groth16 verifier key exported by `proof-tool export-cardano`.
   This is a script parameter, so the global validator hash commits to the key
   for a given deployment.
+- `verifierKeyHash :: BuiltinByteString`
+  The 32-byte BLAKE2b-256 hash of `verifierKey`, checked by export tooling before
+  script finalization and committed as the V2 batch-transcript key identity.
 
 ### Parameter UTxO
 
@@ -122,48 +156,56 @@ data ReclaimGlobalParams = ReclaimGlobalParams
 
 ### Redeemer
 
-```haskell
-data ReclaimGlobalRedeemer = ReclaimGlobalRedeemer
-  { reclaimParamsIdx :: Integer
-  , reclaimDestinationOutStartIdx :: Integer
-  , reclaimProofs :: [BuiltinByteString]
-  }
+The constructor-0 redeemer contains four ordered fields:
+
+```text
+[ reclaimParamsIdx
+, reclaimDestinationOutStartIdx
+, reclaimProofs
+, reclaimPublicInputDigests
+]
 ```
 
 `reclaimParamsIdx` is the index in `txInfoReferenceInputs` of the parameter
 UTxO. `reclaimDestinationOutStartIdx` is the first `txInfoOutputs` index in the
 run of destination outputs corresponding to matching reclaim-base inputs.
-`reclaimProofs` is ordered to match the reclaim-base inputs as they appear in
-`txInfoInputs`.
+`reclaimProofs` and `reclaimPublicInputDigests` are parallel lists ordered to
+match the reclaim-base inputs as they appear in `txInfoInputs`. Every proof is
+the complete 336-byte Cardano proof encoding; V2 has no proof-reuse marker or
+credential/proof cache.
 
 ### Validation Rules
 
-For every withdrawal under `ReclaimGlobal(paramsCurrencySymbol, verifierKey)`:
+For every withdrawal under the parameterized `ReclaimGlobalV2` script:
 
 1. The script purpose must be `RewardingScript ownCredential`.
 2. Resolve `txInfoReferenceInputs !! reclaimParamsIdx`; fail if the index is
    negative or out of bounds.
-3. The referenced output must contain exactly one parameter NFT under
-   `paramsCurrencySymbol`.
+3. The referenced output must contain exactly one parameter NFT under the exact
+   `paramsCurrencySymbol` and `paramsTokenName` pair.
 4. The referenced output must use inline datum and decode as
    `ReclaimGlobalParams`.
 5. Traverse `txInfoInputs` in ledger order. For each input whose resolved output
    address has payment credential `ScriptCredential reclaimBaseScriptHash`:
    - require the next proof from `reclaimProofs`;
-   - require the next destination output from
+   - require the next public-input digest and destination output from
      `txInfoOutputs[reclaimDestinationOutStartIdx..]`;
    - decode that input's datum as `ReclaimBaseDatum`;
    - require `reclaimPaymentKeyHash` to be 28 bytes;
    - encode the corresponding destination output address as
      `destinationAddressV1`;
-   - call the destination-bound verifier with
-     `reclaimPaymentKeyHash` and `destinationAddressV1`;
+   - compute the domain-separated destination statement digest from
+     `reclaimPaymentKeyHash` and `destinationAddressV1`, then require it to
+     equal the corresponding redeemer digest;
+   - decode the full proof into the committed-proof batch representation;
    - require the input value to be less than or equal to the destination output
      value using full multi-asset comparison;
-   - fail if proof verification returns false.
-6. Fail if there are unused proofs after all reclaim-base inputs are processed.
-7. Fail if at least one reclaim-base input is present but no matching proof is
-   supplied.
+6. Derive the statement-bound V2 batch challenge from the verifier-key hash and
+   the complete ordered proof/digest lists, fold every slot exactly once, and
+   require both the Groth16 batch equation and commitment proof-of-knowledge.
+7. Fail if proofs or digests are missing or remain unused after all matching
+   inputs are processed.
+8. Fail if there are no matching reclaim-base inputs.
 
 The rewarding script computes destination bytes from the corresponding output on
 chain. The destination is not trusted when supplied by the redeemer or off-chain
@@ -184,7 +226,10 @@ Pointer stake credentials are intentionally unsupported. The browser encoder
 is `apps/ownership-proof-web/lib/claim/addresses.ts`; both global validators
 derive the same bytes from ledger `Address` data on chain. Network ID is not
 part of the Plutus `Address` value, so the off-chain network check happens
-before this encoding.
+before this encoding. The on-chain encoders rely on the ledger-built `Address`
+constructor ranges and 28-byte credential hashes instead of revalidating those
+invariants. They retain the branches that affect the wire encoding and the
+explicit rejection of the valid-but-unsupported pointer staking variant.
 
 Transactions with no reclaim-base inputs should fail by default. The rewarding
 script exists only to authorize reclaim spends; allowing no-op withdrawals makes
@@ -202,7 +247,8 @@ the destination address.
 
 ### Parameters
 
-The parameters mirror `ReclaimGlobal`:
+The parameters mirror `ReclaimGlobalV2` except that the separate multi export
+does not take the V2 transcript verifier-key-hash parameter:
 
 - `paramsCurrencySymbol :: CurrencySymbol`
 - `verifierKey :: BuiltinByteString`
@@ -269,10 +315,12 @@ For every withdrawal under
 
 ### Invariants
 
-- `ReclaimBase` enforces invocation of `ReclaimGlobal`.
-- `ReclaimGlobal` enforces proof coverage for every matching `ReclaimBase`
+- `ReclaimBase` enforces invocation of the configured global withdrawal
+  credential; the canonical single-proof deployment binds that credential to
+  `ReclaimGlobalV2`.
+- `ReclaimGlobalV2` enforces proof coverage for every matching `ReclaimBase`
   input.
-- `ReclaimGlobal` enforces one proof-bound corresponding destination output per
+- `ReclaimGlobalV2` enforces one proof-bound corresponding destination output per
   matching input, and each destination output must cover the full input value.
 - `ReclaimGlobalMulti` enforces one proof-bound destination address for every
   matching `ReclaimBase` input in the transaction, and its contiguous
@@ -298,9 +346,8 @@ the following policy:
   never a substitute for transaction evaluation.
 
 Repeated full proofs remain valid inputs but are not the V2 high-capacity
-benchmark target. The V2 transcript carries one full proof and one
-authenticated statement digest per slot; it intentionally does not use the V1
-proof-reuse marker/cache encoding.
+benchmark target. The transcript always carries one full proof and one
+authenticated statement digest per slot.
 
 ## Supporting Contract: One-Shot NFT Policy
 

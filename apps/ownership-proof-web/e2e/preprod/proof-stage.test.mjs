@@ -63,7 +63,7 @@ describe("destination-bound proof preprod stage", () => {
       networkId: 0,
       safeWalletChangeAddress: safeAddress,
       safeWalletAddresses: [safeAddress],
-      selectedOutrefs: ["1".repeat(64) + "#0", "2".repeat(64) + "#1", "3".repeat(64) + "#0", "4".repeat(64) + "#0"],
+      selectedOutrefs: [`${"1".repeat(64)}#0`, `${"2".repeat(64)}#1`, `${"3".repeat(64)}#0`, `${"4".repeat(64)}#0`],
       maxUtxos: 4,
     });
     expect(fetch.helperBody).toMatchObject({
@@ -96,7 +96,7 @@ describe("destination-bound proof preprod stage", () => {
       },
       impactedPaymentCredential: "19e07fbc...5a8702e4",
       safePaymentCredential: "2a2a2a2a...2a2a2a2a",
-      selectedOutrefs: ["1".repeat(64) + "#0", "2".repeat(64) + "#1", "3".repeat(64) + "#0", "4".repeat(64) + "#0"],
+      selectedOutrefs: [`${"1".repeat(64)}#0`, `${"2".repeat(64)}#1`, `${"3".repeat(64)}#0`, `${"4".repeat(64)}#0`],
       pathMetadataPresent: false,
       helperRequestBodyWritten: false,
       proofBytesWritten: false,

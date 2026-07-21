@@ -17,7 +17,7 @@ func TestFileAndHTTPRangeSectionsMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
-	defer fileSource.Close()
+	defer func() { _ = fileSource.Close() }()
 
 	server := httptest.NewServer(http.FileServer(http.Dir(filepath.Dir(path))))
 	defer server.Close()
@@ -26,7 +26,7 @@ func TestFileAndHTTPRangeSectionsMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenURL: %v", err)
 	}
-	defer httpSource.Close()
+	defer func() { _ = httpSource.Close() }()
 
 	for _, name := range []string{"A", "B", "Z", "K", "G2B", "Basis", "BasisExpSigma"} {
 		want, err := fileSource.SectionBytes(name, -1)
@@ -48,7 +48,7 @@ func TestSectionRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 
 	all, err := source.SectionBytes("A", -1)
 	if err != nil {
@@ -69,7 +69,7 @@ func TestTruncatedRangeFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 	idx := source.Index()
 
 	raw, err := os.ReadFile(path)
@@ -98,7 +98,7 @@ func TestWrongIndexFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 	idx := *source.Index()
 	idx.Sections = map[string]Section{}
 	for k, v := range source.Index().Sections {
@@ -117,7 +117,7 @@ func TestMissingSectionFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 	_, err = source.SectionBytes("missing", -1)
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected missing section failure, got %v", err)

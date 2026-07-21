@@ -76,7 +76,7 @@ artifact containing `path` or `paths`.
 
 `apps/ownership-proof-web/lib/proving/desktop-helper.ts` preserves the helper
 POST contract: `/prove-destination`, profile `single-destination`, search bounds
-through account 9 and index 999, and `include_debug_path: false`.
+through account 9 and index 5000, and `include_debug_path: false`.
 
 `apps/ownership-proof-web/lib/proving/browser-wasm.ts` first checks WebAssembly,
 worker support, cross-origin isolation, `SharedArrayBuffer`, nested workers,

@@ -8,12 +8,12 @@ const tempDirs = [];
 const impactedCredential = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
 const firstClaim = claimBundle({
   txHash: "1".repeat(64),
-  selectedOutrefs: ["a".repeat(64) + "#0", "b".repeat(64) + "#0", "c".repeat(64) + "#0", "d".repeat(64) + "#0"],
+  selectedOutrefs: [`${"a".repeat(64)}#0`, `${"b".repeat(64)}#0`, `${"c".repeat(64)}#0`, `${"d".repeat(64)}#0`],
   lovelace: "8000000",
 });
-const tailOutrefs = ["e".repeat(64) + "#0", "f".repeat(64) + "#1"];
+const tailOutrefs = [`${"e".repeat(64)}#0`, `${"f".repeat(64)}#1`];
 const proofHex = "ab".repeat(192);
-const txCbor = "84a10081825820" + "11".repeat(32);
+const txCbor = `84a10081825820${"11".repeat(32)}`;
 const witnessSetCbor = "a100";
 const reviewToken = "v1.review-token-secret";
 
@@ -26,10 +26,7 @@ afterEach(() => {
 describe("claim-tail-and-receipt preprod stage", () => {
   it("claims remaining matching UTxOs in a tail batch and writes a redacted receipt", async () => {
     const outputDir = tempDir();
-    const fetch = fakeFetch([
-      tailOutrefs,
-      [],
-    ]);
+    const fetch = fakeFetch([tailOutrefs, []]);
     const proofStageRunner = vi.fn(async ({ env, outputDir: batchOutputDir }) => {
       expect(env.RECLAIM_E2E_CLAIM_BATCH_SIZE).toBe("2");
       expect(path.basename(batchOutputDir)).toBe("claim-tail-batch-1");
@@ -166,7 +163,7 @@ describe("claim-tail-and-receipt preprod stage", () => {
 
   it("honors the configured claim batch size for tail batches", async () => {
     const outputDir = tempDir();
-    const queuedOutrefs = [["e".repeat(64) + "#0"], ["f".repeat(64) + "#1"]];
+    const queuedOutrefs = [[`${"e".repeat(64)}#0`], [`${"f".repeat(64)}#1`]];
     const proofStageRunner = vi.fn(async ({ env, outputDir: batchOutputDir }) => {
       expect(env.RECLAIM_E2E_CLAIM_BATCH_SIZE).toBe("1");
       const selectedOutrefs = queuedOutrefs.shift();

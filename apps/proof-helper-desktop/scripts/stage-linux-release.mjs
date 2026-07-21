@@ -19,19 +19,14 @@ const proofAssetsDescriptor = {
   archive_url:
     "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a.tar",
   archive_size: 1_417_943_040,
-  archive_sha256:
-    "sha256:ee2f232f828da815428965ceb7d57719e32b706fce3373cff603de73a29fdff9",
-  archive_blake2b256:
-    "blake2b256:2a44af40ef01cbdca91728098c96978af247ca65dd7ea632090393709a516a28",
+  archive_sha256: "sha256:ee2f232f828da815428965ceb7d57719e32b706fce3373cff603de73a29fdff9",
+  archive_blake2b256: "blake2b256:2a44af40ef01cbdca91728098c96978af247ca65dd7ea632090393709a516a28",
   expected_key_version: "ownership-destination-v2",
   expected_circuit_id: "root-ownership-destination-v2/bls12-381/groth16",
-  expected_vk_hash:
-    "blake2b256:b1c03cf24376bcd6c743cb372169ff71f93b210e0d8d52b2c6831808f50ded80",
+  expected_vk_hash: "blake2b256:b1c03cf24376bcd6c743cb372169ff71f93b210e0d8d52b2c6831808f50ded80",
   expected_signature_key_id: "preprod-local-destination-v2-9fac96b-g3a",
-  trusted_manifest_public_key_hex:
-    "2af3b300b9e641ede236d4b7d48b43eccfb843ffa9aca74abb38f98e7211eccb",
-  expected_cardano_vk_blake2b256:
-    "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4",
+  trusted_manifest_public_key_hex: "2af3b300b9e641ede236d4b7d48b43eccfb843ffa9aca74abb38f98e7211eccb",
+  expected_cardano_vk_blake2b256: "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4",
 };
 
 const args = parseArgs(process.argv.slice(2));
@@ -79,15 +74,8 @@ const destination = path.join(outDir, artifactName);
 await fs.copyFile(appImagePath, destination);
 await fs.chmod(destination, 0o755);
 
-const [artifactDigest, sidecarDigest] = await Promise.all([
-  digestFile(destination),
-  digestFile(sidecarPath),
-]);
-await fs.writeFile(
-  path.join(outDir, checksumName),
-  `${artifactDigest.sha256}  ${artifactName}\n`,
-  "utf8",
-);
+const [artifactDigest, sidecarDigest] = await Promise.all([digestFile(destination), digestFile(sidecarPath)]);
+await fs.writeFile(path.join(outDir, checksumName), `${artifactDigest.sha256}  ${artifactName}\n`, "utf8");
 
 const manifest = {
   schema: "proof-helper-linux-release-manifest-v1",
@@ -127,7 +115,8 @@ await fs.writeFile(
 console.log(JSON.stringify({ out_dir: outDir, artifact: manifest.artifact }, null, 2));
 
 function verificationInstructions({ artifactName, checksumName, releaseTag }) {
-  return `# Verify and run Proof Helper for Linux\n\n` +
+  return (
+    `# Verify and run Proof Helper for Linux\n\n` +
     `This is an unsigned **Preprod** AppImage. Verify the SHA-256 file downloaded from the same ` +
     `GitHub release before running it.\n\n` +
     `\`\`\`bash\n` +
@@ -141,7 +130,8 @@ function verificationInstructions({ artifactName, checksumName, releaseTag }) {
     `\`\`\`\n\n` +
     `Release tag: \`${releaseTag}\`. The app downloads and verifies the signed V2 Preprod proof ` +
     `bundle before enabling the helper. Never enter a recovery phrase into the desktop app; the ` +
-    `phrase is handled only by the paired browser flow and sent only to the local loopback helper.\n`;
+    `phrase is handled only by the paired browser flow and sent only to the local loopback helper.\n`
+  );
 }
 
 function parseArgs(argv) {

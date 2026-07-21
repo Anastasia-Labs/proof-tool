@@ -102,12 +102,17 @@ export async function runClaimTailAndReceiptStage(options = {}) {
       artifacts.push(...claimStage.artifacts);
     }
     if (!claimStage?.claimBundle) {
-      throw new PreprodClaimTailStageError("claim_tail_bundle_missing", "Tail claim stage did not return a claim bundle.");
+      throw new PreprodClaimTailStageError(
+        "claim_tail_bundle_missing",
+        "Tail claim stage did not return a claim bundle.",
+      );
     }
     claimBundles.push(claimStage.claimBundle);
     tailBatches.push({
       batch: batchIndex,
-      selectedOutrefCount: Array.isArray(claimStage.claimBundle.selectedOutrefs) ? claimStage.claimBundle.selectedOutrefs.length : 0,
+      selectedOutrefCount: Array.isArray(claimStage.claimBundle.selectedOutrefs)
+        ? claimStage.claimBundle.selectedOutrefs.length
+        : 0,
       txHash: claimStage.claimBundle.txHash,
       reviewHash: claimStage.claimBundle.reviewHash,
       evaluation: claimStage.claimBundle.evaluation,
@@ -134,7 +139,17 @@ export async function runClaimTailAndReceiptStage(options = {}) {
   );
 }
 
-async function writeReceipt({ outputDir, mkdir, writeFile, page, artifacts, claimBundles, tailBatches, remainingMatchingUtxos, safeWalletEvidence }) {
+async function writeReceipt({
+  outputDir,
+  mkdir,
+  writeFile,
+  page,
+  artifacts,
+  claimBundles,
+  tailBatches,
+  remainingMatchingUtxos,
+  safeWalletEvidence,
+}) {
   const screenshotPath = page ? path.join(outputDir, "screenshots", "claim-tail-and-receipt.png") : null;
   if (screenshotPath) {
     mkdir(path.dirname(screenshotPath), { recursive: true });
@@ -152,7 +167,10 @@ async function writeReceipt({ outputDir, mkdir, writeFile, page, artifacts, clai
     remainingMatchingUtxos,
     claimCount: claimBundles.length,
     claimTxHashes: claimBundles.map((bundle) => bundle.txHash),
-    claimedOutrefCount: claimBundles.reduce((sum, bundle) => sum + (Array.isArray(bundle.selectedOutrefs) ? bundle.selectedOutrefs.length : 0), 0),
+    claimedOutrefCount: claimBundles.reduce(
+      (sum, bundle) => sum + (Array.isArray(bundle.selectedOutrefs) ? bundle.selectedOutrefs.length : 0),
+      0,
+    ),
     tailBatches,
     reviewedDestinationValue: safeWalletEvidence.reviewedDestinationValue,
     safeWalletBalanceVerified: true,
@@ -197,15 +215,19 @@ async function loadMatchingReclaimUtxos(fetchFn, baseUrl, impactedCredential) {
     }
     const response = await fetchJson(fetchFn, endpoint);
     if (response?.available !== true) {
-      throw new PreprodClaimTailStageError("claim_index_unavailable", "Claim index is not available for claim-tail-and-receipt.");
+      throw new PreprodClaimTailStageError(
+        "claim_index_unavailable",
+        "Claim index is not available for claim-tail-and-receipt.",
+      );
     }
     const pageUtxos = Array.isArray(response.utxos) ? response.utxos : [];
     matching.push(
-      ...pageUtxos.filter((utxo) =>
-        utxo?.state === "unspent" &&
-        utxo?.datum?.status === "valid" &&
-        utxo.datum.paymentCredential === impactedCredential &&
-        typeof utxo.outRefId === "string",
+      ...pageUtxos.filter(
+        (utxo) =>
+          utxo?.state === "unspent" &&
+          utxo?.datum?.status === "valid" &&
+          utxo.datum.paymentCredential === impactedCredential &&
+          typeof utxo.outRefId === "string",
       ),
     );
     cursor = response.page?.nextCursor ?? null;
@@ -218,10 +240,16 @@ async function fetchJson(fetchFn, url) {
   try {
     response = await fetchFn(url);
   } catch (error) {
-    throw new PreprodClaimTailStageError("fetch_failed", `Claim tail request failed: ${error?.message ?? "request failed"}`);
+    throw new PreprodClaimTailStageError(
+      "fetch_failed",
+      `Claim tail request failed: ${error?.message ?? "request failed"}`,
+    );
   }
   if (!response || response.status < 200 || response.status >= 300) {
-    throw new PreprodClaimTailStageError("http_error", `${url.pathname} returned HTTP ${response?.status ?? "unknown"}.`);
+    throw new PreprodClaimTailStageError(
+      "http_error",
+      `${url.pathname} returned HTTP ${response?.status ?? "unknown"}.`,
+    );
   }
   try {
     return await response.json();
@@ -242,7 +270,11 @@ function reviewedDestinationValue(claimBundles) {
       }
     }
   }
-  return Object.fromEntries([...totals.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([unit, quantity]) => [unit, quantity.toString()]));
+  return Object.fromEntries(
+    [...totals.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([unit, quantity]) => [unit, quantity.toString()]),
+  );
 }
 
 async function safeWalletBalanceEvidence(walletHarness, claimBundles) {
@@ -281,7 +313,10 @@ async function safeWalletBalanceEvidence(walletHarness, claimBundles) {
 
 function assertCredential(value) {
   if (typeof value !== "string" || !/^[0-9a-f]{56}$/u.test(value)) {
-    throw new PreprodClaimTailStageError("impacted_wallet_credential_missing", "Impacted wallet role must expose a 28-byte payment credential.");
+    throw new PreprodClaimTailStageError(
+      "impacted_wallet_credential_missing",
+      "Impacted wallet role must expose a 28-byte payment credential.",
+    );
   }
   return value;
 }

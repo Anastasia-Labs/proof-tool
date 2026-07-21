@@ -7,14 +7,11 @@ import (
 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 )
 
-// makeShardedEngine returns a stubShardedMSM on native (non-js/wasm) builds.
-// The stub reports Name()=="sharded" so TestSelectLadder can verify the ladder
-// decision natively without importing the js-only transport in sharded_js.go.
-// Any call to MSMG1/MSMG2 panics — the stub must never actually run MSMs.
-func makeShardedEngine(workers int) MSMEngine {
-	return makeShardedEngineWithOptions(workers, Options{})
-}
-
+// makeShardedEngineWithOptions returns a stubShardedMSM on native
+// (non-js/wasm) builds. The stub reports Name()=="sharded" so TestSelectLadder
+// can verify the ladder decision natively without importing the js-only
+// transport in sharded_js.go. Any call to MSMG1/MSMG2 panics — the stub must
+// never actually run MSMs.
 func makeShardedEngineWithOptions(workers int, opts Options) MSMEngine {
 	shards := opts.ShardCount
 	if shards <= 0 {

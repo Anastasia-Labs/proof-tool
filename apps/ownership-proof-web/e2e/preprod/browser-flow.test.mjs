@@ -104,7 +104,7 @@ describe("preprod browser bootstrap", () => {
           token: "pair-secret",
         },
         diagnosticProofBundle: {
-          selectedOutrefs: ["a".repeat(64) + "#0"],
+          selectedOutrefs: [`${"a".repeat(64)}#0`],
         },
       }),
     );
@@ -121,7 +121,7 @@ describe("preprod browser bootstrap", () => {
           token: "pair-secret",
         },
         proofBundle: {
-          selectedOutrefs: ["a".repeat(64) + "#0"],
+          selectedOutrefs: [`${"a".repeat(64)}#0`],
         },
       }),
     );
@@ -225,7 +225,9 @@ describe("preprod browser bootstrap", () => {
     expect(walletHarness.launchBrowserContext).toHaveBeenCalledWith(fake.launcher, { headless: true });
     expect(nativeFundingStageRunner).not.toHaveBeenCalled();
     expect(negativeGuardrailsStageRunner).not.toHaveBeenCalled();
-    expect(claimDiscoveryStageRunner).toHaveBeenCalledWith(expect.objectContaining({ expectedMinimumMatchingUtxos: 1 }));
+    expect(claimDiscoveryStageRunner).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedMinimumMatchingUtxos: 1 }),
+    );
     expect(destinationProofStageRunner).toHaveBeenCalledWith(
       expect.objectContaining({
         env: expect.objectContaining({
@@ -321,7 +323,9 @@ function fakeWalletHarness() {
   return {
     roles: ["deployer", "reclaim_funder", "compromised_user", "safe_claim_destination"],
     installOnPage: vi.fn(async () => undefined),
-    recoveryPhraseForBrowserUi: vi.fn(async () => "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
+    recoveryPhraseForBrowserUi: vi.fn(
+      async () => "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    ),
   };
 }
 
@@ -339,7 +343,9 @@ function fakeLaceWalletDriver(context) {
         networkId: null,
       },
     })),
-    recoveryPhraseForBrowserUi: vi.fn(async () => "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"),
+    recoveryPhraseForBrowserUi: vi.fn(
+      async () => "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    ),
   };
 }
 
@@ -384,7 +390,7 @@ function fakeDestinationProofStage(outputDir) {
     ok: true,
     artifacts: [jsonPath, screenshotPath],
     proofBundle: {
-      selectedOutrefs: ["a".repeat(64) + "#0"],
+      selectedOutrefs: [`${"a".repeat(64)}#0`],
     },
   };
 }

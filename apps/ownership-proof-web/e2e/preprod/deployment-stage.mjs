@@ -18,7 +18,10 @@ export async function runDeployOrVerifyPreprodManifest(options = {}) {
   const fetchFn = options.fetch ?? globalThis.fetch;
   const writeFile = options.writeFile ?? writeFileSync;
   if (typeof fetchFn !== "function") {
-    throw new PreprodDeploymentStageError("fetch_unavailable", "fetch is required for deploy-or-verify manifest checks.");
+    throw new PreprodDeploymentStageError(
+      "fetch_unavailable",
+      "fetch is required for deploy-or-verify manifest checks.",
+    );
   }
 
   const [reclaim, claim] = await Promise.all([
@@ -85,21 +88,36 @@ export function verifyDeploymentPair(reclaim, claim, preflight) {
     );
   }
   if (reclaimDeployment.network !== "Preprod" || reclaimDeployment.networkId !== 0) {
-    throw new PreprodDeploymentStageError("deployment_network_not_preprod", "Deployment endpoints must report Preprod network id 0.");
+    throw new PreprodDeploymentStageError(
+      "deployment_network_not_preprod",
+      "Deployment endpoints must report Preprod network id 0.",
+    );
   }
 
   const capabilities = claim.capabilities;
   if (!capabilities) {
-    throw new PreprodDeploymentStageError("claim_capabilities_missing", "Claim deployment endpoint must expose claim capabilities.");
+    throw new PreprodDeploymentStageError(
+      "claim_capabilities_missing",
+      "Claim deployment endpoint must expose claim capabilities.",
+    );
   }
   if (capabilities.proofProfile !== "single-destination") {
-    throw new PreprodDeploymentStageError("claim_proof_profile_unsupported", "Claim proof profile must be single-destination.");
+    throw new PreprodDeploymentStageError(
+      "claim_proof_profile_unsupported",
+      "Claim proof profile must be single-destination.",
+    );
   }
   if (capabilities.destinationAddressEncoding !== "destination-address-v1") {
-    throw new PreprodDeploymentStageError("destination_encoding_unsupported", "Claim destination encoding must be destination-address-v1.");
+    throw new PreprodDeploymentStageError(
+      "destination_encoding_unsupported",
+      "Claim destination encoding must be destination-address-v1.",
+    );
   }
   if (capabilities.singleGlobalCompatible !== true) {
-    throw new PreprodDeploymentStageError("single_global_incompatible", "ReclaimBase and ReclaimGlobal are not single-global compatible.");
+    throw new PreprodDeploymentStageError(
+      "single_global_incompatible",
+      "ReclaimBase and ReclaimGlobal are not single-global compatible.",
+    );
   }
   if (capabilities.transactionBuild?.referenceScriptsConfigured !== true) {
     throw new PreprodDeploymentStageError(
@@ -128,28 +146,43 @@ async function fetchJson(fetchFn, baseUrl, endpoint) {
   try {
     response = await fetchFn(url);
   } catch (error) {
-    throw new PreprodDeploymentStageError("deployment_endpoint_fetch_failed", `Could not fetch ${endpoint}: ${error?.message ?? "request failed"}`);
+    throw new PreprodDeploymentStageError(
+      "deployment_endpoint_fetch_failed",
+      `Could not fetch ${endpoint}: ${error?.message ?? "request failed"}`,
+    );
   }
   if (!response || response.status < 200 || response.status >= 300) {
-    throw new PreprodDeploymentStageError("deployment_endpoint_http_error", `${endpoint} returned HTTP ${response?.status ?? "unknown"}.`);
+    throw new PreprodDeploymentStageError(
+      "deployment_endpoint_http_error",
+      `${endpoint} returned HTTP ${response?.status ?? "unknown"}.`,
+    );
   }
   try {
     return await response.json();
   } catch {
-    throw new PreprodDeploymentStageError("deployment_endpoint_json_malformed", `${endpoint} did not return valid JSON.`);
+    throw new PreprodDeploymentStageError(
+      "deployment_endpoint_json_malformed",
+      `${endpoint} did not return valid JSON.`,
+    );
   }
 }
 
 function requireOption(value, name) {
   if (!value) {
-    throw new PreprodDeploymentStageError(`${name}_missing`, `${name} is required for deploy-or-verify manifest checks.`);
+    throw new PreprodDeploymentStageError(
+      `${name}_missing`,
+      `${name} is required for deploy-or-verify manifest checks.`,
+    );
   }
   return value;
 }
 
 function assertEqual(field, left, right) {
   if (left !== right) {
-    throw new PreprodDeploymentStageError(`${field}_mismatch`, `${field} mismatch between reclaim and claim deployment endpoints.`);
+    throw new PreprodDeploymentStageError(
+      `${field}_mismatch`,
+      `${field} mismatch between reclaim and claim deployment endpoints.`,
+    );
   }
 }
 

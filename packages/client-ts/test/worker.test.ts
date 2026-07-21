@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { handleWorkerRequest } from "../src/worker.js";
 
-const phrase =
-  "eight country switch draw meat scout mystery blade tip drift useless good keep usage title";
+const phrase = "eight country switch draw meat scout mystery blade tip drift useless good keep usage title";
 
 const expected =
   "c065afd2832cd8b087c4d9ab7011f481ee1e0721e78ea5dd609f3ab3f156d245" +

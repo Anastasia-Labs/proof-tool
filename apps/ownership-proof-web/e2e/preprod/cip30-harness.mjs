@@ -12,8 +12,7 @@ import {
 
 export const CIP30_HARNESS_WINDOW_BRIDGE = "__proofToolPreprodCip30Call";
 export const DEFAULT_SIGNING_ROLES = Object.freeze(["deployer", "reclaim_funder", "safe_claim_destination"]);
-export const WALLET_DERIVATION_LIMITATION =
-  "lucid-default-account-0-payment-0-stake-0-only";
+export const WALLET_DERIVATION_LIMITATION = "lucid-default-account-0-payment-0-stake-0-only";
 
 const PREPROD_NETWORK = "Preprod";
 const PREPROD_NETWORK_ID = 0;
@@ -38,11 +37,7 @@ export async function loadCip30HarnessFromEnv(options = {}) {
   });
 }
 
-export async function createCip30WalletHarness({
-  provider,
-  walletFile,
-  signingRoles = DEFAULT_SIGNING_ROLES,
-}) {
+export async function createCip30WalletHarness({ provider, walletFile, signingRoles = DEFAULT_SIGNING_ROLES }) {
   const validation = validatePreprodWalletFile(walletFile);
   if (!validation.ok) {
     throw new Cip30HarnessError(
@@ -51,14 +46,19 @@ export async function createCip30WalletHarness({
     );
   }
   if (!provider || typeof provider.getUtxos !== "function" || typeof provider.submitTx !== "function") {
-    throw new Cip30HarnessError("provider_missing", "A Lucid-compatible preprod provider is required for the CIP-30 harness.");
+    throw new Cip30HarnessError(
+      "provider_missing",
+      "A Lucid-compatible preprod provider is required for the CIP-30 harness.",
+    );
   }
 
   const signers = new Set(signingRoles);
   const roles = new Map();
   for (const role of REQUIRED_WALLET_ROLES) {
     const roleConfig = walletRoleConfig(walletFile, role);
-    const mnemonic = normalizeMnemonic(roleConfig.mnemonic ?? roleConfig.seed_phrase ?? roleConfig.recovery_phrase ?? roleConfig.mnemonic_words);
+    const mnemonic = normalizeMnemonic(
+      roleConfig.mnemonic ?? roleConfig.seed_phrase ?? roleConfig.recovery_phrase ?? roleConfig.mnemonic_words,
+    );
     const derived = walletFromSeed(mnemonic, { network: PREPROD_NETWORK });
     const details = getAddressDetails(derived.address);
     const rewardDetails = derived.rewardAddress ? getAddressDetails(derived.rewardAddress) : null;
@@ -124,7 +124,10 @@ export async function createCip30WalletHarness({
     },
     async roleUtxoAssetSummary(role) {
       if (role !== "safe_claim_destination") {
-        throw new Cip30HarnessError("wallet_role_balance_forbidden", "Only safe_claim_destination balance summaries are available.");
+        throw new Cip30HarnessError(
+          "wallet_role_balance_forbidden",
+          "Only safe_claim_destination balance summaries are available.",
+        );
       }
       const state = roles.get(role);
       if (!state) {
@@ -142,7 +145,10 @@ export async function createCip30WalletHarness({
 
 export async function installCip30WalletHarnessOnPage(page, harness) {
   if (!page || typeof page.exposeFunction !== "function" || typeof page.addInitScript !== "function") {
-    throw new Cip30HarnessError("playwright_page_invalid", "A Playwright page is required to install the CIP-30 harness.");
+    throw new Cip30HarnessError(
+      "playwright_page_invalid",
+      "A Playwright page is required to install the CIP-30 harness.",
+    );
   }
   const roles = harness.roles.map((role) => browserProviderDescriptor(role));
   await page.exposeFunction(CIP30_HARNESS_WINDOW_BRIDGE, async (role, method, args = []) => {
@@ -208,12 +214,21 @@ export function createPreprodProviderFromEnv(env = process.env) {
   if (providerName === "blockfrost") {
     const projectId = env.RECLAIM_BLOCKFROST_PROJECT_ID?.trim() || env.BLOCKFROST_PROJECT_ID?.trim();
     if (!projectId) {
-      throw new Cip30HarnessError("blockfrost_project_id_missing", "RECLAIM_BLOCKFROST_PROJECT_ID is required for the Blockfrost CIP-30 harness provider.");
+      throw new Cip30HarnessError(
+        "blockfrost_project_id_missing",
+        "RECLAIM_BLOCKFROST_PROJECT_ID is required for the Blockfrost CIP-30 harness provider.",
+      );
     }
-    return new Blockfrost(env.RECLAIM_BLOCKFROST_URL?.trim() || "https://cardano-preprod.blockfrost.io/api/v0", projectId);
+    return new Blockfrost(
+      env.RECLAIM_BLOCKFROST_URL?.trim() || "https://cardano-preprod.blockfrost.io/api/v0",
+      projectId,
+    );
   }
   if (providerName !== "koios") {
-    throw new Cip30HarnessError("provider_unsupported", "RECLAIM_PROVIDER must be koios or blockfrost for the preprod CIP-30 harness.");
+    throw new Cip30HarnessError(
+      "provider_unsupported",
+      "RECLAIM_PROVIDER must be koios or blockfrost for the preprod CIP-30 harness.",
+    );
   }
   const koiosUrl = env.RECLAIM_KOIOS_URL?.trim() || "https://preprod.koios.rest/api/v1";
   const koiosToken = env.RECLAIM_KOIOS_TOKEN?.trim();
@@ -222,17 +237,26 @@ export function createPreprodProviderFromEnv(env = process.env) {
 
 function assertHarnessEnabled(env) {
   if ((env.RECLAIM_E2E_LIVE_PREPROD ?? "").trim() !== "1") {
-    throw new Cip30HarnessError("live_preprod_gate_missing", "Set RECLAIM_E2E_LIVE_PREPROD=1 before loading the CIP-30 harness.");
+    throw new Cip30HarnessError(
+      "live_preprod_gate_missing",
+      "Set RECLAIM_E2E_LIVE_PREPROD=1 before loading the CIP-30 harness.",
+    );
   }
   if ((env.NODE_ENV ?? "").trim() === "production") {
-    throw new Cip30HarnessError("production_node_env", "The CIP-30 preprod harness must not run with NODE_ENV=production.");
+    throw new Cip30HarnessError(
+      "production_node_env",
+      "The CIP-30 preprod harness must not run with NODE_ENV=production.",
+    );
   }
 }
 
 function loadWalletFileFromEnv(env, options) {
   const walletPath = env.PREPROD_TEST_WALLETS_FILE?.trim();
   if (!walletPath) {
-    throw new Cip30HarnessError("wallet_file_env_missing", "PREPROD_TEST_WALLETS_FILE is required for the CIP-30 harness.");
+    throw new Cip30HarnessError(
+      "wallet_file_env_missing",
+      "PREPROD_TEST_WALLETS_FILE is required for the CIP-30 harness.",
+    );
   }
   const exists = options.fileExists ?? existsSync;
   const readTextFile = options.readTextFile ?? ((filePath) => readFileSync(filePath, "utf8"));
@@ -308,7 +332,10 @@ async function callWalletApi(roles, role, method, args) {
 async function signTx(state, args) {
   state.signAttempts += 1;
   if (!state.canSign) {
-    throw new Cip30HarnessError("wallet_role_signing_forbidden", `${state.role} is read-only in the preprod CIP-30 harness.`);
+    throw new Cip30HarnessError(
+      "wallet_role_signing_forbidden",
+      `${state.role} is read-only in the preprod CIP-30 harness.`,
+    );
   }
   const [txCbor, partialSign = true] = args;
   if (typeof txCbor !== "string" || !/^[0-9a-f]+$/iu.test(txCbor)) {
@@ -347,9 +374,14 @@ async function walletLucid(state) {
 
 function normalizeMnemonic(value) {
   if (Array.isArray(value)) {
-    return value.map((word) => String(word).trim()).filter(Boolean).join(" ");
+    return value
+      .map((word) => String(word).trim())
+      .filter(Boolean)
+      .join(" ");
   }
-  return String(value ?? "").trim().replace(/\s+/gu, " ");
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/gu, " ");
 }
 
 function redactCredential(value) {
@@ -370,7 +402,11 @@ function sumAssets(utxos) {
 }
 
 function stringifyAssets(assets) {
-  return Object.fromEntries(Object.entries(assets).sort(([left], [right]) => left.localeCompare(right)).map(([unit, quantity]) => [unit, quantity.toString()]));
+  return Object.fromEntries(
+    Object.entries(assets)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([unit, quantity]) => [unit, quantity.toString()]),
+  );
 }
 
 export function redactHarnessArtifact(value) {

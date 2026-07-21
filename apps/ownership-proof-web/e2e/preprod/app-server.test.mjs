@@ -43,10 +43,7 @@ describe("preprod app server helper", () => {
   it("starts Next locally and waits for the deployment endpoint", async () => {
     const child = fakeChild();
     const spawn = vi.fn(() => child);
-    const fetch = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("not listening yet"))
-      .mockResolvedValueOnce({ status: 200 });
+    const fetch = vi.fn().mockRejectedValueOnce(new Error("not listening yet")).mockResolvedValueOnce({ status: 200 });
     const target = await startPreprodAppServer({
       env: {},
       spawn,

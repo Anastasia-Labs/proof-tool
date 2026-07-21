@@ -12,7 +12,8 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   DesktopApi,
   HelperStartup,
@@ -252,6 +253,7 @@ export function App({ api = tauriDesktopApi, showDeveloperControls = defaultShow
   // Deliberately not triggered for the "invalid" state, which keeps its
   // explicit Blocked/replace flow.
   const autoInstallAttempted = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot auto-install guarded by the ref; installProofAssets is stable for the app's lifetime
   useEffect(() => {
     if (autoInstallAttempted.current) {
       return;
@@ -431,7 +433,11 @@ function ProductionShell({
         </div>
         <StatusLine label="Proof assets" value={labelForKey(keyStatus)} tone={keyTone} />
         <StatusLine label="Local helper" value={helperRunning || startup ? "Running" : "Stopped"} tone={helperTone} />
-        <StatusLine label="Reclaim website" value={startup ? "Connected" : "Not connected"} tone={startup ? "ok" : "idle"} />
+        <StatusLine
+          label="Reclaim website"
+          value={startup ? "Connected" : "Not connected"}
+          tone={startup ? "ok" : "idle"}
+        />
         <StatusLine label="App version" value={appVersion} tone="idle" />
       </aside>
 
@@ -494,7 +500,11 @@ function ProductionShell({
             label="Website connection"
             value={startup ? "Paired" : "Waiting"}
             tone={startup ? "ok" : "idle"}
-            detail={startup ? "The reclaim website can talk to this computer." : "Open Reclaim pairs the browser automatically."}
+            detail={
+              startup
+                ? "The reclaim website can talk to this computer."
+                : "Open Reclaim pairs the browser automatically."
+            }
           />
           <SupportItem
             label="Local secrets"
@@ -703,7 +713,7 @@ function DiagnosticsDrawer({
 function InstallProgressView({ progress }: { progress: ProofAssetInstallProgress | null }) {
   const percent = progressPercent(progress);
   return (
-    <div className="progress-block" aria-label="Proof asset activation progress">
+    <div className="progress-block" role="group" aria-label="Proof asset activation progress">
       <div>
         <span>{progress ? installProgressLabel(progress) : "Preparing proof assets"}</span>
         <strong>{percent === null ? "Starting" : `${percent}%`}</strong>

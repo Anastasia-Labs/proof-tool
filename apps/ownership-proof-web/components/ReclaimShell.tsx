@@ -2,7 +2,7 @@
 
 import { Check, Coins, Copy, HelpCircle, LockKeyhole, ShieldCheck } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import React from "react";
+import type React from "react";
 
 const ICON = { sm: 16, md: 20, lg: 24, xl: 32 } as const;
 
@@ -53,11 +53,19 @@ export function ReclaimTopNav({ active }: { active: "lock" | "claim" }) {
   return (
     <header className="claim-topbar">
       <nav className="claim-primary-nav" aria-label="Main">
-        <a href="/reclaim" className={`claim-nav-link ${active === "lock" ? "active" : ""}`} aria-current={active === "lock" ? "page" : undefined}>
+        <a
+          href="/reclaim"
+          className={`claim-nav-link ${active === "lock" ? "active" : ""}`}
+          aria-current={active === "lock" ? "page" : undefined}
+        >
           <LockKeyhole size={ICON.lg} aria-hidden="true" />
           Lock / Donate funds
         </a>
-        <a href="/claim" className={`claim-nav-link ${active === "claim" ? "active" : ""}`} aria-current={active === "claim" ? "page" : undefined}>
+        <a
+          href="/claim"
+          className={`claim-nav-link ${active === "claim" ? "active" : ""}`}
+          aria-current={active === "claim" ? "page" : undefined}
+        >
           <Coins size={ICON.lg} aria-hidden="true" />
           Claim funds
         </a>
@@ -96,7 +104,9 @@ function ReclaimSidebar({ steps, active }: { steps: ReclaimShellStep[]; active: 
 
       <div className="claim-assurance">
         <ShieldCheck size={ICON.lg} aria-hidden="true" />
-        <p>Secured by an on-chain smart contract — no one, including us, can move funds without the owner&rsquo;s proof.</p>
+        <p>
+          Secured by an on-chain smart contract — no one, including us, can move funds without the owner&rsquo;s proof.
+        </p>
       </div>
     </aside>
   );
@@ -121,7 +131,15 @@ function ReclaimStep({ step }: { step: ReclaimShellStep }) {
   );
 }
 
-export function ReclaimPageHeading({ title, subtitle, icon: Icon }: { title: string; subtitle: string; icon?: LucideIcon }) {
+export function ReclaimPageHeading({
+  title,
+  subtitle,
+  icon: Icon,
+}: {
+  title: string;
+  subtitle: string;
+  icon?: LucideIcon;
+}) {
   if (!Icon) {
     return (
       <header className="claim-page-heading">

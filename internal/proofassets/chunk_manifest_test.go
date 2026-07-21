@@ -174,6 +174,8 @@ func testDeploymentManifest(keyManifest *artifact.KeyManifest, cardanoVKHash str
 	deployment.SourceCommit = strings.Repeat("a", 40)
 	deployment.ReclaimGlobal.VerifierVKHash = keyManifest.VKHash
 	deployment.ReclaimGlobal.ProofProfile = "single-destination"
+	deployment.ReclaimGlobal.ProofSlotEncoding = "full-proof-plus-public-input-digest-v2"
+	deployment.ReclaimGlobal.BatchTranscriptVKHash = cardanoVKHash
 	deployment.Proof.CircuitID = keyManifest.CircuitID
 	deployment.Proof.KeyVersion = keyManifest.KeyVersion
 	deployment.Proof.DestinationAddressEncoding = "destination-address-v1"

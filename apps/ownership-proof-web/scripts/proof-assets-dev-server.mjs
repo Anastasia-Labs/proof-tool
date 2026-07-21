@@ -6,8 +6,7 @@ import process from "node:process";
 const repoRoot = path.resolve(new URL("../../..", import.meta.url).pathname);
 const assetsDir = path.resolve(
   repoRoot,
-  process.env.PROOF_ASSETS_DIR ||
-    "output/proof-assets-stage-proof-assets-ownership-destination-v2-preprod-9fac96b-g3a",
+  process.env.PROOF_ASSETS_DIR || "output/proof-assets-stage-proof-assets-ownership-destination-v2-preprod-9fac96b-g3a",
 );
 const port = Number(process.env.PROOF_ASSETS_PORT || 8788);
 const host = process.env.PROOF_ASSETS_HOST || "127.0.0.1";

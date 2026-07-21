@@ -16,11 +16,11 @@ import (
 // for a symlink between validation and the final write.
 func writeStage2gMaterialExclusive(outPath string, contents []byte) error {
 	if filepath.IsAbs(outPath) {
-		return errors.New("Stage 2g material output must stay under the working directory")
+		return errors.New("stage 2g material output must stay under the working directory")
 	}
 	relative := filepath.Clean(outPath)
 	if relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return errors.New("Stage 2g material output must stay under the working directory")
+		return errors.New("stage 2g material output must stay under the working directory")
 	}
 	components := make([]string, 0, len(strings.Split(relative, string(filepath.Separator))))
 	for _, component := range strings.Split(relative, string(filepath.Separator)) {
@@ -28,12 +28,12 @@ func writeStage2gMaterialExclusive(outPath string, contents []byte) error {
 			continue
 		}
 		if component == ".." {
-			return errors.New("Stage 2g material output path is unsafe")
+			return errors.New("stage 2g material output path is unsafe")
 		}
 		components = append(components, component)
 	}
 	if len(components) == 0 {
-		return errors.New("Stage 2g material output path is unsafe")
+		return errors.New("stage 2g material output path is unsafe")
 	}
 
 	directoryFD, err := unix.Open(".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)

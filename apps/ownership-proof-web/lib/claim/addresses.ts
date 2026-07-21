@@ -19,7 +19,10 @@ export function extractShelleyPaymentCredential(address: string, expectedNetwork
 export function extractShelleyPaymentKeyHash(address: string, expectedNetworkId: 0 | 1): string {
   const credential = extractShelleyPaymentCredential(address, expectedNetworkId);
   if (credential.type !== "Key") {
-    throw new ClaimValidationError("payment_credential_script", "Only payment key credentials can prove reclaim ownership.");
+    throw new ClaimValidationError(
+      "payment_credential_script",
+      "Only payment key credentials can prove reclaim ownership.",
+    );
   }
   return credential.hash;
 }
@@ -27,10 +30,16 @@ export function extractShelleyPaymentKeyHash(address: string, expectedNetworkId:
 export function destinationAddressV1(address: string, expectedNetworkId: 0 | 1): string {
   const details = getCheckedAddressDetails(address, expectedNetworkId);
   if (details.type === "Pointer") {
-    throw new ClaimValidationError("destination_stake_pointer", "Stake pointer destinations are unsupported for destination-address-v1.");
+    throw new ClaimValidationError(
+      "destination_stake_pointer",
+      "Stake pointer destinations are unsupported for destination-address-v1.",
+    );
   }
   if (!details.paymentCredential) {
-    throw new ClaimValidationError("destination_payment_missing", "Destination address must contain a payment credential.");
+    throw new ClaimValidationError(
+      "destination_payment_missing",
+      "Destination address must contain a payment credential.",
+    );
   }
 
   const paymentBytes = credentialBytes(details.paymentCredential, "destination.paymentCredential");
@@ -47,15 +56,18 @@ export function destinationAddressV1(address: string, expectedNetworkId: 0 | 1):
 export function assertSafeWalletAddress(address: string, expectedNetworkId: 0 | 1): string {
   const credential = extractShelleyPaymentCredential(address, expectedNetworkId);
   if (credential.type !== "Key") {
-    throw new ClaimValidationError("safe_wallet_script_address", "Safe wallet addresses must use payment key credentials.");
+    throw new ClaimValidationError(
+      "safe_wallet_script_address",
+      "Safe wallet addresses must use payment key credentials.",
+    );
   }
   return getCheckedAddressDetails(address, expectedNetworkId).address.bech32;
 }
 
 export function findPaymentCredentialOverlap(left: string[], right: string[], expectedNetworkId: 0 | 1): string[] {
   const leftCredentials = new Set(left.map((address) => extractShelleyPaymentKeyHash(address, expectedNetworkId)));
-  return [...new Set(right.map((address) => extractShelleyPaymentKeyHash(address, expectedNetworkId)))].filter((credential) =>
-    leftCredentials.has(credential),
+  return [...new Set(right.map((address) => extractShelleyPaymentKeyHash(address, expectedNetworkId)))].filter(
+    (credential) => leftCredentials.has(credential),
   );
 }
 

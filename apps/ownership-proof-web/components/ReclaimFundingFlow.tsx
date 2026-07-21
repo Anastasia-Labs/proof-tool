@@ -22,7 +22,8 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import type React from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import type {
   AssetMap,
@@ -153,8 +154,7 @@ export function ReclaimFundingFlow() {
   );
   const selectedToken = nativeAssetOptions.find((option) => option.unit === selectedTokenUnit) ?? null;
   const deploymentAvailable = deployment?.available === true;
-  const canUseWallet =
-    deploymentAvailable && walletApi !== null && walletNetworkId === deployment.deployment.networkId;
+  const canUseWallet = deploymentAvailable && walletApi !== null && walletNetworkId === deployment.deployment.networkId;
   const canBuild =
     deploymentAvailable &&
     canUseWallet &&
@@ -162,19 +162,22 @@ export function ReclaimFundingFlow() {
     walletAddresses.length > 0 &&
     isPaymentCredential(normalizedCredential) &&
     requestedAssets !== null;
-  const selectedWalletName = wallets.find(([id]) => id === selectedWallet)?.[1].name || selectedWallet || "No wallet selected";
-  const viewState = fixtureState ?? deriveLockFundsVisualState({
-    deployment,
-    deploymentLoading,
-    canUseWallet,
-    compromisedCredential,
-    normalizedCredential,
-    inventory,
-    builtTx,
-    submittedTxHash,
-    flowState,
-    failure,
-  });
+  const selectedWalletName =
+    wallets.find(([id]) => id === selectedWallet)?.[1].name || selectedWallet || "No wallet selected";
+  const viewState =
+    fixtureState ??
+    deriveLockFundsVisualState({
+      deployment,
+      deploymentLoading,
+      canUseWallet,
+      compromisedCredential,
+      normalizedCredential,
+      inventory,
+      builtTx,
+      submittedTxHash,
+      flowState,
+      failure,
+    });
   const steps = deriveLockFundsSteps({
     deployment,
     deploymentLoading,
@@ -268,7 +271,10 @@ export function ReclaimFundingFlow() {
     if (fixtureState) {
       return;
     }
-    const cardano = ((window as Window & { cardano?: Record<string, unknown> }).cardano ?? {}) as Record<string, unknown>;
+    const cardano = ((window as Window & { cardano?: Record<string, unknown> }).cardano ?? {}) as Record<
+      string,
+      unknown
+    >;
     const availableWallets = Object.entries(cardano).filter((entry): entry is [string, CardanoWalletProvider] => {
       const wallet = entry[1] as CardanoWalletProvider | undefined;
       return typeof wallet?.enable === "function";
@@ -442,7 +448,11 @@ export function ReclaimFundingFlow() {
 
   function addSelectedToken() {
     if (!selectedToken) {
-      setTokenPickerError(nativeAssetOptions.length === 0 ? "Refresh wallet inventory before choosing a token." : "Select a token from the wallet inventory.");
+      setTokenPickerError(
+        nativeAssetOptions.length === 0
+          ? "Refresh wallet inventory before choosing a token."
+          : "Select a token from the wallet inventory.",
+      );
       return;
     }
     const quantity = selectedTokenQuantity.trim();
@@ -477,347 +487,380 @@ export function ReclaimFundingFlow() {
 
   return (
     <>
-    <ReclaimAppShell active="lock" steps={steps} state={viewState}>
-      <ReclaimPageHeading title={heading.title} subtitle={heading.subtitle} icon={heading.icon} />
+      <ReclaimAppShell active="lock" steps={steps} state={viewState}>
+        <ReclaimPageHeading title={heading.title} subtitle={heading.subtitle} icon={heading.icon} />
 
-      <div className="claim-page-body">
-        {submittedTxHash ? (
-          <ReclaimNotice icon={Check} title="Transaction submitted" tone="ok">
-            The transaction has been successfully submitted. Transaction hash: {submittedTxHash}
-          </ReclaimNotice>
-        ) : null}
+        <div className="claim-page-body">
+          {submittedTxHash ? (
+            <ReclaimNotice icon={Check} title="Transaction submitted" tone="ok">
+              The transaction has been successfully submitted. Transaction hash: {submittedTxHash}
+            </ReclaimNotice>
+          ) : null}
 
           {!deploymentAvailable && !deploymentLoading ? (
-          <ReclaimNotice icon={CircleAlert} title="Reclaim deployment unavailable" tone="bad">
-            {deployment?.missing.join(", ") || "Deployment environment variables are missing."}
-          </ReclaimNotice>
-        ) : null}
+            <ReclaimNotice icon={CircleAlert} title="Reclaim deployment unavailable" tone="bad">
+              {deployment?.missing.join(", ") || "Deployment environment variables are missing."}
+            </ReclaimNotice>
+          ) : null}
 
-        {failure ? (
-          <ReclaimNotice icon={CircleAlert} title="Action failed" tone="bad">
-            {failure}
-          </ReclaimNotice>
-        ) : null}
+          {failure ? (
+            <ReclaimNotice icon={CircleAlert} title="Action failed" tone="bad">
+              {failure}
+            </ReclaimNotice>
+          ) : null}
 
-        <ReclaimSummaryTiles tiles={summaryTiles} />
+          <ReclaimSummaryTiles tiles={summaryTiles} />
 
-        {submittedTxHash ? (
-          <>
-            <ReclaimSummaryTiles
-              tiles={[
-                {
-                  icon: Globe2,
-                  label: "Network",
-                  value: deploymentAvailable ? deployment.deployment.network : "Unavailable",
-                },
-                {
-                  icon: Coins,
-                  label: "Locked value",
-                  value: summarizeAssets(reviewAssets),
-                },
-                {
-                  icon: Landmark,
-                  label: "Destination",
-                  value: "ReclaimBase",
-                  detail: deploymentAvailable ? abbreviateMiddle(deployment.deployment.reclaimBaseAddress, 28) : undefined,
-                },
-                {
-                  icon: CheckCircle2,
-                  label: "Submit",
-                  value: "Complete",
-                  emphasis: true,
-                },
-              ]}
-            />
-            <ReclaimPanel title="Review / receipt" icon={FileText} className="lock-review-panel">
-              {builtTx ? (
-                <>
-                  <ReclaimReviewRow label="Destination" value={builtTx.review.reclaimBaseAddress} />
-                  <ReclaimReviewRow label="Credential datum" value={builtTx.review.compromisedCredential} />
-                  <ReclaimReviewRow label="Datum CBOR" value={builtTx.review.datumCbor} />
-                </>
-              ) : null}
-              <ReclaimReviewRow label="Tx hash" value={submittedTxHash} />
-              <div className="lock-asset-table-block">
-                <strong>Assets locked</strong>
-                <AssetList assets={reviewAssets} />
-              </div>
-            </ReclaimPanel>
-            <div className="lock-receipt-actions">
-              <button className="claim-secondary-button" type="button" onClick={lockAnotherBatch}>
-                <RefreshCw size={21} aria-hidden="true" />
-                Lock another batch
-              </button>
-              <a className="claim-secondary-button lock-claim-link" href="/claim">
-                Go to Claim funds
-                <Send size={20} aria-hidden="true" />
-              </a>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className={contextGridClass}>
-          <ReclaimPanel title="Wallet" icon={Wallet}>
-            <div className="lock-field-grid">
-              <label className="lock-field">
-                <span>Cardano wallet</span>
-                <select
-                  value={selectedWallet}
-                  onChange={(event) => {
-                    setSelectedWallet(event.target.value);
-                    resetWalletState();
-                  }}
-                  disabled={controlsDisabled}
-                >
-                  {wallets.length === 0 ? <option value="">No wallet found</option> : null}
-                  {wallets.map(([id, provider]) => (
-                    <option key={id} value={id}>
-                      {provider.name || id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {!builtTx ? (
-                <div className="lock-field">
-                  <span aria-hidden="true">Connection</span>
-                  <button className="claim-primary-button lock-panel-action" type="button" onClick={connectWallet} disabled={controlsDisabled}>
-                    <Wallet size={20} aria-hidden="true" />
-                    Connect Wallet
-                  </button>
-                </div>
-              ) : null}
-            </div>
-            <label className="lock-field" aria-live="polite">
-              <span>Address source</span>
-              <input readOnly value={addressSourceText} />
-            </label>
-            <p className="lock-readout">{addressSourceText}</p>
-            {changeAddress ? (
-              <div className="lock-field">
-                <span>Change address</span>
-                <code className="lock-code-readout">{abbreviateMiddle(changeAddress, 32)}</code>
-              </div>
-            ) : null}
-            <p className="claim-muted">
-              No manual address entry. The change address is read from CIP-30 internally for Lucid change, and the backend checks connected wallet addresses for funded inputs.
-            </p>
-            <div className="claim-panel-toolbar">
-              <button className="claim-secondary-button" type="button" onClick={refreshAssets} disabled={controlsDisabled || walletAddresses.length === 0}>
-                <RefreshCw size={20} aria-hidden="true" />
-                Refresh Assets
-              </button>
-            </div>
-          </ReclaimPanel>
-
-          <ReclaimPanel title="Compromised credential" icon={KeyRound}>
-            <div className="lock-field">
-              <div className="lock-field-label">
-                <label htmlFor="lock-compromised-credential">Payment key credential</label>
-                <em className="lock-required-flag">Required</em>
-              </div>
-              <input
-                id="lock-compromised-credential"
-                value={compromisedCredential}
-                onChange={(event) => {
-                  setCompromisedCredential(event.target.value);
-                  resetReviewedTransaction();
-                }}
-                placeholder={credentialPlaceholder}
-                disabled={controlsDisabled}
-                required
-                aria-invalid={credentialInvalid || undefined}
-                autoComplete="off"
-                spellCheck={false}
+          {submittedTxHash ? (
+            <>
+              <ReclaimSummaryTiles
+                tiles={[
+                  {
+                    icon: Globe2,
+                    label: "Network",
+                    value: deploymentAvailable ? deployment.deployment.network : "Unavailable",
+                  },
+                  {
+                    icon: Coins,
+                    label: "Locked value",
+                    value: summarizeAssets(reviewAssets),
+                  },
+                  {
+                    icon: Landmark,
+                    label: "Destination",
+                    value: "ReclaimBase",
+                    detail: deploymentAvailable
+                      ? abbreviateMiddle(deployment.deployment.reclaimBaseAddress, 28)
+                      : undefined,
+                  },
+                  {
+                    icon: CheckCircle2,
+                    label: "Submit",
+                    value: "Complete",
+                    emphasis: true,
+                  },
+                ]}
               />
-            </div>
-            {credentialEmpty ? (
-              <p className="lock-field-hint" aria-live="polite">
-                <KeyRound size={16} aria-hidden="true" />
-                {credentialEmptyHint}
-              </p>
-            ) : null}
-            <p className="claim-muted">Funds locked for recovery using proof of ownership for this payment key credential.</p>
-            {credentialInvalid ? (
-              <ReclaimNotice icon={ShieldAlert} title="Credential format" tone="bad">
-                {credentialFormatHint}
-              </ReclaimNotice>
-            ) : null}
-          </ReclaimPanel>
-
-          <ReclaimPanel title="Assets to lock" icon={Coins}>
-            <div className="lock-field-grid">
-              <label className="lock-field">
-                <span>ADA amount</span>
-                <input
-                  value={adaAmount}
-                  onChange={(event) => {
-                    setAdaAmount(event.target.value);
-                    resetReviewedTransaction();
-                  }}
-                  inputMode="decimal"
-                  placeholder="0.000000"
-                  disabled={controlsDisabled}
-                />
-              </label>
-              <label className="lock-field">
-                <span>Wallet inventory</span>
-                <input readOnly value={inventorySummaryText(inventory)} />
-              </label>
-            </div>
-            <p className="lock-readout">{inventorySummaryText(inventory)}</p>
-
-            <div className="lock-asset-editor" aria-label="Native token assets">
-              {nativeTokens.length === 0 ? (
-                <p className="lock-token-empty">No native tokens selected. Use Token to choose assets from the connected wallet.</p>
-              ) : null}
-              {nativeTokens.map((token, index) => (
-                <div className="lock-asset-row" key={token.id}>
-                  {token.manual || !token.unit ? (
-                    <label className="lock-field">
-                      <span>Asset unit</span>
-                      <input
-                        value={token.unit}
-                        onChange={(event) => {
-                          updateTokenRow(index, { unit: event.target.value }, setNativeTokens);
-                          resetReviewedTransaction();
-                        }}
-                        placeholder="policyId + tokenName hex"
-                        disabled={controlsDisabled}
-                      />
-                    </label>
-                  ) : (
-                    <div className="lock-field">
-                      <span>Asset</span>
-                      <div className="lock-selected-token">
-                        <strong>{formatNativeAssetLabel(token.unit)}</strong>
-                        <code>{abbreviateMiddle(token.unit, 34)}</code>
-                      </div>
-                    </div>
-                  )}
-                  <label className="lock-field">
-                    <span>Quantity</span>
-                    <input
-                      value={token.quantity}
-                      onChange={(event) => {
-                        updateTokenRow(index, { quantity: event.target.value }, setNativeTokens);
-                        resetReviewedTransaction();
-                      }}
-                      inputMode="numeric"
-                      placeholder="0"
-                      disabled={controlsDisabled}
-                    />
-                  </label>
-                  <button
-                    className="claim-icon-button lock-remove-token"
-                    type="button"
-                    aria-label={`Remove native token ${index + 1}`}
-                    onClick={() => {
-                      removeTokenRow(token.id, setNativeTokens);
-                      resetReviewedTransaction();
-                    }}
-                    disabled={controlsDisabled}
-                  >
-                    <Trash2 size={17} aria-hidden="true" />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            <div className="claim-panel-toolbar">
-              <button
-                className="claim-secondary-button"
-                type="button"
-                onClick={openTokenPicker}
-                disabled={controlsDisabled}
-              >
-                <Plus size={20} aria-hidden="true" />
-                Token
-              </button>
-              <button
-                className="claim-primary-button lock-build-button"
-                type="button"
-                onClick={buildTx}
-                disabled={!canBuild || flowState === "building"}
-                aria-describedby={buildBlockedReason ? "lock-build-blocked-reason" : undefined}
-              >
-                {flowState === "building" ? <Loader2 className="spin" size={20} aria-hidden="true" /> : <Coins size={20} aria-hidden="true" />}
-                Build Transaction
-              </button>
-            </div>
-            {buildBlockedReason ? (
-              <p className="lock-build-hint" id="lock-build-blocked-reason" role="status">
-                <CircleAlert size={16} aria-hidden="true" />
-                {buildBlockedReason}
-              </p>
-            ) : null}
-          </ReclaimPanel>
-
-            </div>
-
-            {flowState === "building" ? (
-              <ReclaimPanel title="Review" icon={FileText} className="lock-review-panel">
-                <div className="lock-review-loading">
-                  <Loader2 className="spin" size={28} aria-hidden="true" />
-                  <div>
-                    <strong>Building unsigned tx</strong>
-                    <p className="claim-muted">The backend is constructing a transaction pinned to the deployment manifest.</p>
-                  </div>
-                </div>
-              </ReclaimPanel>
-            ) : null}
-
-            {builtTx ? (
-              <ReclaimPanel title="Review" icon={FileText} className="lock-review-panel">
-                <div className="lock-review-layout">
-                  <div>
+              <ReclaimPanel title="Review / receipt" icon={FileText} className="lock-review-panel">
+                {builtTx ? (
+                  <>
                     <ReclaimReviewRow label="Destination" value={builtTx.review.reclaimBaseAddress} />
                     <ReclaimReviewRow label="Credential datum" value={builtTx.review.compromisedCredential} />
                     <ReclaimReviewRow label="Datum CBOR" value={builtTx.review.datumCbor} />
-                    <ReclaimReviewRow label="Tx hash" value={builtTx.txHash} />
-                  </div>
-                  <div className="lock-asset-table-block">
-                    <strong>Assets in transaction</strong>
-                    <AssetList assets={builtTx.review.assets} />
-                    <button className="claim-primary-button lock-submit-button" type="button" onClick={signAndSubmit} disabled={!canUseWallet || flowState === "signing"}>
-                      {flowState === "signing" ? <Loader2 className="spin" size={20} aria-hidden="true" /> : <Send size={20} aria-hidden="true" />}
-                      Sign and Submit
-                    </button>
-                    <p className="claim-muted">These assets will be locked at the reclaim contract.</p>
-                    <p className="claim-muted lock-submit-note">You will be prompted by your wallet to sign the transaction.</p>
-                  </div>
+                  </>
+                ) : null}
+                <ReclaimReviewRow label="Tx hash" value={submittedTxHash} />
+                <div className="lock-asset-table-block">
+                  <strong>Assets locked</strong>
+                  <AssetList assets={reviewAssets} />
                 </div>
               </ReclaimPanel>
-            ) : null}
-          </>
-        )}
-      </div>
-    </ReclaimAppShell>
-    {tokenPickerOpen ? (
-      <TokenPickerModal
-        assetsLoading={assetsLoading}
-        canRefreshInventory={deploymentAvailable && walletAddresses.length > 0}
-        filteredOptions={filteredNativeAssetOptions}
-        inventory={inventory}
-        onAdd={addSelectedToken}
-        onClose={closeTokenPicker}
-        onManual={enterTokenManually}
-        onRefresh={refreshAssets}
-        onSearch={setTokenSearch}
-        onSelect={(unit) => {
-          setSelectedTokenUnit(unit);
-          setSelectedTokenQuantity("1");
-          setTokenPickerError("");
-        }}
-        onQuantityChange={(quantity) => {
-          setSelectedTokenQuantity(quantity);
-          setTokenPickerError("");
-        }}
-        search={tokenSearch}
-        selectedOption={selectedToken}
-        selectedQuantity={selectedTokenQuantity}
-        tokenPickerError={tokenPickerError}
-      />
-    ) : null}
+              <div className="lock-receipt-actions">
+                <button className="claim-secondary-button" type="button" onClick={lockAnotherBatch}>
+                  <RefreshCw size={21} aria-hidden="true" />
+                  Lock another batch
+                </button>
+                <a className="claim-secondary-button lock-claim-link" href="/claim">
+                  Go to Claim funds
+                  <Send size={20} aria-hidden="true" />
+                </a>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className={contextGridClass}>
+                <ReclaimPanel title="Wallet" icon={Wallet}>
+                  <div className="lock-field-grid">
+                    <label className="lock-field">
+                      <span>Cardano wallet</span>
+                      <select
+                        value={selectedWallet}
+                        onChange={(event) => {
+                          setSelectedWallet(event.target.value);
+                          resetWalletState();
+                        }}
+                        disabled={controlsDisabled}
+                      >
+                        {wallets.length === 0 ? <option value="">No wallet found</option> : null}
+                        {wallets.map(([id, provider]) => (
+                          <option key={id} value={id}>
+                            {provider.name || id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {!builtTx ? (
+                      <div className="lock-field">
+                        <span aria-hidden="true">Connection</span>
+                        <button
+                          className="claim-primary-button lock-panel-action"
+                          type="button"
+                          onClick={connectWallet}
+                          disabled={controlsDisabled}
+                        >
+                          <Wallet size={20} aria-hidden="true" />
+                          Connect Wallet
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <label className="lock-field" aria-live="polite">
+                    <span>Address source</span>
+                    <input readOnly value={addressSourceText} />
+                  </label>
+                  <p className="lock-readout">{addressSourceText}</p>
+                  {changeAddress ? (
+                    <div className="lock-field">
+                      <span>Change address</span>
+                      <code className="lock-code-readout">{abbreviateMiddle(changeAddress, 32)}</code>
+                    </div>
+                  ) : null}
+                  <p className="claim-muted">
+                    No manual address entry. The change address is read from CIP-30 internally for Lucid change, and the
+                    backend checks connected wallet addresses for funded inputs.
+                  </p>
+                  <div className="claim-panel-toolbar">
+                    <button
+                      className="claim-secondary-button"
+                      type="button"
+                      onClick={refreshAssets}
+                      disabled={controlsDisabled || walletAddresses.length === 0}
+                    >
+                      <RefreshCw size={20} aria-hidden="true" />
+                      Refresh Assets
+                    </button>
+                  </div>
+                </ReclaimPanel>
+
+                <ReclaimPanel title="Compromised credential" icon={KeyRound}>
+                  <div className="lock-field">
+                    <div className="lock-field-label">
+                      <label htmlFor="lock-compromised-credential">Payment key credential</label>
+                      <em className="lock-required-flag">Required</em>
+                    </div>
+                    <input
+                      id="lock-compromised-credential"
+                      value={compromisedCredential}
+                      onChange={(event) => {
+                        setCompromisedCredential(event.target.value);
+                        resetReviewedTransaction();
+                      }}
+                      placeholder={credentialPlaceholder}
+                      disabled={controlsDisabled}
+                      required
+                      aria-invalid={credentialInvalid || undefined}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                  {credentialEmpty ? (
+                    <p className="lock-field-hint" aria-live="polite">
+                      <KeyRound size={16} aria-hidden="true" />
+                      {credentialEmptyHint}
+                    </p>
+                  ) : null}
+                  <p className="claim-muted">
+                    Funds locked for recovery using proof of ownership for this payment key credential.
+                  </p>
+                  {credentialInvalid ? (
+                    <ReclaimNotice icon={ShieldAlert} title="Credential format" tone="bad">
+                      {credentialFormatHint}
+                    </ReclaimNotice>
+                  ) : null}
+                </ReclaimPanel>
+
+                <ReclaimPanel title="Assets to lock" icon={Coins}>
+                  <div className="lock-field-grid">
+                    <label className="lock-field">
+                      <span>ADA amount</span>
+                      <input
+                        value={adaAmount}
+                        onChange={(event) => {
+                          setAdaAmount(event.target.value);
+                          resetReviewedTransaction();
+                        }}
+                        inputMode="decimal"
+                        placeholder="0.000000"
+                        disabled={controlsDisabled}
+                      />
+                    </label>
+                    <label className="lock-field">
+                      <span>Wallet inventory</span>
+                      <input readOnly value={inventorySummaryText(inventory)} />
+                    </label>
+                  </div>
+                  <p className="lock-readout">{inventorySummaryText(inventory)}</p>
+
+                  <div className="lock-asset-editor" role="group" aria-label="Native token assets">
+                    {nativeTokens.length === 0 ? (
+                      <p className="lock-token-empty">
+                        No native tokens selected. Use Token to choose assets from the connected wallet.
+                      </p>
+                    ) : null}
+                    {nativeTokens.map((token, index) => (
+                      <div className="lock-asset-row" key={token.id}>
+                        {token.manual || !token.unit ? (
+                          <label className="lock-field">
+                            <span>Asset unit</span>
+                            <input
+                              value={token.unit}
+                              onChange={(event) => {
+                                updateTokenRow(index, { unit: event.target.value }, setNativeTokens);
+                                resetReviewedTransaction();
+                              }}
+                              placeholder="policyId + tokenName hex"
+                              disabled={controlsDisabled}
+                            />
+                          </label>
+                        ) : (
+                          <div className="lock-field">
+                            <span>Asset</span>
+                            <div className="lock-selected-token">
+                              <strong>{formatNativeAssetLabel(token.unit)}</strong>
+                              <code>{abbreviateMiddle(token.unit, 34)}</code>
+                            </div>
+                          </div>
+                        )}
+                        <label className="lock-field">
+                          <span>Quantity</span>
+                          <input
+                            value={token.quantity}
+                            onChange={(event) => {
+                              updateTokenRow(index, { quantity: event.target.value }, setNativeTokens);
+                              resetReviewedTransaction();
+                            }}
+                            inputMode="numeric"
+                            placeholder="0"
+                            disabled={controlsDisabled}
+                          />
+                        </label>
+                        <button
+                          className="claim-icon-button lock-remove-token"
+                          type="button"
+                          aria-label={`Remove native token ${index + 1}`}
+                          onClick={() => {
+                            removeTokenRow(token.id, setNativeTokens);
+                            resetReviewedTransaction();
+                          }}
+                          disabled={controlsDisabled}
+                        >
+                          <Trash2 size={17} aria-hidden="true" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="claim-panel-toolbar">
+                    <button
+                      className="claim-secondary-button"
+                      type="button"
+                      onClick={openTokenPicker}
+                      disabled={controlsDisabled}
+                    >
+                      <Plus size={20} aria-hidden="true" />
+                      Token
+                    </button>
+                    <button
+                      className="claim-primary-button lock-build-button"
+                      type="button"
+                      onClick={buildTx}
+                      disabled={!canBuild || flowState === "building"}
+                      aria-describedby={buildBlockedReason ? "lock-build-blocked-reason" : undefined}
+                    >
+                      {flowState === "building" ? (
+                        <Loader2 className="spin" size={20} aria-hidden="true" />
+                      ) : (
+                        <Coins size={20} aria-hidden="true" />
+                      )}
+                      Build Transaction
+                    </button>
+                  </div>
+                  {buildBlockedReason ? (
+                    <p className="lock-build-hint" id="lock-build-blocked-reason" role="status">
+                      <CircleAlert size={16} aria-hidden="true" />
+                      {buildBlockedReason}
+                    </p>
+                  ) : null}
+                </ReclaimPanel>
+              </div>
+
+              {flowState === "building" ? (
+                <ReclaimPanel title="Review" icon={FileText} className="lock-review-panel">
+                  <div className="lock-review-loading">
+                    <Loader2 className="spin" size={28} aria-hidden="true" />
+                    <div>
+                      <strong>Building unsigned tx</strong>
+                      <p className="claim-muted">
+                        The backend is constructing a transaction pinned to the deployment manifest.
+                      </p>
+                    </div>
+                  </div>
+                </ReclaimPanel>
+              ) : null}
+
+              {builtTx ? (
+                <ReclaimPanel title="Review" icon={FileText} className="lock-review-panel">
+                  <div className="lock-review-layout">
+                    <div>
+                      <ReclaimReviewRow label="Destination" value={builtTx.review.reclaimBaseAddress} />
+                      <ReclaimReviewRow label="Credential datum" value={builtTx.review.compromisedCredential} />
+                      <ReclaimReviewRow label="Datum CBOR" value={builtTx.review.datumCbor} />
+                      <ReclaimReviewRow label="Tx hash" value={builtTx.txHash} />
+                    </div>
+                    <div className="lock-asset-table-block">
+                      <strong>Assets in transaction</strong>
+                      <AssetList assets={builtTx.review.assets} />
+                      <button
+                        className="claim-primary-button lock-submit-button"
+                        type="button"
+                        onClick={signAndSubmit}
+                        disabled={!canUseWallet || flowState === "signing"}
+                      >
+                        {flowState === "signing" ? (
+                          <Loader2 className="spin" size={20} aria-hidden="true" />
+                        ) : (
+                          <Send size={20} aria-hidden="true" />
+                        )}
+                        Sign and Submit
+                      </button>
+                      <p className="claim-muted">These assets will be locked at the reclaim contract.</p>
+                      <p className="claim-muted lock-submit-note">
+                        You will be prompted by your wallet to sign the transaction.
+                      </p>
+                    </div>
+                  </div>
+                </ReclaimPanel>
+              ) : null}
+            </>
+          )}
+        </div>
+      </ReclaimAppShell>
+      {tokenPickerOpen ? (
+        <TokenPickerModal
+          assetsLoading={assetsLoading}
+          canRefreshInventory={deploymentAvailable && walletAddresses.length > 0}
+          filteredOptions={filteredNativeAssetOptions}
+          inventory={inventory}
+          onAdd={addSelectedToken}
+          onClose={closeTokenPicker}
+          onManual={enterTokenManually}
+          onRefresh={refreshAssets}
+          onSearch={setTokenSearch}
+          onSelect={(unit) => {
+            setSelectedTokenUnit(unit);
+            setSelectedTokenQuantity("1");
+            setTokenPickerError("");
+          }}
+          onQuantityChange={(quantity) => {
+            setSelectedTokenQuantity(quantity);
+            setTokenPickerError("");
+          }}
+          search={tokenSearch}
+          selectedOption={selectedToken}
+          selectedQuantity={selectedTokenQuantity}
+          tokenPickerError={tokenPickerError}
+        />
+      ) : null}
     </>
   );
 }
@@ -891,10 +934,12 @@ function createLockFundsFixture(state: LockFundsVisualState): LockFundsFixture {
     state === "signing-awaiting-wallet" ||
     state === "submitted" ||
     state === "failed-build";
-  const builtTx = state === "review-built" || state === "signing-awaiting-wallet" || state === "submitted" ? fixtureBuiltTx() : null;
+  const builtTx =
+    state === "review-built" || state === "signing-awaiting-wallet" || state === "submitted" ? fixtureBuiltTx() : null;
 
   return {
-    deployment: state === "loading-deployment" ? null : state === "deployment-unavailable" ? unavailableDeployment : deployment,
+    deployment:
+      state === "loading-deployment" ? null : state === "deployment-unavailable" ? unavailableDeployment : deployment,
     deploymentLoading: state === "loading-deployment",
     wallets: [["lace", fixtureProvider(walletApi)]],
     selectedWallet: "lace",
@@ -967,6 +1012,8 @@ function fixtureDeployment(): DeploymentResponse {
       paramsCurrencySymbol: "params-policy",
       paramsTokenName: "params-token",
       verifierVkHash: "vk-hash",
+      reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
+      reclaimGlobalBatchTranscriptVkHash: "vk-hash",
       contractVersion: "v1",
       sourceCommit: "commit",
     },
@@ -1121,7 +1168,10 @@ function deriveLockFundsSteps({
       : walletAttention
         ? { status: "attention", label: "Needs attention" }
         : canUseWallet
-          ? { status: "complete", label: walletAddresses.length > 0 ? `${walletAddresses.length} CIP-30 addresses loaded` : "Ready to sign" }
+          ? {
+              status: "complete",
+              label: walletAddresses.length > 0 ? `${walletAddresses.length} CIP-30 addresses loaded` : "Ready to sign",
+            }
           : walletApi && deploymentReady && walletNetworkId !== deployment.deployment.networkId
             ? { status: "attention", label: "Network mismatch" }
             : { status: "active", label: "Active" },
@@ -1246,8 +1296,16 @@ function lockFundsSummaryTiles({
   submittedTxHash: string;
   failure: string;
 }): ReclaimSummaryTile[] {
-  const deploymentValue = deploymentLoading ? "Loading" : deployment?.available ? deployment.deployment.network : "Unavailable";
-  const deploymentDetail = deployment?.available ? "Deployment ready" : deploymentLoading ? "Checking deployment" : "Missing configuration";
+  const deploymentValue = deploymentLoading
+    ? "Loading"
+    : deployment?.available
+      ? deployment.deployment.network
+      : "Unavailable";
+  const deploymentDetail = deployment?.available
+    ? "Deployment ready"
+    : deploymentLoading
+      ? "Checking deployment"
+      : "Missing configuration";
   const transactionValue = submittedTxHash
     ? "Submitted"
     : failure || flowState === "failed"
@@ -1414,7 +1472,9 @@ function filterNativeAssetOptions(options: NativeAssetOption[], search: string):
     return options;
   }
   return options.filter((option) =>
-    [option.label, option.unit, option.policyId, option.tokenNameHex].some((value) => value.toLowerCase().includes(query)),
+    [option.label, option.unit, option.policyId, option.tokenNameHex].some((value) =>
+      value.toLowerCase().includes(query),
+    ),
   );
 }
 
@@ -1498,7 +1558,11 @@ function TokenPickerModal({
               <span>Search policy ID or token name</span>
               <div>
                 <Search size={18} aria-hidden="true" />
-                <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search policy ID or token name" />
+                <input
+                  value={search}
+                  onChange={(event) => onSearch(event.target.value)}
+                  placeholder="Search policy ID or token name"
+                />
               </div>
             </label>
 
@@ -1506,18 +1570,31 @@ function TokenPickerModal({
               <div className="lock-token-empty-state">
                 <strong>Wallet inventory not loaded</strong>
                 <p>Refresh the connected CIP-30 wallet inventory before choosing a native asset.</p>
-                <button className="claim-secondary-button" type="button" onClick={onRefresh} disabled={!canRefreshInventory || assetsLoading}>
-                  {assetsLoading ? <Loader2 className="spin" size={18} aria-hidden="true" /> : <RefreshCw size={18} aria-hidden="true" />}
+                <button
+                  className="claim-secondary-button"
+                  type="button"
+                  onClick={onRefresh}
+                  disabled={!canRefreshInventory || assetsLoading}
+                >
+                  {assetsLoading ? (
+                    <Loader2 className="spin" size={18} aria-hidden="true" />
+                  ) : (
+                    <RefreshCw size={18} aria-hidden="true" />
+                  )}
                   Refresh wallet inventory
                 </button>
               </div>
             ) : filteredOptions.length === 0 ? (
               <div className="lock-token-empty-state">
                 <strong>No matching native assets</strong>
-                <p>{search.trim() ? "No wallet asset matches that search." : "This connected wallet inventory has no native tokens."}</p>
+                <p>
+                  {search.trim()
+                    ? "No wallet asset matches that search."
+                    : "This connected wallet inventory has no native tokens."}
+                </p>
               </div>
             ) : (
-              <div className="lock-token-table" aria-label="Wallet native assets">
+              <div className="lock-token-table" role="group" aria-label="Wallet native assets">
                 <div className="lock-token-table-head">
                   <span>Token</span>
                   <span>Available</span>
@@ -1525,7 +1602,10 @@ function TokenPickerModal({
                   <span>Action</span>
                 </div>
                 {filteredOptions.map((option) => (
-                  <div className={`lock-token-table-row ${selectedOption?.unit === option.unit ? "selected" : ""}`} key={option.unit}>
+                  <div
+                    className={`lock-token-table-row ${selectedOption?.unit === option.unit ? "selected" : ""}`}
+                    key={option.unit}
+                  >
                     <div>
                       <strong>{option.label}</strong>
                       <small>{abbreviateMiddle(option.policyId, 18)}</small>
@@ -1560,7 +1640,11 @@ function TokenPickerModal({
                 </dl>
                 <label className="lock-field">
                   <span>Amount to lock</span>
-                  <input value={selectedQuantity} onChange={(event) => onQuantityChange(event.target.value)} inputMode="numeric" />
+                  <input
+                    value={selectedQuantity}
+                    onChange={(event) => onQuantityChange(event.target.value)}
+                    inputMode="numeric"
+                  />
                 </label>
                 {tokenPickerError ? <p className="lock-token-error">{tokenPickerError}</p> : null}
                 <button className="claim-primary-button" type="button" onClick={onAdd} disabled={!quantityOk}>
@@ -1645,7 +1729,11 @@ async function readCip30WalletAddresses(
     throw new Error("Connected wallet did not provide usable CIP-30 payment addresses.");
   }
 
-  if (typeof rawChangeAddress !== "string" || !Array.isArray(rawUsedAddresses) || rawUsedAddresses.some((address) => typeof address !== "string")) {
+  if (
+    typeof rawChangeAddress !== "string" ||
+    !Array.isArray(rawUsedAddresses) ||
+    rawUsedAddresses.some((address) => typeof address !== "string")
+  ) {
     throw new Error("Connected wallet returned malformed CIP-30 used addresses.");
   }
 
@@ -1723,7 +1811,7 @@ function buildAssetMap(adaAmount: string, nativeTokens: NativeTokenRow[]): Asset
     if (!unit || !isPositiveInteger(quantity)) {
       return null;
     }
-    assets[unit] = ((BigInt(assets[unit] ?? "0") + BigInt(quantity))).toString();
+    assets[unit] = (BigInt(assets[unit] ?? "0") + BigInt(quantity)).toString();
   }
   return Object.keys(assets).length > 0 ? assets : null;
 }

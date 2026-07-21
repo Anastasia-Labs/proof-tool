@@ -1,5 +1,4 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type {
@@ -75,9 +74,7 @@ const windowsDiagnostics: RuntimeDiagnostics = {
   family: "windows",
   current_exe: "C:\\Program Files\\Proof Helper\\Proof Helper.exe",
   resource_dir: "C:\\Program Files\\Proof Helper\\resources",
-  bundled_sidecar_candidates: [
-    "C:\\Program Files\\Proof Helper\\resources\\proof-tool-x86_64-pc-windows-msvc.exe",
-  ],
+  bundled_sidecar_candidates: ["C:\\Program Files\\Proof Helper\\resources\\proof-tool-x86_64-pc-windows-msvc.exe"],
 };
 
 describe("Proof Helper desktop app", () => {
@@ -89,7 +86,9 @@ describe("Proof Helper desktop app", () => {
     expect(screen.getByRole("button", { name: /install proof assets/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^open reclaim$/i })).not.toBeInTheDocument();
     expect(screen.getAllByText("key bundle is not installed").length).toBeGreaterThan(0);
-    expect(screen.getByText("Proofs are created on this computer. Your recovery phrase is never sent to Reclaim servers.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Proofs are created on this computer. Your recovery phrase is never sent to Reclaim servers."),
+    ).toBeInTheDocument();
   });
 
   it("auto-installs missing proof assets on launch and enables Reclaim", async () => {
@@ -216,7 +215,9 @@ describe("Proof Helper desktop app", () => {
       devCreateKeys: false,
     });
     expect(api.openUrl).toHaveBeenCalledWith(startup.pairing_url);
-    expect(await screen.findByText("Proof Helper is running locally and the reclaim website is paired.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Proof Helper is running locally and the reclaim website is paired."),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Paired at http://127.0.0.1:49152")).not.toBeInTheDocument();
     expect(screen.queryByText("secret")).not.toBeInTheDocument();
   });
@@ -306,12 +307,14 @@ function fakeApi({
         keyBundleProgressListener = undefined;
       });
     }),
-    onProofAssetInstallProgress: vi.fn().mockImplementation((callback: (progress: ProofAssetInstallProgress) => void) => {
-      proofAssetProgressListener = callback;
-      return Promise.resolve(() => {
-        proofAssetProgressListener = undefined;
-      });
-    }),
+    onProofAssetInstallProgress: vi
+      .fn()
+      .mockImplementation((callback: (progress: ProofAssetInstallProgress) => void) => {
+        proofAssetProgressListener = callback;
+        return Promise.resolve(() => {
+          proofAssetProgressListener = undefined;
+        });
+      }),
     deleteKeyCache: vi.fn().mockResolvedValue(deleteStatus),
     startHelper: vi.fn().mockResolvedValue(helperStartup),
     stopHelper: vi.fn().mockResolvedValue({ running: false }),

@@ -27,8 +27,8 @@ export async function verifyProofRelease(options = {}) {
       : path.isAbsolute(location) && location.startsWith(`${webRoot}${path.sep}`)
         ? location
         : location.startsWith("/")
-        ? path.join(webRoot, location.slice(1))
-        : path.resolve(location);
+          ? path.join(webRoot, location.slice(1))
+          : path.resolve(location);
     if (fetched.has(key)) return fetched.get(key);
 
     let resource;
@@ -66,10 +66,7 @@ export async function verifyProofRelease(options = {}) {
   const descriptor = deployment?.proof?.browser_proving;
   check(descriptor?.enabled === true, "browser proving is not enabled");
 
-  const { resource: chunkResource, value: chunk } = await loadJSON(
-    descriptor.chunk_manifest_url,
-    "chunk manifest",
-  );
+  const { resource: chunkResource, value: chunk } = await loadJSON(descriptor.chunk_manifest_url, "chunk manifest");
   check(chunk?.schema === "proof-tool-proof-assets-chunk-manifest-v1", "unexpected chunk manifest schema");
   check(/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/u.test(chunk.release ?? ""), "unsafe or missing release id");
   const releasePrefix = `${RELEASE_ROOT}${chunk.release}/`;
@@ -118,10 +115,18 @@ export async function verifyProofRelease(options = {}) {
     load(`${assetsBase}/chunk-manifest-public-key.hex`),
   ]);
   equal(manifestKeyFile.bytes.toString("utf8").trim(), descriptor.manifest_public_key_hex, "manifest public key file");
-  equal(chunkKeyFile.bytes.toString("utf8").trim(), descriptor.chunk_manifest_public_key_hex, "chunk manifest public key file");
+  equal(
+    chunkKeyFile.bytes.toString("utf8").trim(),
+    descriptor.chunk_manifest_public_key_hex,
+    "chunk manifest public key file",
+  );
 
   equal(digest(keyManifestResource.bytes, "sha256"), chunk.coherence?.key_manifest_sha256, "key manifest sha256");
-  equal(digest(keyManifestResource.bytes, "blake2b256"), chunk.coherence?.key_manifest_blake2b256, "key manifest blake2b256");
+  equal(
+    digest(keyManifestResource.bytes, "blake2b256"),
+    chunk.coherence?.key_manifest_blake2b256,
+    "key manifest blake2b256",
+  );
   verifyKeyCoherence(keyManifest, chunk.coherence, deployment);
 
   const { value: runtimeManifest } = await loadJSON(descriptor.runtime_manifest_url, "runtime manifest");
@@ -137,11 +142,15 @@ export async function verifyProofRelease(options = {}) {
     const entry = runtimeFiles.get(filename);
     check(entry, `runtime manifest does not pin ${filename}`);
     const resource = await load(`${runtimeBase}/${filename}`);
-    verifyDigestEntry(resource.bytes, {
-      size: entry.size_bytes,
-      sha256: withPrefix("sha256", entry.sha256),
-      blake2b256: withPrefix("blake2b256", entry.blake2b256),
-    }, `runtime ${filename}`);
+    verifyDigestEntry(
+      resource.bytes,
+      {
+        size: entry.size_bytes,
+        sha256: withPrefix("sha256", entry.sha256),
+        blake2b256: withPrefix("blake2b256", entry.blake2b256),
+      },
+      `runtime ${filename}`,
+    );
   }
 
   const [proverWorker, msmWorker, verifyingKey] = await Promise.all([
@@ -151,8 +160,16 @@ export async function verifyProofRelease(options = {}) {
   ]);
   check(proverWorker.bytes.length > 0, "prover-worker.js is empty");
   verifyDigestEntry(msmWorker.bytes, chunk.assets?.["worker.js"], "MSM worker JavaScript");
-  verifyDigestEntry(await bytesOf(load(descriptor.proof_wasm_url)), chunk.assets?.["proof-destination.wasm"], "proof WASM");
-  verifyDigestEntry(await bytesOf(load(descriptor.msm_worker_wasm_url)), chunk.assets?.["msmworker.wasm"], "MSM worker WASM");
+  verifyDigestEntry(
+    await bytesOf(load(descriptor.proof_wasm_url)),
+    chunk.assets?.["proof-destination.wasm"],
+    "proof WASM",
+  );
+  verifyDigestEntry(
+    await bytesOf(load(descriptor.msm_worker_wasm_url)),
+    chunk.assets?.["msmworker.wasm"],
+    "MSM worker WASM",
+  );
   verifyDigestEntry(verifyingKey.bytes, chunk.assets?.["ownership.vk"], "verifying key");
 
   equal(descriptor.ccs_blake2b256, chunk.assets?.["ownership-destination.ccs"]?.blake2b256, "descriptor CCS hash");
@@ -161,7 +178,9 @@ export async function verifyProofRelease(options = {}) {
   const { value: pkIndex } = await loadJSON(descriptor.pk_index_url, "proving key index");
   equal(pkIndex.file_size, keyManifest.proving_key_size, "proving key index file size");
   equal(pkIndex.file_size, chunk.proving_key_index?.file_size, "signed proving key index file size");
-  const signedSections = Object.fromEntries((chunk.proving_key_index?.sections ?? []).map((section) => [section.name, section]));
+  const signedSections = Object.fromEntries(
+    (chunk.proving_key_index?.sections ?? []).map((section) => [section.name, section]),
+  );
   deepEqual(pkIndex.sections, signedSections, "proving key index sections");
   verifySignedChunks(chunk);
 
@@ -176,11 +195,7 @@ export async function verifyProofRelease(options = {}) {
     // preprod_notes extension from the runtime response.
     delete runtimeComparableDeployment.preprod_notes;
     deepEqual(runtimePointer.manifest, runtimeComparableDeployment, "runtime and static deployment manifests");
-    deepEqual(
-      runtimePointer.deployment?.proof?.browser_proving,
-      descriptor,
-      "runtime browser-proving descriptor",
-    );
+    deepEqual(runtimePointer.deployment?.proof?.browser_proving, descriptor, "runtime browser-proving descriptor");
     check(
       runtimePointerResource.cacheControl.toLowerCase().includes("no-store"),
       `runtime deployment pointer must use no-store (cache-control: ${runtimePointerResource.cacheControl || "missing"})`,
@@ -188,7 +203,8 @@ export async function verifyProofRelease(options = {}) {
     const claimDocument = await load("/claim");
     const permissionsPolicy = claimDocument.permissionsPolicy.toLowerCase();
     check(
-      permissionsPolicy.includes("loopback-network=(self)") || permissionsPolicy.includes("local-network-access=(self)"),
+      permissionsPolicy.includes("loopback-network=(self)") ||
+        permissionsPolicy.includes("local-network-access=(self)"),
       `claim document does not enable loopback-network permission (permissions-policy: ${claimDocument.permissionsPolicy || "missing"})`,
     );
     verifyMutableHeaders(deploymentResource, "stable deployment pointer");
@@ -234,7 +250,11 @@ function verifyKeyCoherence(keyManifest, coherence, deployment) {
   equal(deployment.proof?.vk_hash, coherence.vk_hash, "deployment VK hash");
   equal(deployment.reclaim_global?.verifier_vk_hash, coherence.vk_hash, "on-chain VK hash");
   equal(deployment.proof?.cardano_vk_blake2b256, coherence.cardano_vk_blake2b256, "Cardano VK hash");
-  equal(deployment.reclaim_global?.batch_transcript_vk_hash, coherence.cardano_vk_blake2b256, "batch transcript VK hash");
+  equal(
+    deployment.reclaim_global?.batch_transcript_vk_hash,
+    coherence.cardano_vk_blake2b256,
+    "batch transcript VK hash",
+  );
   equal(deployment.deployment_id, coherence.deployment_id, "deployment id");
   equal(deployment.source_commit, coherence.deployment_source_commit, "deployment source commit");
 }
@@ -246,7 +266,10 @@ function verifySignedChunks(chunk) {
   for (const [index, entry] of chunks.entries()) {
     equal(entry.index, index, `chunk ${index} index`);
     equal(entry.offset, offset, `chunk ${index} offset`);
-    check(Number.isSafeInteger(entry.size) && entry.size > 0 && entry.size <= chunk.proving_key.chunk_size, `chunk ${index} has invalid size`);
+    check(
+      Number.isSafeInteger(entry.size) && entry.size > 0 && entry.size <= chunk.proving_key.chunk_size,
+      `chunk ${index} has invalid size`,
+    );
     check(/^ownership\.pk\.part\d{4}$/u.test(entry.path), `chunk ${index} has unsafe path`);
     checkDigestString(entry.sha256, "sha256", `chunk ${index} sha256`);
     checkDigestString(entry.blake2b256, "blake2b256", `chunk ${index} blake2b256`);
@@ -264,7 +287,10 @@ function verifyDetached(raw, signatureFile, publicKeyHex, label) {
     format: "der",
     type: "spki",
   });
-  check(verifySignature(null, raw, publicKey, Buffer.from(signatureHex, "hex")), `${label} signature verification failed`);
+  check(
+    verifySignature(null, raw, publicKey, Buffer.from(signatureHex, "hex")),
+    `${label} signature verification failed`,
+  );
 }
 
 function verifyDigestEntry(bytes, entry, label) {
@@ -282,19 +308,29 @@ function digest(bytes, algorithm) {
 function verifyMutableHeaders(resource, label) {
   const cache = resource.cacheControl.toLowerCase();
   check(!cache.includes("immutable"), `${label} must not be immutable`);
-  check(cache.includes("max-age=0") || cache.includes("no-store"), `${label} must revalidate (cache-control: ${resource.cacheControl || "missing"})`);
+  check(
+    cache.includes("max-age=0") || cache.includes("no-store"),
+    `${label} must revalidate (cache-control: ${resource.cacheControl || "missing"})`,
+  );
   equal(resource.corp.toLowerCase(), "same-origin", `${label} CORP header`);
 }
 
 function verifyImmutableHeaders(resource, label) {
   const cache = resource.cacheControl.toLowerCase();
-  check(cache.includes("immutable") && cache.includes("max-age=31536000"), `${label} must have immutable one-year caching`);
+  check(
+    cache.includes("immutable") && cache.includes("max-age=31536000"),
+    `${label} must have immutable one-year caching`,
+  );
   equal(resource.corp.toLowerCase(), "same-origin", `${label} CORP header`);
 }
 
 function checkHTTPS(value, label) {
   let parsed;
-  try { parsed = new URL(value); } catch { throw new Error(`${label} is not an absolute URL`); }
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${label} is not an absolute URL`);
+  }
   equal(parsed.protocol, "https:", `${label} protocol`);
 }
 
@@ -315,7 +351,8 @@ function check(condition, message) {
 }
 
 function equal(actual, expected, label) {
-  if (actual !== expected) throw new Error(`${label} mismatch: got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)}`);
+  if (actual !== expected)
+    throw new Error(`${label} mismatch: got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)}`);
 }
 
 function equalBytes(actual, expected, label) {
@@ -349,7 +386,9 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
   verifyProofRelease(parseArgs(process.argv.slice(2)))
     .then((summary) => process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`))
     .catch((error) => {
-      process.stderr.write(`proof release verification failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(
+        `proof release verification failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
       process.exitCode = 1;
     });
 }

@@ -1,0 +1,179 @@
+{
+  "schema": "proof-tool-formal-provenance-lock-v1",
+  "lock_status": "workspace-reproducible-partial-assurance",
+  "recorded_at": "2026-07-20",
+  "workspace": {
+    "branch": "formal-methods",
+    "contract_baseline_commit": "7c7ea7fbb7b0ae9d9c777d4e2c5b97a3e6c2db0e",
+    "formal_workspace_scope": "formal/**"
+  },
+  "deployment": {
+    "manifest_path": "apps/ownership-proof-web/public/proof-assets/reclaim-deployment.json",
+    "manifest_sha256": "98d757731f619adccab2e564effb441da1595742e240769cce93b70b31bb5ed7",
+    "deployment_id": "preprod:a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd:c513fd78ecb14a4119769986675d602dffa741b4",
+    "network": "Preprod",
+    "enabled": true,
+    "source_commit": "c513fd78ecb14a4119769986675d602dffa741b4",
+    "contract_version": "ownership-verifier-0.1.0.0",
+    "reclaim_base_script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
+    "reclaim_global_v2_script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
+    "params_policy_id": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
+    "params_token_name_hex": "5245434c41494d504152414d53",
+    "params_holder_script_hash": "ebb18a12777410738fdeaa77ec0fd582685d677b6b34de9a6e3b6d7e",
+    "proof_slot_encoding": "full-proof-plus-public-input-digest-v2",
+    "batch_transcript": "statement-bound-v2",
+    "cardano_verifier_key_blake2b256": "06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4",
+    "reference_scripts": {
+      "tx_hash": "a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db",
+      "base_output_index": 1,
+      "global_output_index": 2
+    },
+    "params_utxo": {
+      "tx_hash": "a1fa4102a2db270b33a5c4d9f836f61bbfcd0847575376d5f1306429fef351db",
+      "output_index": 0,
+      "datum_reclaim_base_script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd"
+    }
+  },
+  "source_identity": {
+    "source_tree": {
+      "deployment_commit_tree": "49d3a4bffa1f2435eb5b35fc628e7caeb66da0c7",
+      "contract_baseline_tree": "a446adde5f671b1f9f780eee0f7c1813cd9a5f32",
+      "match": false,
+      "classification": "current Base and GlobalV2 source is a separately verified coherent non-deployed candidate pair; active artifacts rebuild from deployment source"
+    },
+    "export_tree": {
+      "deployment_commit_tree": "4e49b616bcb8c4826ad65fd4d585e3a465ab9806",
+      "contract_baseline_tree": "01282770a451f3e454a61211ac302d54c038ebd0",
+      "match": false,
+      "classification": "the current exporter removes V1 and emits a distinct GlobalV2 candidate; the active exporter is rebuilt from deployment source"
+    },
+    "cabal_file_blob": {
+      "deployment_commit_blob": "1f03583cc630fb88f5b4f8579e06b6943d9f7a43",
+      "contract_baseline_blob": "c686bc35e96546d1e8953ac77946bc9a7dcc98c7",
+      "match": false,
+      "classification": "the current package removes V1 modules; deployment regeneration uses the pinned historical package"
+    }
+  },
+  "verifier_material": {
+    "cardano_vk_hex_path": "contracts/ownership-verifier/testdata/ownership-destination-vk.hex",
+    "file_sha256": "1dfaf4bc5168c8b5f93c3275cb649b87cbfa4555e8d5fc5e015ed601dd4592c1",
+    "decoded_length_bytes": 672,
+    "decoded_sha256": "a192237861c2c69d851a747ed4fd93f0c0577c1549aef14b00ce06bf17992d95",
+    "decoded_blake2b256": "06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4",
+    "matches_manifest_batch_transcript_key_hash": true
+  },
+  "formal_toolchain": {
+    "lean": {
+      "toolchain": "leanprover/lean4:v4.24.0",
+      "version": "4.24.0",
+      "commit": "797c613eb9b6d4ec95db23e3e00af9ac6657f24b"
+    },
+    "z3": "4.15.2",
+    "lakefile_sha256": "eb5fd6fd1e8254382a876e183e51c99f01ce4fba66f56cabf4961f9fb928d08f",
+    "lake_manifest_sha256": "1cda18f29ecf91e66c2f639b5e3acdab40da4ec140595211bec72e6f12e06806",
+    "dependencies": {
+      "Blaster": "402f6d22c1fc42e6e26255faac77e15b2450e4ab",
+      "PlutusCore": "4ef48606303c45225d3ed2e2a87fc50280a763b7",
+      "CardanoLedgerApi": "577e3eb03b5be09354cfdb1c0d0c12e9e16541a0"
+    }
+  },
+  "artifacts": {
+    "reclaim_global_v2": {
+      "export_mode": "global-v2",
+      "import_format": "single_cbor_hex",
+      "expected_script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
+      "script_cbor_bytes": 3648,
+      "exported_bytes_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+      "on_chain_bytes_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+      "regenerated_script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
+      "regeneration_status": "byte-identical-to-public-reference-script"
+    },
+    "reclaim_base": {
+      "export_mode": "base",
+      "import_format": "single_cbor_hex",
+      "expected_script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
+      "script_cbor_bytes": 435,
+      "exported_bytes_sha256": "ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af",
+      "on_chain_bytes_sha256": "ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af",
+      "regenerated_script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
+      "regeneration_status": "byte-identical-to-public-reference-script"
+    },
+    "one_shot_params_nft": {
+      "export_mode": "one-shot",
+      "import_format": "single_cbor_hex",
+      "expected_policy_id": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
+      "seed_tx_out_ref": "a1d0677b0b29281b422c0cd2fb6614d615d773e908d02eed20b6f98c772a0b8b#3",
+      "script_cbor_bytes": 2982,
+      "exported_bytes_sha256": "63f75c395f950ac36f0d3465db66e16b03771161ca807017070e294979b9bc7e",
+      "on_chain_bytes_sha256": "63f75c395f950ac36f0d3465db66e16b03771161ca807017070e294979b9bc7e",
+      "regenerated_policy_id": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
+      "regeneration_status": "byte-identical-to-public-minting-policy"
+    },
+    "params_holder": {
+      "export_mode": "params-holder",
+      "import_format": "single_cbor_hex",
+      "expected_script_hash": "ebb18a12777410738fdeaa77ec0fd582685d677b6b34de9a6e3b6d7e",
+      "script_cbor_bytes": 6,
+      "exported_bytes_sha256": "b59ac3cea50e634b57f811c3d6ef95a8e5ad1837cb23706d249fb6c0cd4142ee",
+      "regenerated_script_hash": "ebb18a12777410738fdeaa77ec0fd582685d677b6b34de9a6e3b6d7e",
+      "regeneration_status": "identity-matches-public-holder-address"
+    }
+  },
+  "candidate_artifacts": {
+    "deployment_status": "not deployed; no active manifest, parameter datum, reference script, or chain state changed",
+    "construction_order": "export current-source GlobalV2, derive its Cardano script hash, then apply that exact credential to current-source ReclaimBase",
+    "reclaim_global_v2": {
+      "artifact_file": "formal/artifacts/candidate/reclaim-global-v2.cbor.hex",
+      "script_cbor_bytes": 3356,
+      "script_cbor_sha256": "5979568d5689ee65c5be038bface43807865e3aed88cb56d58d53758bf436489",
+      "script_hash": "f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582",
+      "active_script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5"
+    },
+    "reclaim_base": {
+      "artifact_file": "formal/artifacts/candidate/reclaim-base.cbor.hex",
+      "applied_global_credential": "f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582",
+      "script_cbor_bytes": 132,
+      "script_cbor_sha256": "c6877d5c9180826d92a8e9c6463f8a693ae797d704810e20751b8c9a026b31d3",
+      "script_hash": "c234ceda7ee98fbc61ab7c3d5c1748411718353b636010a4df60da45",
+      "active_script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd"
+    },
+    "evidence": [
+      "formal/assurance/reclaim-base-evidence.json",
+      "formal/assurance/reclaim-global-v2-candidate-evidence.json",
+      "formal/assurance/cross-evaluator-decisions.json"
+    ]
+  },
+  "artifact_regeneration": {
+    "script": "formal/scripts/lock-active-artifacts.mjs",
+    "report": "formal/assurance/artifact-regeneration.json",
+    "report_sha256": "ac81a72a99d76895ca883f4c5c4af488c8200e4ce554cbb93cfbe42ef19e4170",
+    "public_chain_evidence": "formal/assurance/public-deployment-chain.json",
+    "public_chain_evidence_sha256": "3761b0f3ce5639205cc4b43edff2ec1081fb1030f58181f7ab2ec90e0b7af017",
+    "all_identities_match": true,
+    "on_chain_byte_equality_checked": true
+  },
+  "phase_1_completed_actions": [
+    "Recovered the active one-shot seed TxOutRef from the public Preprod deployment transaction without wallet secrets.",
+    "Regenerated all four scripts from the locked source, public parameters, and verifier material.",
+    "Compared the OneShotNFT, ReclaimBase, and ReclaimGlobalV2 CBOR byte digests directly with public on-chain bytecode.",
+    "Computed canonical Plutus V3 identities and matched the active policy, holder, base, and global hashes.",
+    "Imported the exact canonical single-CBOR files in Lean and independently re-encoded every imported AST back to the locked exporter bytes.",
+    "Generated source-backed Haskell V3 context encodings and proved all exact Haskell/Lean evaluator decisions agree.",
+    "Separated successful halt, machine error, malformed input, and CEK step-limit exhaustion for concrete evidence.",
+    "Rebuilt active artifacts from the manifest-pinned deployment commit in an isolated archive and verified the coherent current-source GlobalV2/Base pair separately as non-deployed candidates."
+  ],
+  "phase_1_required_actions": [],
+  "evidence_commands": [
+    "git log -1 --format=%H -- contracts/ownership-verifier/src contracts/ownership-verifier/export contracts/ownership-verifier/ownership-verifier.cabal",
+    "git archive c513fd78ecb14a4119769986675d602dffa741b4 contracts/ownership-verifier",
+    "git rev-parse c513fd78ecb14a4119769986675d602dffa741b4:contracts/ownership-verifier/src",
+    "git rev-parse c513fd78ecb14a4119769986675d602dffa741b4:contracts/ownership-verifier/export",
+    "git rev-parse c513fd78ecb14a4119769986675d602dffa741b4:contracts/ownership-verifier/ownership-verifier.cabal",
+    "sha256sum apps/ownership-proof-web/public/proof-assets/reclaim-deployment.json",
+    "cd formal && lake env lean --version",
+    "cd formal && lake build ProofToolFormal.FlatRoundTrip",
+    "node formal/scripts/verify-current-candidates.mjs",
+    "cd formal && scripts/generate-context-goldens.sh",
+    "z3 --version"
+  ]
+}

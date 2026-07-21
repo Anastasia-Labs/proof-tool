@@ -44,9 +44,10 @@ export async function checkBrowserProvingCapability(
     failures.push({ check: "shared-array-buffer", message: "SharedArrayBuffer is unavailable in this browser." });
   }
 
-  const hardwareConcurrency = typeof navigator !== "undefined" && Number.isFinite(navigator.hardwareConcurrency)
-    ? navigator.hardwareConcurrency
-    : null;
+  const hardwareConcurrency =
+    typeof navigator !== "undefined" && Number.isFinite(navigator.hardwareConcurrency)
+      ? navigator.hardwareConcurrency
+      : null;
   if (hardwareConcurrency !== null && hardwareConcurrency < MIN_HARDWARE_CONCURRENCY) {
     failures.push({
       check: "hardware-concurrency",
@@ -152,7 +153,6 @@ async function probeNestedWorkers(): Promise<{ ok: boolean; message: string }> {
   }
 }
 
-
 // W5 grows from the safe eight-worker floor only after this browser proves it
 // can create and touch the additional worker memory. A host that does not
 // report deviceMemory (Firefox never does) stays at the floor: the 2 MiB
@@ -208,11 +208,7 @@ export async function calibrateBrowserWorkerCapacity(
   }
 }
 
-async function growCalibrationPool(
-  workers: Worker[],
-  count: number,
-  url: string,
-): Promise<boolean> {
+async function growCalibrationPool(workers: Worker[], count: number, url: string): Promise<boolean> {
   const additions: Worker[] = [];
   try {
     while (workers.length < count) {
@@ -228,16 +224,13 @@ async function growCalibrationPool(
       additions.map(
         (worker) =>
           new Promise<boolean>((resolve) => {
-            worker.onmessage = (event: MessageEvent<{ ok?: boolean }>) =>
-              resolve(event.data?.ok === true);
+            worker.onmessage = (event: MessageEvent<{ ok?: boolean }>) => resolve(event.data?.ok === true);
             worker.onerror = () => resolve(false);
             worker.postMessage(null);
           }),
       ),
     ).then((values) => values.every(Boolean)),
-    new Promise<boolean>((resolve) =>
-      setTimeout(() => resolve(false), CALIBRATION_TIMEOUT_MS),
-    ),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), CALIBRATION_TIMEOUT_MS)),
   ]);
 }
 

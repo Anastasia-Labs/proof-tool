@@ -337,7 +337,7 @@ func (ks *KeySource) ProveMSMScalarTotals() ([]int, error) {
 	}
 	sizeH := int(ks.domain.Cardinality - 1)
 	if sizeH < 0 || sizeH > zCount {
-		return nil, fmt.Errorf("H size %d outside Z section length %d", sizeH, zCount)
+		return nil, fmt.Errorf("section H size %d outside section Z length %d", sizeH, zCount)
 	}
 	totals = append(totals, sizeH)
 	kCount, err := ks.SectionPointCount("K")

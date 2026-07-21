@@ -1,5 +1,8 @@
 allowBuilds:
-  cbor-extract: true
   esbuild: true
+  cbor-extract: true
   sharp: true
-  workerd: set this to true or false
+onlyBuiltDependencies:
+  - esbuild
+  - cbor-extract
+  - sharp

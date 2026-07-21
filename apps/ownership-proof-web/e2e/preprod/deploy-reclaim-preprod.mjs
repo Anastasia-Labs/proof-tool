@@ -1,13 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -127,7 +120,8 @@ export async function deployReclaimPreprod(options = {}) {
     scriptRef: globalScript,
   });
   const rewardAccountRegistrationDeposit = registerGlobalRewardAccount ? protocolKeyDeposit(protocol) : 0n;
-  const minimumOutputLovelace = paramsLovelace + baseReferenceLovelace + globalReferenceLovelace + rewardAccountRegistrationDeposit;
+  const minimumOutputLovelace =
+    paramsLovelace + baseReferenceLovelace + globalReferenceLovelace + rewardAccountRegistrationDeposit;
   const availableLovelace = sumLovelace(deployerUtxos);
   if (availableLovelace <= minimumOutputLovelace + FEE_BUFFER_LOVELACE) {
     throw new DeployPreprodError(
@@ -144,8 +138,8 @@ export async function deployReclaimPreprod(options = {}) {
   if (registerGlobalRewardAccount) {
     tx = tx.register.Stake(globalRewardAddress);
   }
-  const signBuilder = await tx
-    .pay.ToAddressWithData(
+  const signBuilder = await tx.pay
+    .ToAddressWithData(
       holderAddress,
       { kind: "inline", value: paramsDatum },
       { lovelace: paramsLovelace, [paramsUnit]: 1n },
@@ -225,7 +219,10 @@ export async function deployReclaimPreprod(options = {}) {
     }),
   );
   if (submittedHash !== txHash) {
-    throw new DeployPreprodError("submitted_tx_hash_mismatch", "Submitted tx hash did not match the reviewed deployment tx hash.");
+    throw new DeployPreprodError(
+      "submitted_tx_hash_mismatch",
+      "Submitted tx hash did not match the reviewed deployment tx hash.",
+    );
   }
   await waitForTx(lucid, submittedHash);
   const deployed = await loadDeploymentOutputs(provider, holderAddress, submittedHash, {
@@ -250,7 +247,10 @@ export async function deployReclaimPreprod(options = {}) {
     globalRewardAccountRegistered: true,
   });
   const manifestPath = writeManifest(env, repoRoot, manifest);
-  await runNode(repoRoot, [path.join("apps", "ownership-proof-web", "scripts", "verify-reclaim-manifest.mjs"), manifestPath]);
+  await runNode(repoRoot, [
+    path.join("apps", "ownership-proof-web", "scripts", "verify-reclaim-manifest.mjs"),
+    manifestPath,
+  ]);
   updateLocalEnv(repoRoot, {
     RECLAIM_DEPLOYMENT_MANIFEST_PATH: path.relative(repoRoot, manifestPath),
     RECLAIM_DESTINATION_KEYS_DIR: path.relative(repoRoot, destination.keysDir),
@@ -290,10 +290,7 @@ function loadLocalEnv(env, repoRoot) {
 }
 
 function unquoteEnvValue(value) {
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
     return value.slice(1, -1);
   }
   return value;
@@ -301,10 +298,16 @@ function unquoteEnvValue(value) {
 
 function assertPreprodOnly(env) {
   if ((env[REQUIRED_LIVE_GATE] ?? "").trim() !== "1") {
-    throw new DeployPreprodError("live_preprod_gate_missing", `${REQUIRED_LIVE_GATE}=1 is required before live Preprod deployment.`);
+    throw new DeployPreprodError(
+      "live_preprod_gate_missing",
+      `${REQUIRED_LIVE_GATE}=1 is required before live Preprod deployment.`,
+    );
   }
   if ((env[REQUIRED_GATE] ?? "").trim() !== "1") {
-    throw new DeployPreprodError("submit_gate_missing", `${REQUIRED_GATE}=1 is required before submitting the Preprod deployment transaction.`);
+    throw new DeployPreprodError(
+      "submit_gate_missing",
+      `${REQUIRED_GATE}=1 is required before submitting the Preprod deployment transaction.`,
+    );
   }
   if ((env.RECLAIM_NETWORK ?? "").trim() !== NETWORK) {
     throw new DeployPreprodError("network_not_preprod", "RECLAIM_NETWORK must be Preprod.");
@@ -317,12 +320,18 @@ function assertPreprodOnly(env) {
 async function assertCleanPushedSource(repoRoot) {
   const status = (await execGit(repoRoot, ["status", "--porcelain", "--untracked-files=all"])).trim();
   if (status) {
-    throw new DeployPreprodError("git_worktree_dirty", "Git worktree must be clean before a Preprod deployment transaction.");
+    throw new DeployPreprodError(
+      "git_worktree_dirty",
+      "Git worktree must be clean before a Preprod deployment transaction.",
+    );
   }
   const commit = (await execGit(repoRoot, ["rev-parse", "HEAD"])).trim();
   const origin = await execGitMaybe(repoRoot, ["rev-parse", "--verify", "origin/main"]);
   if (origin.ok && origin.stdout.trim() !== commit) {
-    throw new DeployPreprodError("git_not_pushed", "HEAD must match origin/main before a Preprod deployment transaction.");
+    throw new DeployPreprodError(
+      "git_not_pushed",
+      "HEAD must match origin/main before a Preprod deployment transaction.",
+    );
   }
   return { commit };
 }
@@ -359,7 +368,9 @@ function walletRole(walletFile, role) {
     throw new DeployPreprodError("wallet_file_invalid", "Preprod wallet file is malformed.");
   }
   const value = rolesRoot[role];
-  const mnemonic = normalizeMnemonic(value?.mnemonic ?? value?.seed_phrase ?? value?.recovery_phrase ?? value?.mnemonic_words);
+  const mnemonic = normalizeMnemonic(
+    value?.mnemonic ?? value?.seed_phrase ?? value?.recovery_phrase ?? value?.mnemonic_words,
+  );
   if (!mnemonic) {
     throw new DeployPreprodError("wallet_role_missing", `${role} mnemonic is required.`);
   }
@@ -368,7 +379,10 @@ function walletRole(walletFile, role) {
 
 function normalizeMnemonic(value) {
   if (Array.isArray(value)) {
-    return value.map((word) => String(word).trim()).filter(Boolean).join(" ");
+    return value
+      .map((word) => String(word).trim())
+      .filter(Boolean)
+      .join(" ");
   }
   if (typeof value === "string") {
     return value.trim().split(/\s+/u).filter(Boolean).join(" ");
@@ -383,7 +397,10 @@ function createProvider(env) {
     if (!projectId) {
       throw new DeployPreprodError("blockfrost_project_id_missing", "RECLAIM_BLOCKFROST_PROJECT_ID is required.");
     }
-    return new Blockfrost(env.RECLAIM_BLOCKFROST_URL?.trim() || "https://cardano-preprod.blockfrost.io/api/v0", projectId);
+    return new Blockfrost(
+      env.RECLAIM_BLOCKFROST_URL?.trim() || "https://cardano-preprod.blockfrost.io/api/v0",
+      projectId,
+    );
   }
   if (name === "koios") {
     const koiosUrl = env.RECLAIM_KOIOS_URL?.trim() || "https://preprod.koios.rest/api/v1";
@@ -404,7 +421,10 @@ async function isRewardAccountRegistered(env, rewardAddress) {
     if (!projectId) {
       throw new DeployPreprodError("blockfrost_project_id_missing", "RECLAIM_BLOCKFROST_PROJECT_ID is required.");
     }
-    const baseUrl = (env.RECLAIM_BLOCKFROST_URL?.trim() || "https://cardano-preprod.blockfrost.io/api/v0").replace(/\/+$/u, "");
+    const baseUrl = (env.RECLAIM_BLOCKFROST_URL?.trim() || "https://cardano-preprod.blockfrost.io/api/v0").replace(
+      /\/+$/u,
+      "",
+    );
     const response = await fetch(`${baseUrl}/accounts/${rewardAddress}`, {
       headers: { project_id: projectId },
     });
@@ -447,7 +467,10 @@ export async function prepareDestinationKeys({ env, repoRoot, git, runGoFn = run
   void git;
   const configured = env.RECLAIM_DESTINATION_KEYS_DIR?.trim() || env.RECLAIM_E2E_DESTINATION_KEYS_DIR?.trim();
   if (!configured) {
-    throw new DeployPreprodError("destination_keys_dir_missing", "RECLAIM_DESTINATION_KEYS_DIR or RECLAIM_E2E_DESTINATION_KEYS_DIR is required.");
+    throw new DeployPreprodError(
+      "destination_keys_dir_missing",
+      "RECLAIM_DESTINATION_KEYS_DIR or RECLAIM_E2E_DESTINATION_KEYS_DIR is required.",
+    );
   }
   const keysDir = path.isAbsolute(configured) ? configured : path.resolve(repoRoot, configured);
   const manifestPublicKeyFile = requireDestinationTrustEnv(
@@ -461,7 +484,10 @@ export async function prepareDestinationKeys({ env, repoRoot, git, runGoFn = run
     "stage2g_signature_key_id_missing",
   );
   if (!hasKeyBundle(keysDir)) {
-    throw new DeployPreprodError("destination_key_bundle_missing", "Destination key bundle must already exist; deployment will not create proof keys.");
+    throw new DeployPreprodError(
+      "destination_key_bundle_missing",
+      "Destination key bundle must already exist; deployment will not create proof keys.",
+    );
   }
   const trustedManifestPublicKeyFile = resolveExternalManifestPublicKeyFile(manifestPublicKeyFile, repoRoot, keysDir);
   await verifyDestinationKeyBundle(runGoFn, repoRoot, [
@@ -588,11 +614,10 @@ async function runNode(repoRoot, args) {
 
 async function exportScript(mode, ...args) {
   try {
-    const { stdout } = await execFileAsync(
-      "cabal",
-      ["v2-run", "reclaim-scripts-export", "--", mode, ...args],
-      { cwd: CONTRACT_DIR, maxBuffer: 256 * 1024 * 1024 },
-    );
+    const { stdout } = await execFileAsync("cabal", ["v2-run", "reclaim-scripts-export", "--", mode, ...args], {
+      cwd: CONTRACT_DIR,
+      maxBuffer: 256 * 1024 * 1024,
+    });
     const parsed = JSON.parse(stdout.slice(stdout.indexOf("{")));
     return {
       type: parsed.type,
@@ -607,7 +632,7 @@ async function exportScript(mode, ...args) {
 }
 
 export function reclaimGlobalExportArgs(mode, paramsPolicyId, cardanoVkHex, cardanoVkHash) {
-  if (mode !== "global" && mode !== "global-multi" && mode !== "global-v2") {
+  if (mode !== "global-multi" && mode !== "global-v2") {
     throw new Error(`unsupported reclaim global export mode ${mode}`);
   }
   if (mode === "global-v2") {
@@ -676,7 +701,10 @@ async function loadDeploymentOutputs(provider, holderAddress, txHash, expected) 
   const baseReference = txUtxos.find((utxo) => scriptRefHash(utxo) === expected.baseScriptHash);
   const globalReference = txUtxos.find((utxo) => scriptRefHash(utxo) === expected.globalScriptHash);
   if (!params || !baseReference || !globalReference) {
-    throw new DeployPreprodError("deployment_outputs_missing", "Submitted tx did not produce the expected params and reference-script UTxOs.");
+    throw new DeployPreprodError(
+      "deployment_outputs_missing",
+      "Submitted tx did not produce the expected params and reference-script UTxOs.",
+    );
   }
   return {
     params: outRef(params, holderAddress),
@@ -738,8 +766,7 @@ export function assertReclaimGlobalProofSlotEncoding(
   if (
     proofSlotEncoding !== FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 ||
     batchTranscript !== "statement-bound-v2" ||
-    normalizeBlake2b256(exportedVerifierVkHash) !==
-      normalizeBlake2b256(expectedVerifierVkHash)
+    normalizeBlake2b256(exportedVerifierVkHash) !== normalizeBlake2b256(expectedVerifierVkHash)
   ) {
     throw new DeployPreprodError(
       "reclaim_global_proof_slot_encoding",
@@ -877,9 +904,7 @@ function statMode(filePath) {
 }
 
 function parseLine(output, key) {
-  const line = output
-    .split(/\r?\n/u)
-    .find((candidate) => candidate.startsWith(`${key}:`));
+  const line = output.split(/\r?\n/u).find((candidate) => candidate.startsWith(`${key}:`));
   if (!line) {
     throw new DeployPreprodError("go_output_malformed", `${key} was not reported by proof-tool.`);
   }
@@ -887,9 +912,7 @@ function parseLine(output, key) {
 }
 
 function normalizeBlake2b256(value) {
-  return value?.startsWith("blake2b256:")
-    ? value.slice("blake2b256:".length)
-    : value;
+  return value?.startsWith("blake2b256:") ? value.slice("blake2b256:".length) : value;
 }
 
 function redactCommandError(error) {

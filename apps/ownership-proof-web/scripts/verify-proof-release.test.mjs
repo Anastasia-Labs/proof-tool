@@ -14,13 +14,15 @@ afterEach(async () => {
 
 describe("proof release coherence verifier", () => {
   it("accepts the staged release and stable pointer", async () => {
-    await expect(verifyProofRelease({
-      webRoot: publicRoot,
-      deployment: deploymentPath,
-    })).resolves.toMatchObject({
+    await expect(
+      verifyProofRelease({
+        webRoot: publicRoot,
+        deployment: deploymentPath,
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       mode: "local",
-      release: "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-key-discovery-r1",
+      release: "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-explicit-path-r1",
     });
   });
 
@@ -34,9 +36,11 @@ describe("proof release coherence verifier", () => {
     manifest.published_at = "tampered";
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-    await expect(verifyProofRelease({
-      webRoot: root,
-      deployment: path.join(root, "proof-assets/reclaim-deployment.json"),
-    })).rejects.toThrow(/signature verification failed/u);
+    await expect(
+      verifyProofRelease({
+        webRoot: root,
+        deployment: path.join(root, "proof-assets/reclaim-deployment.json"),
+      }),
+    ).rejects.toThrow(/signature verification failed/u);
   });
 });

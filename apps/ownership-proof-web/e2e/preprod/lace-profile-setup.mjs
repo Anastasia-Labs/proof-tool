@@ -22,7 +22,9 @@ async function main() {
     writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
     console.log(`lace_profile_validation=${artifactPath}`);
   } catch (error) {
-    console.error(`${error?.code ?? "lace_profile_validation_failed"}: ${error?.message ?? "Lace profile validation failed."}`);
+    console.error(
+      `${error?.code ?? "lace_profile_validation_failed"}: ${error?.message ?? "Lace profile validation failed."}`,
+    );
     process.exitCode = 1;
   } finally {
     if (context && typeof context.close === "function") {

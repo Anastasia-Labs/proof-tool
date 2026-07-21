@@ -1,12 +1,12 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Blind V4 value-coverage vectors for the exported V1 comparator.
+-- | Blind V4 value-coverage vectors for the canonical global comparator.
 -- Fixtures are typed, canonical, positive V3 Values placed in TxOut value
 -- fields, so the comparator receives the ledger-shaped data it relies on.
 module V4BlindValueCoverage (v4BlindValueCoverageTests) where
 
-import Ownership.ReclaimGlobal (valueCoversData)
+import Ownership.ReclaimGlobalV2 (valueCoversData)
 import qualified PlutusLedgerApi.V3 as V3
 import qualified PlutusTx.AssocMap as Map
 import qualified PlutusTx.Builtins.Internal as BI

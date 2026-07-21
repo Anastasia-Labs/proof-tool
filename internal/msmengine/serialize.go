@@ -38,6 +38,7 @@ type shardTimings struct {
 	PinnedDecode   bool
 }
 
+//nolint:unused // used by sharded_js.go under the js && wasm build tags, which golangci-lint does not analyze
 func (t shardTimings) fields() map[string]float64 {
 	return map[string]float64{
 		"point_decode_ms":  t.PointDecodeMS,

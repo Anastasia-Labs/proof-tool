@@ -15,10 +15,7 @@ export const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v2/bls12-381/g
 export const DESTINATION_KEY_VERSION = "ownership-destination-v2";
 export const DESTINATION_ADDRESS_ENCODING = "destination-address-v1";
 export const SINGLE_DESTINATION_PROOF_PROFILE = "single-destination";
-export const SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING =
-  "bytes-empty-same-as-previous-v1";
-export const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 =
-  "full-proof-plus-public-input-digest-v2";
+export const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 = "full-proof-plus-public-input-digest-v2";
 const DISTINCT_7_REQUEST_PARAMETER = "maxUtxos";
 const DISTINCT_7_REQUEST_VALUE = 7;
 const DISTINCT_7_DEFAULT_UTXO_COUNT = 6;
@@ -48,8 +45,8 @@ export type ReclaimDeploymentManifest = {
     params_currency_symbol: string;
     verifier_vk_hash: string;
     proof_profile: typeof SINGLE_DESTINATION_PROOF_PROFILE;
-    proof_slot_encoding?: ReclaimGlobalProofSlotEncoding;
-    batch_transcript_vk_hash?: string;
+    proof_slot_encoding: ReclaimGlobalProofSlotEncoding;
+    batch_transcript_vk_hash: string;
   };
   params_utxo: {
     tx_hash: string;
@@ -213,14 +210,30 @@ const FLAT_ENV_FIELDS = {
   enabled: "RECLAIM_DEPLOYMENT_ENABLED",
 } as const;
 
-const ENV_MATCH_FIELDS: Array<{ env: string; field: string; getValue: (manifest: ReclaimDeploymentManifest) => string }> = [
+const ENV_MATCH_FIELDS: Array<{
+  env: string;
+  field: string;
+  getValue: (manifest: ReclaimDeploymentManifest) => string;
+}> = [
   { env: FLAT_ENV_FIELDS.deploymentId, field: "deployment_id", getValue: (manifest) => manifest.deployment_id },
   { env: FLAT_ENV_FIELDS.network, field: "network", getValue: (manifest) => manifest.network },
   { env: FLAT_ENV_FIELDS.networkId, field: "network_id", getValue: (manifest) => String(manifest.network_id) },
   { env: FLAT_ENV_FIELDS.sourceCommit, field: "source_commit", getValue: (manifest) => manifest.source_commit },
-  { env: FLAT_ENV_FIELDS.contractVersion, field: "contract_version", getValue: (manifest) => manifest.contract_version },
-  { env: FLAT_ENV_FIELDS.reclaimBaseAddress, field: "reclaim_base.address", getValue: (manifest) => manifest.reclaim_base.address },
-  { env: FLAT_ENV_FIELDS.reclaimBaseScriptHash, field: "reclaim_base.script_hash", getValue: (manifest) => manifest.reclaim_base.script_hash },
+  {
+    env: FLAT_ENV_FIELDS.contractVersion,
+    field: "contract_version",
+    getValue: (manifest) => manifest.contract_version,
+  },
+  {
+    env: FLAT_ENV_FIELDS.reclaimBaseAddress,
+    field: "reclaim_base.address",
+    getValue: (manifest) => manifest.reclaim_base.address,
+  },
+  {
+    env: FLAT_ENV_FIELDS.reclaimBaseScriptHash,
+    field: "reclaim_base.script_hash",
+    getValue: (manifest) => manifest.reclaim_base.script_hash,
+  },
   {
     env: FLAT_ENV_FIELDS.reclaimBaseRequiredGlobalCredential,
     field: "reclaim_base.required_global_credential",
@@ -236,7 +249,11 @@ const ENV_MATCH_FIELDS: Array<{ env: string; field: string; getValue: (manifest:
     field: "reclaim_global.rewarding_credential",
     getValue: (manifest) => manifest.reclaim_global.rewarding_credential,
   },
-  { env: FLAT_ENV_FIELDS.reclaimGlobalScriptHash, field: "reclaim_global.script_hash", getValue: (manifest) => manifest.reclaim_global.script_hash },
+  {
+    env: FLAT_ENV_FIELDS.reclaimGlobalScriptHash,
+    field: "reclaim_global.script_hash",
+    getValue: (manifest) => manifest.reclaim_global.script_hash,
+  },
   {
     env: FLAT_ENV_FIELDS.reclaimGlobalProofSlotEncoding,
     field: "reclaim_global.proof_slot_encoding",
@@ -252,17 +269,41 @@ const ENV_MATCH_FIELDS: Array<{ env: string; field: string; getValue: (manifest:
     field: "reclaim_global.params_currency_symbol",
     getValue: (manifest) => manifest.reclaim_global.params_currency_symbol,
   },
-  { env: FLAT_ENV_FIELDS.paramsTokenName, field: "params_utxo.token_name", getValue: (manifest) => manifest.params_utxo.token_name },
-  { env: FLAT_ENV_FIELDS.paramsUtxoTxHash, field: "params_utxo.tx_hash", getValue: (manifest) => manifest.params_utxo.tx_hash },
-  { env: FLAT_ENV_FIELDS.paramsUtxoOutputIndex, field: "params_utxo.output_index", getValue: (manifest) => String(manifest.params_utxo.output_index) },
-  { env: FLAT_ENV_FIELDS.paramsPolicyId, field: "params_utxo.policy_id", getValue: (manifest) => manifest.params_utxo.policy_id },
-  { env: FLAT_ENV_FIELDS.paramsHolderAddress, field: "params_utxo.holder_address", getValue: (manifest) => manifest.params_utxo.holder_address },
+  {
+    env: FLAT_ENV_FIELDS.paramsTokenName,
+    field: "params_utxo.token_name",
+    getValue: (manifest) => manifest.params_utxo.token_name,
+  },
+  {
+    env: FLAT_ENV_FIELDS.paramsUtxoTxHash,
+    field: "params_utxo.tx_hash",
+    getValue: (manifest) => manifest.params_utxo.tx_hash,
+  },
+  {
+    env: FLAT_ENV_FIELDS.paramsUtxoOutputIndex,
+    field: "params_utxo.output_index",
+    getValue: (manifest) => String(manifest.params_utxo.output_index),
+  },
+  {
+    env: FLAT_ENV_FIELDS.paramsPolicyId,
+    field: "params_utxo.policy_id",
+    getValue: (manifest) => manifest.params_utxo.policy_id,
+  },
+  {
+    env: FLAT_ENV_FIELDS.paramsHolderAddress,
+    field: "params_utxo.holder_address",
+    getValue: (manifest) => manifest.params_utxo.holder_address,
+  },
   {
     env: FLAT_ENV_FIELDS.paramsDatumReclaimBaseScriptHash,
     field: "params_utxo.datum_reclaim_base_script_hash",
     getValue: (manifest) => manifest.params_utxo.datum_reclaim_base_script_hash,
   },
-  { env: FLAT_ENV_FIELDS.verifierVkHash, field: "reclaim_global.verifier_vk_hash", getValue: (manifest) => manifest.reclaim_global.verifier_vk_hash },
+  {
+    env: FLAT_ENV_FIELDS.verifierVkHash,
+    field: "reclaim_global.verifier_vk_hash",
+    getValue: (manifest) => manifest.reclaim_global.verifier_vk_hash,
+  },
   { env: FLAT_ENV_FIELDS.proofVkHash, field: "proof.vk_hash", getValue: (manifest) => manifest.proof.vk_hash },
   {
     env: FLAT_ENV_FIELDS.proofCardanoVkHash,
@@ -270,21 +311,41 @@ const ENV_MATCH_FIELDS: Array<{ env: string; field: string; getValue: (manifest:
     getValue: (manifest) => manifest.proof.cardano_vk_blake2b256,
   },
   { env: FLAT_ENV_FIELDS.proofCircuitId, field: "proof.circuit_id", getValue: (manifest) => manifest.proof.circuit_id },
-  { env: FLAT_ENV_FIELDS.proofKeyVersion, field: "proof.key_version", getValue: (manifest) => manifest.proof.key_version },
+  {
+    env: FLAT_ENV_FIELDS.proofKeyVersion,
+    field: "proof.key_version",
+    getValue: (manifest) => manifest.proof.key_version,
+  },
   {
     env: FLAT_ENV_FIELDS.destinationAddressEncoding,
     field: "proof.destination_address_encoding",
     getValue: (manifest) => manifest.proof.destination_address_encoding,
   },
-  { env: FLAT_ENV_FIELDS.defaultUtxoCount, field: "batching.default_utxo_count", getValue: (manifest) => String(manifest.batching.default_utxo_count) },
+  {
+    env: FLAT_ENV_FIELDS.defaultUtxoCount,
+    field: "batching.default_utxo_count",
+    getValue: (manifest) => String(manifest.batching.default_utxo_count),
+  },
   {
     env: FLAT_ENV_FIELDS.optimizationUtxoCount,
     field: "batching.optimization_utxo_count",
     getValue: (manifest) => String(manifest.batching.optimization_utxo_count),
   },
-  { env: FLAT_ENV_FIELDS.hardMaxUtxoCount, field: "batching.hard_max_utxo_count", getValue: (manifest) => String(manifest.batching.hard_max_utxo_count) },
-  { env: FLAT_ENV_FIELDS.maxTxCpuPercent, field: "batching.max_tx_cpu_percent", getValue: (manifest) => String(manifest.batching.max_tx_cpu_percent) },
-  { env: FLAT_ENV_FIELDS.maxTxMemPercent, field: "batching.max_tx_mem_percent", getValue: (manifest) => String(manifest.batching.max_tx_mem_percent) },
+  {
+    env: FLAT_ENV_FIELDS.hardMaxUtxoCount,
+    field: "batching.hard_max_utxo_count",
+    getValue: (manifest) => String(manifest.batching.hard_max_utxo_count),
+  },
+  {
+    env: FLAT_ENV_FIELDS.maxTxCpuPercent,
+    field: "batching.max_tx_cpu_percent",
+    getValue: (manifest) => String(manifest.batching.max_tx_cpu_percent),
+  },
+  {
+    env: FLAT_ENV_FIELDS.maxTxMemPercent,
+    field: "batching.max_tx_mem_percent",
+    getValue: (manifest) => String(manifest.batching.max_tx_mem_percent),
+  },
   {
     env: FLAT_ENV_FIELDS.distinctSevenRequestParameter,
     field: "batching.distinct_7_opt_in.request_parameter",
@@ -305,7 +366,11 @@ const ENV_MATCH_FIELDS: Array<{ env: string; field: string; getValue: (manifest:
     field: "batching.distinct_7_opt_in.require_measured_execution_units",
     getValue: (manifest) => String(manifest.batching.distinct_7_opt_in?.require_measured_execution_units ?? ""),
   },
-  { env: FLAT_ENV_FIELDS.providerFallback, field: "provider.fallback", getValue: (manifest) => manifest.provider.fallback },
+  {
+    env: FLAT_ENV_FIELDS.providerFallback,
+    field: "provider.fallback",
+    getValue: (manifest) => manifest.provider.fallback,
+  },
   {
     env: FLAT_ENV_FIELDS.reclaimBaseReferenceScriptTxHash,
     field: "reference_scripts.reclaim_base.tx_hash",
@@ -351,9 +416,10 @@ const ENV_MATCH_FIELDS: Array<{ env: string; field: string; getValue: (manifest:
 export function loadReclaimDeployment(options: ManifestLoadOptions = {}): DeploymentConfigResult {
   const env = options.env ?? process.env;
   const providerFallback = providerReadiness(null, env);
-  const source = options.manifest === undefined
-    ? readManifestSource(env, options.cwd ?? process.cwd())
-    : { raw: options.manifest, errors: [] };
+  const source =
+    options.manifest === undefined
+      ? readManifestSource(env, options.cwd ?? process.cwd())
+      : { raw: options.manifest, errors: [] };
 
   if (!source.raw) {
     return disabledResult(source.errors, providerFallback);
@@ -364,9 +430,7 @@ export function loadReclaimDeployment(options: ManifestLoadOptions = {}): Deploy
     return disabledResult([...source.errors, ...validation.errors], providerFallback);
   }
 
-  const envErrors = options.enforceEnvCoherence === false
-    ? []
-    : validateManifestEnvCoherence(validation.manifest, env);
+  const envErrors = options.enforceEnvCoherence === false ? [] : validateManifestEnvCoherence(validation.manifest, env);
   if (envErrors.length > 0) {
     return disabledResult(envErrors, providerReadiness(validation.manifest, env));
   }
@@ -402,7 +466,9 @@ export function loadClaimDeployment(options: ManifestLoadOptions = {}): ClaimDep
   };
 }
 
-export function validateReclaimDeploymentManifest(raw: unknown):
+export function validateReclaimDeploymentManifest(
+  raw: unknown,
+):
   | { available: true; manifest: ReclaimDeploymentManifest; errors: [] }
   | { available: false; manifest: null; errors: ManifestValidationError[] } {
   const errors: ManifestValidationError[] = [];
@@ -437,12 +503,27 @@ export function validateReclaimDeploymentManifest(raw: unknown):
     reclaim_base: {
       address: stringField(reclaimBase.address, "reclaim_base.address", errors),
       script_hash: hexField(reclaimBase.script_hash, "reclaim_base.script_hash", 56, errors),
-      required_global_credential: hexField(reclaimBase.required_global_credential, "reclaim_base.required_global_credential", 56, errors),
+      required_global_credential: hexField(
+        reclaimBase.required_global_credential,
+        "reclaim_base.required_global_credential",
+        56,
+        errors,
+      ),
     },
     reclaim_global: {
       script_hash: hexField(reclaimGlobal.script_hash, "reclaim_global.script_hash", 56, errors),
-      rewarding_credential: hexField(reclaimGlobal.rewarding_credential, "reclaim_global.rewarding_credential", 56, errors),
-      params_currency_symbol: hexField(reclaimGlobal.params_currency_symbol, "reclaim_global.params_currency_symbol", 56, errors),
+      rewarding_credential: hexField(
+        reclaimGlobal.rewarding_credential,
+        "reclaim_global.rewarding_credential",
+        56,
+        errors,
+      ),
+      params_currency_symbol: hexField(
+        reclaimGlobal.params_currency_symbol,
+        "reclaim_global.params_currency_symbol",
+        56,
+        errors,
+      ),
       verifier_vk_hash: hashField(reclaimGlobal.verifier_vk_hash, "reclaim_global.verifier_vk_hash", errors),
       proof_profile: literalField(
         reclaimGlobal.proof_profile,
@@ -450,24 +531,16 @@ export function validateReclaimDeploymentManifest(raw: unknown):
         SINGLE_DESTINATION_PROOF_PROFILE,
         errors,
       ),
-      ...(reclaimGlobal.proof_slot_encoding === undefined
-        ? {}
-        : {
-            proof_slot_encoding: proofSlotEncodingField(
-              reclaimGlobal.proof_slot_encoding,
-              "reclaim_global.proof_slot_encoding",
-              errors,
-            ),
-          }),
-      ...(reclaimGlobal.batch_transcript_vk_hash === undefined
-        ? {}
-        : {
-            batch_transcript_vk_hash: hashField(
-              reclaimGlobal.batch_transcript_vk_hash,
-              "reclaim_global.batch_transcript_vk_hash",
-              errors,
-            ),
-          }),
+      proof_slot_encoding: proofSlotEncodingField(
+        reclaimGlobal.proof_slot_encoding,
+        "reclaim_global.proof_slot_encoding",
+        errors,
+      ),
+      batch_transcript_vk_hash: hashField(
+        reclaimGlobal.batch_transcript_vk_hash,
+        "reclaim_global.batch_transcript_vk_hash",
+        errors,
+      ),
     },
     params_utxo: {
       tx_hash: hexField(paramsUtxo.tx_hash, "params_utxo.tx_hash", 64, errors),
@@ -475,7 +548,12 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       policy_id: hexField(paramsUtxo.policy_id, "params_utxo.policy_id", 56, errors),
       token_name: tokenNameField(paramsUtxo.token_name, "params_utxo.token_name", errors),
       holder_address: stringField(paramsUtxo.holder_address, "params_utxo.holder_address", errors),
-      datum_reclaim_base_script_hash: hexField(paramsUtxo.datum_reclaim_base_script_hash, "params_utxo.datum_reclaim_base_script_hash", 56, errors),
+      datum_reclaim_base_script_hash: hexField(
+        paramsUtxo.datum_reclaim_base_script_hash,
+        "params_utxo.datum_reclaim_base_script_hash",
+        56,
+        errors,
+      ),
     },
     proof: {
       circuit_id: literalField(proof.circuit_id, "proof.circuit_id", DESTINATION_CIRCUIT_ID, errors),
@@ -492,7 +570,11 @@ export function validateReclaimDeploymentManifest(raw: unknown):
     },
     batching: {
       default_utxo_count: positiveIntegerField(batching.default_utxo_count, "batching.default_utxo_count", errors),
-      optimization_utxo_count: positiveIntegerField(batching.optimization_utxo_count, "batching.optimization_utxo_count", errors),
+      optimization_utxo_count: positiveIntegerField(
+        batching.optimization_utxo_count,
+        "batching.optimization_utxo_count",
+        errors,
+      ),
       hard_max_utxo_count: positiveIntegerField(batching.hard_max_utxo_count, "batching.hard_max_utxo_count", errors),
       max_tx_cpu_percent: percentField(batching.max_tx_cpu_percent, "batching.max_tx_cpu_percent", errors),
       max_tx_mem_percent: percentField(batching.max_tx_mem_percent, "batching.max_tx_mem_percent", errors),
@@ -516,7 +598,11 @@ export function validateReclaimDeploymentManifest(raw: unknown):
   }
 
   if (schema && schema !== RECLAIM_DEPLOYMENT_SCHEMA) {
-    errors.push({ code: "unsupported_schema", field: "schema", message: `schema must be ${RECLAIM_DEPLOYMENT_SCHEMA}.` });
+    errors.push({
+      code: "unsupported_schema",
+      field: "schema",
+      message: `schema must be ${RECLAIM_DEPLOYMENT_SCHEMA}.`,
+    });
   }
   if (network && networkId !== NETWORK_IDS[network]) {
     errors.push({ code: "network_id_mismatch", field: "network_id", message: "network_id does not match network." });
@@ -524,44 +610,31 @@ export function validateReclaimDeploymentManifest(raw: unknown):
   if (deploymentId && network && manifest.reclaim_base.script_hash && sourceCommit) {
     const expected = `${network.toLowerCase()}:${manifest.reclaim_base.script_hash}:${sourceCommit}`;
     if (deploymentId !== expected) {
-      errors.push({ code: "deployment_id_mismatch", field: "deployment_id", message: "deployment_id must bind network, ReclaimBase script hash, and source_commit." });
+      errors.push({
+        code: "deployment_id_mismatch",
+        field: "deployment_id",
+        message: "deployment_id must bind network, ReclaimBase script hash, and source_commit.",
+      });
     }
   }
-  const proofSlotEncoding = manifest.reclaim_global.proof_slot_encoding;
   const batchTranscriptVkHash = manifest.reclaim_global.batch_transcript_vk_hash;
-  if (proofSlotEncoding === undefined && batchTranscriptVkHash !== undefined) {
+  if (
+    batchTranscriptVkHash &&
+    manifest.proof.cardano_vk_blake2b256 &&
+    normalizedHash(batchTranscriptVkHash) !== normalizedHash(manifest.proof.cardano_vk_blake2b256)
+  ) {
     errors.push({
-      code: "missing",
-      field: "reclaim_global.proof_slot_encoding",
-      message: "batch transcript key hash requires a proof-slot encoding.",
-    });
-  } else if (proofSlotEncoding === FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2) {
-    if (!batchTranscriptVkHash) {
-      errors.push({
-        code: "missing",
-        field: "reclaim_global.batch_transcript_vk_hash",
-        message: "statement-bound V2 requires the canonical Cardano verifier-key hash.",
-      });
-    } else if (
-      manifest.proof.cardano_vk_blake2b256 &&
-      normalizedHash(batchTranscriptVkHash) !==
-        normalizedHash(manifest.proof.cardano_vk_blake2b256)
-    ) {
-      errors.push({
-        code: "batch_transcript_vk_hash_mismatch",
-        field: "reclaim_global.batch_transcript_vk_hash",
-        message: "V2 batch transcript key hash must equal proof.cardano_vk_blake2b256.",
-      });
-    }
-  } else if (batchTranscriptVkHash !== undefined) {
-    errors.push({
-      code: "unsupported_value",
+      code: "batch_transcript_vk_hash_mismatch",
       field: "reclaim_global.batch_transcript_vk_hash",
-      message: "batch transcript key hash is only valid for statement-bound V2.",
+      message: "V2 batch transcript key hash must equal proof.cardano_vk_blake2b256.",
     });
   }
   if (sourceCommit && /dirty|uncommitted/iu.test(sourceCommit)) {
-    errors.push({ code: "dirty_source_commit", field: "source_commit", message: "source_commit must be a clean tag or commit." });
+    errors.push({
+      code: "dirty_source_commit",
+      field: "source_commit",
+      message: "source_commit must be a clean tag or commit.",
+    });
   }
   if (manifest.reclaim_base.required_global_credential && manifest.reclaim_global.rewarding_credential) {
     if (manifest.reclaim_base.required_global_credential !== manifest.reclaim_global.rewarding_credential) {
@@ -572,7 +645,11 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       });
     }
   }
-  if (manifest.reclaim_global.verifier_vk_hash && manifest.proof.vk_hash && manifest.reclaim_global.verifier_vk_hash !== manifest.proof.vk_hash) {
+  if (
+    manifest.reclaim_global.verifier_vk_hash &&
+    manifest.proof.vk_hash &&
+    manifest.reclaim_global.verifier_vk_hash !== manifest.proof.vk_hash
+  ) {
     errors.push({
       code: "verifier_hash_mismatch",
       field: "proof.vk_hash",
@@ -590,7 +667,11 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       message: "parameter datum ReclaimBase script hash must equal reclaim_base.script_hash.",
     });
   }
-  if (manifest.params_utxo.policy_id && manifest.reclaim_global.params_currency_symbol && manifest.params_utxo.policy_id !== manifest.reclaim_global.params_currency_symbol) {
+  if (
+    manifest.params_utxo.policy_id &&
+    manifest.reclaim_global.params_currency_symbol &&
+    manifest.params_utxo.policy_id !== manifest.reclaim_global.params_currency_symbol
+  ) {
     errors.push({
       code: "params_policy_mismatch",
       field: "params_utxo.policy_id",
@@ -637,60 +718,56 @@ export function validateReclaimDeploymentManifest(raw: unknown):
       message: "batching counts must satisfy default <= optimization <= hard max.",
     });
   }
-  if (proofSlotEncoding === FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2) {
-    if (manifest.batching.hard_max_utxo_count > DISTINCT_7_REQUEST_VALUE) {
-      errors.push({
-        code: "batch_hard_max_exceeds_policy",
-        field: "batching.hard_max_utxo_count",
-        message: "statement-bound V2 hard_max_utxo_count must not exceed the explicit seven-slot capacity policy.",
-      });
-    }
-    if (!manifest.batching.distinct_7_opt_in) {
-      errors.push({
-        code: "distinct_7_opt_in_required",
-        field: "batching.distinct_7_opt_in",
-        message: "statement-bound V2 requires explicit seven-slot opt-in metadata.",
-      });
-    }
-    requireDistinctSevenCapacityValue(
-      manifest.batching.default_utxo_count,
-      DISTINCT_7_DEFAULT_UTXO_COUNT,
-      "batching.default_utxo_count",
-      errors,
-    );
-    requireDistinctSevenCapacityValue(
-      manifest.batching.optimization_utxo_count,
-      DISTINCT_7_OPTIMIZATION_UTXO_COUNT,
-      "batching.optimization_utxo_count",
-      errors,
-    );
-    requireDistinctSevenCapacityValue(
-      manifest.batching.hard_max_utxo_count,
-      DISTINCT_7_REQUEST_VALUE,
-      "batching.hard_max_utxo_count",
-      errors,
-    );
-    requireDistinctSevenCapacityValue(
-      manifest.batching.max_tx_cpu_percent,
-      DISTINCT_7_MAX_TX_CPU_PERCENT,
-      "batching.max_tx_cpu_percent",
-      errors,
-    );
-    requireDistinctSevenCapacityValue(
-      manifest.batching.max_tx_mem_percent,
-      DISTINCT_7_MAX_TX_MEM_PERCENT,
-      "batching.max_tx_mem_percent",
-      errors,
-    );
-  } else if (manifest.batching.distinct_7_opt_in) {
+  if (manifest.batching.hard_max_utxo_count > DISTINCT_7_REQUEST_VALUE) {
     errors.push({
-      code: "distinct_7_opt_in_requires_v2",
-      field: "batching.distinct_7_opt_in",
-      message: "explicit seven-slot opt-in metadata is only valid for statement-bound V2.",
+      code: "batch_hard_max_exceeds_policy",
+      field: "batching.hard_max_utxo_count",
+      message: "statement-bound V2 hard_max_utxo_count must not exceed the explicit seven-slot capacity policy.",
     });
   }
+  if (!manifest.batching.distinct_7_opt_in) {
+    errors.push({
+      code: "distinct_7_opt_in_required",
+      field: "batching.distinct_7_opt_in",
+      message: "statement-bound V2 requires explicit seven-slot opt-in metadata.",
+    });
+  }
+  requireDistinctSevenCapacityValue(
+    manifest.batching.default_utxo_count,
+    DISTINCT_7_DEFAULT_UTXO_COUNT,
+    "batching.default_utxo_count",
+    errors,
+  );
+  requireDistinctSevenCapacityValue(
+    manifest.batching.optimization_utxo_count,
+    DISTINCT_7_OPTIMIZATION_UTXO_COUNT,
+    "batching.optimization_utxo_count",
+    errors,
+  );
+  requireDistinctSevenCapacityValue(
+    manifest.batching.hard_max_utxo_count,
+    DISTINCT_7_REQUEST_VALUE,
+    "batching.hard_max_utxo_count",
+    errors,
+  );
+  requireDistinctSevenCapacityValue(
+    manifest.batching.max_tx_cpu_percent,
+    DISTINCT_7_MAX_TX_CPU_PERCENT,
+    "batching.max_tx_cpu_percent",
+    errors,
+  );
+  requireDistinctSevenCapacityValue(
+    manifest.batching.max_tx_mem_percent,
+    DISTINCT_7_MAX_TX_MEM_PERCENT,
+    "batching.max_tx_mem_percent",
+    errors,
+  );
   if (manifest.enabled === false) {
-    errors.push({ code: "deployment_disabled", field: "enabled", message: "deployment manifest is explicitly disabled." });
+    errors.push({
+      code: "deployment_disabled",
+      field: "enabled",
+      message: "deployment manifest is explicitly disabled.",
+    });
   }
 
   if (errors.length > 0) {
@@ -746,7 +823,13 @@ function readManifestSource(env: EnvMap, cwd: string): { raw: unknown | null; er
     } catch {
       return {
         raw: null,
-        errors: [{ code: "manifest_json_malformed", field: MANIFEST_JSON_ENV, message: "deployment manifest JSON is malformed." }],
+        errors: [
+          {
+            code: "manifest_json_malformed",
+            field: MANIFEST_JSON_ENV,
+            message: "deployment manifest JSON is malformed.",
+          },
+        ],
       };
     }
   }
@@ -757,7 +840,9 @@ function readManifestSource(env: EnvMap, cwd: string): { raw: unknown | null; er
     if (!resolved) {
       return {
         raw: null,
-        errors: [{ code: "manifest_missing", field: "manifest_path", message: "deployment manifest file was not found." }],
+        errors: [
+          { code: "manifest_missing", field: "manifest_path", message: "deployment manifest file was not found." },
+        ],
       };
     }
     try {
@@ -765,7 +850,13 @@ function readManifestSource(env: EnvMap, cwd: string): { raw: unknown | null; er
     } catch {
       return {
         raw: null,
-        errors: [{ code: "manifest_file_malformed", field: "manifest_path", message: "deployment manifest file is malformed JSON." }],
+        errors: [
+          {
+            code: "manifest_file_malformed",
+            field: "manifest_path",
+            message: "deployment manifest file is malformed JSON.",
+          },
+        ],
       };
     }
   }
@@ -799,19 +890,23 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
   const proofSlotEncoding = envValue(env, FLAT_ENV_FIELDS.reclaimGlobalProofSlotEncoding);
   const batchTranscriptVkHash = envValue(env, FLAT_ENV_FIELDS.reclaimGlobalBatchTranscriptVkHash);
   const distinctSevenOptIn = distinctSevenOptInFromEnv(env);
-  const deploymentId = envValue(env, FLAT_ENV_FIELDS.deploymentId) || [network.toLowerCase(), baseScriptHash, sourceCommit].filter(Boolean).join(":");
+  const deploymentId =
+    envValue(env, FLAT_ENV_FIELDS.deploymentId) ||
+    [network.toLowerCase(), baseScriptHash, sourceCommit].filter(Boolean).join(":");
 
   return {
     schema: RECLAIM_DEPLOYMENT_SCHEMA,
     deployment_id: deploymentId,
     network,
-    network_id: parseEnvInteger(env, FLAT_ENV_FIELDS.networkId) ?? (isReclaimNetwork(network) ? NETWORK_IDS[network] : undefined),
+    network_id:
+      parseEnvInteger(env, FLAT_ENV_FIELDS.networkId) ?? (isReclaimNetwork(network) ? NETWORK_IDS[network] : undefined),
     source_commit: sourceCommit,
     contract_version: envValue(env, FLAT_ENV_FIELDS.contractVersion),
     reclaim_base: {
       address: envValue(env, FLAT_ENV_FIELDS.reclaimBaseAddress),
       script_hash: baseScriptHash,
-      required_global_credential: envValue(env, FLAT_ENV_FIELDS.reclaimBaseRequiredGlobalCredential) || globalCredential,
+      required_global_credential:
+        envValue(env, FLAT_ENV_FIELDS.reclaimBaseRequiredGlobalCredential) || globalCredential,
     },
     reclaim_global: {
       script_hash: envValue(env, FLAT_ENV_FIELDS.reclaimGlobalScriptHash),
@@ -819,8 +914,8 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
       params_currency_symbol: paramsCurrencySymbol,
       verifier_vk_hash: verifierVkHash,
       proof_profile: SINGLE_DESTINATION_PROOF_PROFILE,
-      ...(proofSlotEncoding ? { proof_slot_encoding: proofSlotEncoding } : {}),
-      ...(batchTranscriptVkHash ? { batch_transcript_vk_hash: batchTranscriptVkHash } : {}),
+      proof_slot_encoding: proofSlotEncoding,
+      batch_transcript_vk_hash: batchTranscriptVkHash,
     },
     params_utxo: {
       tx_hash: envValue(env, FLAT_ENV_FIELDS.paramsUtxoTxHash),
@@ -833,7 +928,8 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
     proof: {
       circuit_id: envValue(env, FLAT_ENV_FIELDS.proofCircuitId) || DESTINATION_CIRCUIT_ID,
       key_version: envValue(env, FLAT_ENV_FIELDS.proofKeyVersion) || DESTINATION_KEY_VERSION,
-      destination_address_encoding: envValue(env, FLAT_ENV_FIELDS.destinationAddressEncoding) || DESTINATION_ADDRESS_ENCODING,
+      destination_address_encoding:
+        envValue(env, FLAT_ENV_FIELDS.destinationAddressEncoding) || DESTINATION_ADDRESS_ENCODING,
       vk_hash: envValue(env, FLAT_ENV_FIELDS.proofVkHash) || verifierVkHash,
       cardano_vk_blake2b256: envValue(env, FLAT_ENV_FIELDS.proofCardanoVkHash),
     },
@@ -948,7 +1044,11 @@ function disabledResult(errors: ManifestValidationError[], provider: ProviderRea
       reasons: unique(errors.map((error) => error.code)),
     },
     provider,
-    missing: unique(errors.filter((error) => error.code === "missing" || error.code === "manifest_missing").map((error) => error.field)),
+    missing: unique(
+      errors
+        .filter((error) => error.code === "missing" || error.code === "manifest_missing")
+        .map((error) => error.field),
+    ),
     errors,
   };
 }
@@ -959,7 +1059,11 @@ function providerReadiness(manifest: ReclaimDeploymentManifest | null, env: EnvM
   const selected = normalizedProvider(envValue(env, FLAT_ENV_FIELDS.provider)) ?? configuredPrimary ?? "koios";
   const missing: string[] = [];
 
-  if (selected === "blockfrost" && !envValue(env, "RECLAIM_BLOCKFROST_PROJECT_ID") && !envValue(env, "BLOCKFROST_PROJECT_ID")) {
+  if (
+    selected === "blockfrost" &&
+    !envValue(env, "RECLAIM_BLOCKFROST_PROJECT_ID") &&
+    !envValue(env, "BLOCKFROST_PROJECT_ID")
+  ) {
     missing.push("RECLAIM_BLOCKFROST_PROJECT_ID");
   }
 
@@ -979,7 +1083,8 @@ function claimCapabilities(manifest: ReclaimDeploymentManifest): ClaimDeployment
     helperKeyVersion: manifest.proof.key_version,
     destinationAddressEncoding: manifest.proof.destination_address_encoding,
     indexerStatus: "not_configured",
-    singleGlobalCompatible: manifest.reclaim_base.required_global_credential === manifest.reclaim_global.rewarding_credential,
+    singleGlobalCompatible:
+      manifest.reclaim_base.required_global_credential === manifest.reclaim_global.rewarding_credential,
     transactionBuild: {
       referenceScriptsConfigured: Boolean(manifest.reference_scripts),
       missing: manifest.reference_scripts ? [] : ["reference_scripts.reclaim_base", "reference_scripts.reclaim_global"],
@@ -1035,7 +1140,12 @@ function browserProvingFromField(
     manifest_public_key_hex: hexField(root.manifest_public_key_hex, `${field}.manifest_public_key_hex`, 64, errors),
     chunk_manifest_url: "",
     chunk_manifest_sig_url: "",
-    chunk_manifest_public_key_hex: hexField(root.chunk_manifest_public_key_hex, `${field}.chunk_manifest_public_key_hex`, 64, errors),
+    chunk_manifest_public_key_hex: hexField(
+      root.chunk_manifest_public_key_hex,
+      `${field}.chunk_manifest_public_key_hex`,
+      64,
+      errors,
+    ),
     deployment_manifest_url: "",
     vk_url: "",
     pk_url: "",
@@ -1087,7 +1197,14 @@ function browserProvingTuningField(
   }
   const root = objectField(value, field, errors);
   const tuning: BrowserProvingTuning = {};
-  for (const key of ["worker_count", "shard_count", "shard_multiplier", "range_fetch_concurrency", "chunk_prefetch_window", "gogc"] as const) {
+  for (const key of [
+    "worker_count",
+    "shard_count",
+    "shard_multiplier",
+    "range_fetch_concurrency",
+    "chunk_prefetch_window",
+    "gogc",
+  ] as const) {
     if (root[key] === undefined) {
       continue;
     }
@@ -1107,10 +1224,7 @@ function browserProvingTuningField(
       tuning.chunk_readahead = value;
     }
   }
-  if (
-    tuning.chunk_prefetch_window !== undefined &&
-    tuning.chunk_prefetch_window > 4
-  ) {
+  if (tuning.chunk_prefetch_window !== undefined && tuning.chunk_prefetch_window > 4) {
     errors.push({
       code: "invalid_value",
       field: field + ".chunk_prefetch_window",
@@ -1126,7 +1240,11 @@ function browserProvingTuningField(
   }
   if (root.pinned_decode !== undefined) {
     if (typeof root.pinned_decode !== "boolean") {
-      errors.push({ code: "invalid_type", field: `${field}.pinned_decode`, message: `${field}.pinned_decode must be a boolean.` });
+      errors.push({
+        code: "invalid_type",
+        field: `${field}.pinned_decode`,
+        message: `${field}.pinned_decode must be a boolean.`,
+      });
     } else {
       tuning.pinned_decode = root.pinned_decode;
     }
@@ -1148,7 +1266,11 @@ function browserProvingTuningField(
   if (root.gomemlimit !== undefined) {
     const gomemlimit = stringField(root.gomemlimit, `${field}.gomemlimit`, errors);
     if (gomemlimit && !/^\d+(?:[KMGT]i?B)?$/u.test(gomemlimit)) {
-      errors.push({ code: "invalid_type", field: `${field}.gomemlimit`, message: `${field}.gomemlimit must be a Go memory limit like 3000MiB.` });
+      errors.push({
+        code: "invalid_type",
+        field: `${field}.gomemlimit`,
+        message: `${field}.gomemlimit must be a Go memory limit like 3000MiB.`,
+      });
     } else if (gomemlimit) {
       tuning.gomemlimit = gomemlimit;
     }
@@ -1217,12 +1339,7 @@ function optionalDistinctSevenOptInField(
       DISTINCT_7_REQUEST_PARAMETER,
       errors,
     ),
-    request_value: literalIntegerField(
-      root.request_value,
-      `${field}.request_value`,
-      DISTINCT_7_REQUEST_VALUE,
-      errors,
-    ),
+    request_value: literalIntegerField(root.request_value, `${field}.request_value`, DISTINCT_7_REQUEST_VALUE, errors),
     require_explicit_request: literalBooleanField(
       root.require_explicit_request,
       `${field}.require_explicit_request`,
@@ -1257,13 +1374,21 @@ function objectField(value: unknown, field: string, errors: ManifestValidationEr
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, unknown>;
   }
-  errors.push({ code: value === undefined ? "missing" : "invalid_type", field, message: `${field} must be an object.` });
+  errors.push({
+    code: value === undefined ? "missing" : "invalid_type",
+    field,
+    message: `${field} must be an object.`,
+  });
   return {};
 }
 
 function stringField(value: unknown, field: string, errors: ManifestValidationError[]): string {
   if (typeof value !== "string" || value.trim() === "") {
-    errors.push({ code: value === undefined ? "missing" : "invalid_type", field, message: `${field} must be a non-empty string.` });
+    errors.push({
+      code: value === undefined ? "missing" : "invalid_type",
+      field,
+      message: `${field} must be a non-empty string.`,
+    });
     return "";
   }
   return value.trim();
@@ -1287,7 +1412,11 @@ function reclaimNetworkField(value: unknown, field: string, errors: ManifestVali
 
 function networkIdField(value: unknown, field: string, errors: ManifestValidationError[]): 0 | 1 {
   if (value !== 0 && value !== 1) {
-    errors.push({ code: value === undefined ? "missing" : "invalid_type", field, message: "network_id must be 0 or 1." });
+    errors.push({
+      code: value === undefined ? "missing" : "invalid_type",
+      field,
+      message: "network_id must be 0 or 1.",
+    });
     return 0;
   }
   return value;
@@ -1302,7 +1431,12 @@ function providerField(value: unknown, field: string, errors: ManifestValidation
   return provider;
 }
 
-function literalField<const T extends string>(value: unknown, field: string, expected: T, errors: ManifestValidationError[]): T {
+function literalField<const T extends string>(
+  value: unknown,
+  field: string,
+  expected: T,
+  errors: ManifestValidationError[],
+): T {
   const actual = stringField(value, field, errors);
   if (actual && actual !== expected) {
     errors.push({ code: "unsupported_value", field, message: `${field} must be ${expected}.` });
@@ -1310,7 +1444,12 @@ function literalField<const T extends string>(value: unknown, field: string, exp
   return expected;
 }
 
-function literalIntegerField<const T extends number>(value: unknown, field: string, expected: T, errors: ManifestValidationError[]): T {
+function literalIntegerField<const T extends number>(
+  value: unknown,
+  field: string,
+  expected: T,
+  errors: ManifestValidationError[],
+): T {
   if (!Number.isInteger(value)) {
     errors.push({
       code: value === undefined ? "missing" : "invalid_type",
@@ -1323,7 +1462,12 @@ function literalIntegerField<const T extends number>(value: unknown, field: stri
   return expected;
 }
 
-function literalBooleanField<const T extends boolean>(value: unknown, field: string, expected: T, errors: ManifestValidationError[]): T {
+function literalBooleanField<const T extends boolean>(
+  value: unknown,
+  field: string,
+  expected: T,
+  errors: ManifestValidationError[],
+): T {
   if (typeof value !== "boolean") {
     errors.push({
       code: value === undefined ? "missing" : "invalid_type",
@@ -1342,20 +1486,11 @@ function proofSlotEncodingField(
   errors: ManifestValidationError[],
 ): ReclaimGlobalProofSlotEncoding {
   const encoding = stringField(value, field, errors);
-  if (
-    encoding !== SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING &&
-    encoding !== FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2
-  ) {
+  if (encoding !== FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2) {
     errors.push({
       code: "unsupported_value",
       field,
-      message:
-        field +
-        " must be " +
-        SAME_AS_PREVIOUS_PROOF_SLOT_ENCODING +
-        " or " +
-        FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 +
-        ".",
+      message: field + " must be " + FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 + ".",
     });
   }
   return encoding as ReclaimGlobalProofSlotEncoding;
@@ -1373,7 +1508,11 @@ function hashField(value: unknown, field: string, errors: ManifestValidationErro
   const hash = stringField(value, field, errors);
   const digest = hash.startsWith("blake2b256:") ? hash.slice("blake2b256:".length) : hash;
   if (digest && (!/^[0-9a-f]+$/u.test(digest) || digest.length !== 64)) {
-    errors.push({ code: "malformed_hash", field, message: `${field} must be a 32-byte hex digest, optionally prefixed with blake2b256:.` });
+    errors.push({
+      code: "malformed_hash",
+      field,
+      message: `${field} must be a 32-byte hex digest, optionally prefixed with blake2b256:.`,
+    });
   }
   return hash;
 }
@@ -1384,7 +1523,11 @@ function normalizedHash(value: string): string {
 
 function tokenNameField(value: unknown, field: string, errors: ManifestValidationError[]): string {
   if (typeof value !== "string") {
-    errors.push({ code: value === undefined ? "missing" : "invalid_type", field, message: `${field} must be token-name hex.` });
+    errors.push({
+      code: value === undefined ? "missing" : "invalid_type",
+      field,
+      message: `${field} must be token-name hex.`,
+    });
     return "";
   }
   const tokenName = value.trim().toLowerCase();
@@ -1396,7 +1539,11 @@ function tokenNameField(value: unknown, field: string, errors: ManifestValidatio
 
 function nonNegativeIntegerField(value: unknown, field: string, errors: ManifestValidationError[]): number {
   if (!Number.isInteger(value) || Number(value) < 0) {
-    errors.push({ code: value === undefined ? "missing" : "invalid_type", field, message: `${field} must be a non-negative integer.` });
+    errors.push({
+      code: value === undefined ? "missing" : "invalid_type",
+      field,
+      message: `${field} must be a non-negative integer.`,
+    });
     return 0;
   }
   return Number(value);
@@ -1404,7 +1551,11 @@ function nonNegativeIntegerField(value: unknown, field: string, errors: Manifest
 
 function positiveIntegerField(value: unknown, field: string, errors: ManifestValidationError[]): number {
   if (!Number.isInteger(value) || Number(value) <= 0) {
-    errors.push({ code: value === undefined ? "missing" : "invalid_type", field, message: `${field} must be a positive integer.` });
+    errors.push({
+      code: value === undefined ? "missing" : "invalid_type",
+      field,
+      message: `${field} must be a positive integer.`,
+    });
     return 1;
   }
   return Number(value);

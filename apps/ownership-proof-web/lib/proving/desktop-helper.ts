@@ -22,10 +22,7 @@ export class DesktopHelperCancelledError extends Error {
   }
 }
 
-export async function preflightDestinationViaHelper(input: {
-  helperUrl: string;
-  helperToken: string;
-}): Promise<void> {
+export async function preflightDestinationViaHelper(input: { helperUrl: string; helperToken: string }): Promise<void> {
   const { response, payload } = await requestJSON(
     `${trimSlash(input.helperUrl)}/prove-destination`,
     { preflight_only: true },
@@ -39,11 +36,7 @@ export async function preflightDestinationViaHelper(input: {
   // before its strict decoder rejects the new field. This exact response is a
   // safe compatibility acknowledgement from the already-published helper: the
   // request exercised the real endpoint and contained no recovery secret.
-  if (
-    response.status === 400 &&
-    result?.code === "invalid_request" &&
-    result.error === LEGACY_PREFLIGHT_ERROR
-  ) {
+  if (response.status === 400 && result?.code === "invalid_request" && result.error === LEGACY_PREFLIGHT_ERROR) {
     return;
   }
   throw new Error(result?.error || "Proof Helper did not confirm destination-proof preflight support.");
@@ -78,7 +71,7 @@ export async function proveDestinationViaHelper(input: DesktopHelperProveInput):
         requests: uniqueRequests,
         search: {
           max_account: 9,
-          max_index: 999,
+          max_index: 5000,
         },
         include_debug_path: false,
       }),
@@ -103,19 +96,11 @@ export async function proveDestinationViaHelper(input: DesktopHelperProveInput):
   if (!Array.isArray(response.artifacts)) {
     return response;
   }
-  const artifactByOutRef = new Map(
-    response.artifacts.map((item) => [item.out_ref, item]),
-  );
+  const artifactByOutRef = new Map(response.artifacts.map((item) => [item.out_ref, item]));
   const expandedArtifacts = input.draft.proofRequests.map((request) => {
-    const representativeOutRef = representativeByStatement.get(
-      proofRequestStatementKey(request),
-    );
-    const representative = representativeOutRef
-      ? artifactByOutRef.get(representativeOutRef)
-      : undefined;
-    return representative
-      ? { ...representative, out_ref: request.out_ref }
-      : undefined;
+    const representativeOutRef = representativeByStatement.get(proofRequestStatementKey(request));
+    const representative = representativeOutRef ? artifactByOutRef.get(representativeOutRef) : undefined;
+    return representative ? { ...representative, out_ref: request.out_ref } : undefined;
   });
   if (expandedArtifacts.some((item) => item === undefined)) {
     return response;
@@ -174,7 +159,11 @@ async function readDestinationProgressStream(
       if (event.code === "request_cancelled") {
         throw new DesktopHelperCancelledError();
       }
-      throw new Error(typeof event.error === "string" && event.error ? event.error : "The helper could not generate destination-bound proofs.");
+      throw new Error(
+        typeof event.error === "string" && event.error
+          ? event.error
+          : "The helper could not generate destination-bound proofs.",
+      );
     }
     if (event.type === "result" && event.result && result === null) {
       result = event.result;
@@ -261,11 +250,7 @@ function isAbortError(error: unknown): boolean {
 }
 
 function proofRequestStatementKey(request: ClaimDraftResponse["proofRequests"][number]): string {
-  return [
-    request.target_credential,
-    request.destination_address_encoding,
-    request.destination_address,
-  ].join(":");
+  return [request.target_credential, request.destination_address_encoding, request.destination_address].join(":");
 }
 
 async function requestJSON(

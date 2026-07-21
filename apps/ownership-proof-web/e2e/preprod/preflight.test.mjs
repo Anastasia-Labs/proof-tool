@@ -102,7 +102,8 @@ describe("Phase 9A preprod preflight", () => {
   it("requires all four preprod wallet roles and redacts secret material from reports", async () => {
     const repo = tempDir();
     const walletPath = path.join(repo, "wallets.json");
-    const leakedMnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    const leakedMnemonic =
+      "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     writeFile(
       walletPath,
       JSON.stringify({
@@ -164,18 +165,16 @@ describe("Phase 9A preprod preflight", () => {
 
   it("requires the deployment manifest to be Preprod and use a full commit SHA", () => {
     expect(
-      validatePreprodManifest(
-        {
-          ...validManifest("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-          network: "Mainnet",
-          network_id: 1,
-        },
-      ).map((error) => error.code),
+      validatePreprodManifest({
+        ...validManifest("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        network: "Mainnet",
+        network_id: 1,
+      }).map((error) => error.code),
     ).toEqual(expect.arrayContaining(["manifest_network_not_preprod", "manifest_network_id_not_preprod"]));
 
-    expect(
-      validatePreprodManifest(validManifest("not-a-full-commit")).map((error) => error.code),
-    ).toContain("manifest_source_commit_invalid");
+    expect(validatePreprodManifest(validManifest("not-a-full-commit")).map((error) => error.code)).toContain(
+      "manifest_source_commit_invalid",
+    );
   });
 
   it("accepts an ancestor deployment commit and rejects an unrelated commit", () => {
@@ -184,7 +183,9 @@ describe("Phase 9A preprod preflight", () => {
 
     expect(validateDeploymentSourceCommit(sourceCommit, currentCommit, { ok: true, isAncestor: true })).toEqual([]);
     expect(
-      validateDeploymentSourceCommit(sourceCommit, currentCommit, { ok: true, isAncestor: false }).map((error) => error.code),
+      validateDeploymentSourceCommit(sourceCommit, currentCommit, { ok: true, isAncestor: false }).map(
+        (error) => error.code,
+      ),
     ).toContain("manifest_source_commit_not_ancestor");
   });
 
@@ -317,7 +318,10 @@ function words(prefix, count) {
     "window",
     "yellow",
   ];
-  return suffixes.slice(0, count).map((suffix) => `${prefix}${suffix}`).join(" ");
+  return suffixes
+    .slice(0, count)
+    .map((suffix) => `${prefix}${suffix}`)
+    .join(" ");
 }
 
 function tempDir() {

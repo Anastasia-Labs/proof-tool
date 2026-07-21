@@ -6,16 +6,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runClaimFirstBatchStage } from "./claim-stage.mjs";
 
 const tempDirs = [];
-const selectedOutrefs = ["1".repeat(64) + "#0", "2".repeat(64) + "#1", "3".repeat(64) + "#0", "4".repeat(64) + "#0"];
-const deploymentId = "preprod:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:1234567890abcdef1234567890abcdef12345678";
-const txCbor = "84a10081825820" + "11".repeat(32);
+const selectedOutrefs = [`${"1".repeat(64)}#0`, `${"2".repeat(64)}#1`, `${"3".repeat(64)}#0`, `${"4".repeat(64)}#0`];
+const deploymentId =
+  "preprod:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:1234567890abcdef1234567890abcdef12345678";
+const txCbor = `84a10081825820${"11".repeat(32)}`;
 const witnessSetCbor = "a100";
 const reviewToken = "v1.review-token-secret";
 const proofHex = "ab".repeat(192);
 const publicInputDigestHex = "cd".repeat(32);
 const safeAddress =
   "addr_test1qzjvktx3h2m6q3zv9n2wp0v8nyk2pyvrgk55l5xv8p0v08y5qtqv0w7wq7fxy8ky5flvypv4h8gnl3w2n2e2djf5qgpsx8x5g";
-const destinationAddress = "01" + "2a".repeat(28) + "00" + "00".repeat(28);
+const destinationAddress = `01${"2a".repeat(28)}00${"00".repeat(28)}`;
 
 afterEach(() => {
   while (tempDirs.length > 0) {
@@ -338,21 +339,21 @@ function claimReview() {
       },
     })),
     paramsReferenceInput: {
-      outRefId: "9".repeat(64) + "#0",
+      outRefId: `${"9".repeat(64)}#0`,
       holderAddress: "addr_test1params",
       datumCbor: "d87980",
     },
     referenceScriptInputs: [
       {
         role: "reclaim_base",
-        outRefId: "8".repeat(64) + "#0",
+        outRefId: `${"8".repeat(64)}#0`,
         holderAddress: "addr_test1base",
         scriptHash: "a".repeat(56),
         scriptType: "PlutusV3",
       },
       {
         role: "reclaim_global",
-        outRefId: "7".repeat(64) + "#0",
+        outRefId: `${"7".repeat(64)}#0`,
         holderAddress: "addr_test1global",
         scriptHash: "b".repeat(56),
         scriptType: "PlutusV3",
@@ -453,7 +454,11 @@ function sortJson(value) {
     return value.map(sortJson);
   }
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => [key, sortJson(item)]));
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, sortJson(item)]),
+    );
   }
   return value;
 }

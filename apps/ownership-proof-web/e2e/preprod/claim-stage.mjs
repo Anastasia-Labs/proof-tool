@@ -27,8 +27,16 @@ export async function runClaimFirstBatchStage(options = {}) {
   const fetchFn = options.fetch ?? globalThis.fetch;
   const mkdir = options.mkdir ?? mkdirSync;
   const writeFile = options.writeFile ?? writeFileSync;
-  const progressPollMs = parsePositiveInt(env[CLAIM_PROGRESS_POLL_MS_ENV]?.trim(), DEFAULT_PROGRESS_POLL_MS, CLAIM_PROGRESS_POLL_MS_ENV);
-  const progressTimeoutMs = parsePositiveInt(env[CLAIM_PROGRESS_TIMEOUT_MS_ENV]?.trim(), DEFAULT_PROGRESS_TIMEOUT_MS, CLAIM_PROGRESS_TIMEOUT_MS_ENV);
+  const progressPollMs = parsePositiveInt(
+    env[CLAIM_PROGRESS_POLL_MS_ENV]?.trim(),
+    DEFAULT_PROGRESS_POLL_MS,
+    CLAIM_PROGRESS_POLL_MS_ENV,
+  );
+  const progressTimeoutMs = parsePositiveInt(
+    env[CLAIM_PROGRESS_TIMEOUT_MS_ENV]?.trim(),
+    DEFAULT_PROGRESS_TIMEOUT_MS,
+    CLAIM_PROGRESS_TIMEOUT_MS_ENV,
+  );
   const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   if (typeof fetchFn !== "function") {
     throw new PreprodClaimStageError("fetch_unavailable", "fetch is required for claim-first-batch.");
@@ -36,7 +44,10 @@ export async function runClaimFirstBatchStage(options = {}) {
 
   const beforeState = walletState(walletHarness, SAFE_WALLET_ROLE);
   if (beforeState.canSign !== true) {
-    throw new PreprodClaimStageError("safe_wallet_read_only", `${SAFE_WALLET_ROLE} must be able to sign the claim transaction.`);
+    throw new PreprodClaimStageError(
+      "safe_wallet_read_only",
+      `${SAFE_WALLET_ROLE} must be able to sign the claim transaction.`,
+    );
   }
   const signAttemptsBefore = numberOrZero(beforeState.signAttempts);
   const buildRequest = claimBuildRequest(proofBundle);
@@ -51,12 +62,18 @@ export async function runClaimFirstBatchStage(options = {}) {
 
   const witnessSetCbor = await walletHarness.call?.(SAFE_WALLET_ROLE, "signTx", [build.txCbor, true]);
   if (!isHex(witnessSetCbor)) {
-    throw new PreprodClaimStageError("safe_wallet_witness_invalid", "Safe wallet did not return a witness set CBOR hex string.");
+    throw new PreprodClaimStageError(
+      "safe_wallet_witness_invalid",
+      "Safe wallet did not return a witness set CBOR hex string.",
+    );
   }
   const afterState = walletState(walletHarness, SAFE_WALLET_ROLE);
   const signAttemptsAfter = numberOrZero(afterState.signAttempts);
   if (signAttemptsAfter !== signAttemptsBefore + 1) {
-    throw new PreprodClaimStageError("safe_wallet_sign_attempt_mismatch", "Safe wallet sign attempt count did not change exactly once.");
+    throw new PreprodClaimStageError(
+      "safe_wallet_sign_attempt_mismatch",
+      "Safe wallet sign attempt count did not change exactly once.",
+    );
   }
 
   const submit = await fetchAppJson(fetchFn, appTarget.baseUrl, "/claim-api/submit", {
@@ -80,9 +97,7 @@ export async function runClaimFirstBatchStage(options = {}) {
     sleep,
   });
 
-  const screenshotPath = options.page
-    ? path.join(outputDir, "screenshots", "claim-first-batch.png")
-    : null;
+  const screenshotPath = options.page ? path.join(outputDir, "screenshots", "claim-first-batch.png") : null;
   if (screenshotPath) {
     mkdir(path.dirname(screenshotPath), { recursive: true });
     await options.page.screenshot({
@@ -158,10 +173,16 @@ function claimBuildRequest(proofBundle) {
   const draft = proofBundle?.draft;
   const selectedOutrefs = proofBundle?.selectedOutrefs;
   if (!draft || !Array.isArray(selectedOutrefs) || selectedOutrefs.length === 0) {
-    throw new PreprodClaimStageError("proof_bundle_invalid", "Destination proof bundle is missing the selected claim batch.");
+    throw new PreprodClaimStageError(
+      "proof_bundle_invalid",
+      "Destination proof bundle is missing the selected claim batch.",
+    );
   }
   if (!Array.isArray(proofBundle.proofArtifacts) || proofBundle.proofArtifacts.length !== selectedOutrefs.length) {
-    throw new PreprodClaimStageError("proof_bundle_invalid", "Destination proof bundle artifact count does not match the selected claim batch.");
+    throw new PreprodClaimStageError(
+      "proof_bundle_invalid",
+      "Destination proof bundle artifact count does not match the selected claim batch.",
+    );
   }
   return {
     deploymentId: proofBundle.deploymentId,
@@ -180,11 +201,17 @@ async function fetchAppJson(fetchFn, baseUrl, endpoint, init) {
   try {
     response = await fetchFn(url, init);
   } catch (error) {
-    throw new PreprodClaimStageError("fetch_failed", `Claim stage request failed: ${error?.message ?? "request failed"}`);
+    throw new PreprodClaimStageError(
+      "fetch_failed",
+      `Claim stage request failed: ${error?.message ?? "request failed"}`,
+    );
   }
   if (!response || response.status < 200 || response.status >= 300) {
     const detail = response ? await readErrorDetail(response) : "";
-    throw new PreprodClaimStageError("http_error", `${endpoint} returned HTTP ${response?.status ?? "unknown"}${detail}.`);
+    throw new PreprodClaimStageError(
+      "http_error",
+      `${endpoint} returned HTTP ${response?.status ?? "unknown"}${detail}.`,
+    );
   }
   try {
     return await response.json();
@@ -218,38 +245,62 @@ function sanitizeHttpErrorMessage(value) {
 
 function assertClaimBuild(build, selectedOutrefs) {
   if (!isHex(build?.txCbor) || !isHex(build?.txHash) || build.txHash.length !== 64) {
-    throw new PreprodClaimStageError("claim_build_tx_invalid", "Claim build response did not include a valid unsigned transaction.");
+    throw new PreprodClaimStageError(
+      "claim_build_tx_invalid",
+      "Claim build response did not include a valid unsigned transaction.",
+    );
   }
   if (typeof build.reviewToken !== "string" || build.reviewToken.trim() === "") {
-    throw new PreprodClaimStageError("claim_build_review_token_missing", "Claim build response did not include a review token.");
+    throw new PreprodClaimStageError(
+      "claim_build_review_token_missing",
+      "Claim build response did not include a review token.",
+    );
   }
   if (!build.review || build.reviewHash !== sha256Stable(build.review)) {
     throw new PreprodClaimStageError("claim_build_review_invalid", "Claim build review hash is inconsistent.");
   }
   if (build.review.selectedOutrefs?.join("|") !== selectedOutrefs.join("|")) {
-    throw new PreprodClaimStageError("claim_build_selected_outrefs_mismatch", "Claim build selected outrefs do not match the proof bundle.");
+    throw new PreprodClaimStageError(
+      "claim_build_selected_outrefs_mismatch",
+      "Claim build selected outrefs do not match the proof bundle.",
+    );
   }
   if (!Array.isArray(build.review.proofDigests) || build.review.proofDigests.length !== selectedOutrefs.length) {
-    throw new PreprodClaimStageError("claim_build_proof_digests_missing", "Claim build review did not include proof digests for the selected batch.");
+    throw new PreprodClaimStageError(
+      "claim_build_proof_digests_missing",
+      "Claim build review did not include proof digests for the selected batch.",
+    );
   }
   const evaluation = summarizeEvaluation(build.evaluation);
   if (
     (evaluation.memoryPercent !== null && evaluation.memoryPercent > 100) ||
     (evaluation.cpuPercent !== null && evaluation.cpuPercent > 100)
   ) {
-    throw new PreprodClaimStageError("claim_evaluation_margin_exceeded", "Claim build evaluation exceeds protocol limits.");
+    throw new PreprodClaimStageError(
+      "claim_evaluation_margin_exceeded",
+      "Claim build evaluation exceeds protocol limits.",
+    );
   }
 }
 
 function assertClaimSubmit(submit, build, selectedOutrefs) {
   if (submit?.txHash !== build.txHash) {
-    throw new PreprodClaimStageError("claim_submit_tx_hash_mismatch", "Claim submit tx hash did not match the reviewed build.");
+    throw new PreprodClaimStageError(
+      "claim_submit_tx_hash_mismatch",
+      "Claim submit tx hash did not match the reviewed build.",
+    );
   }
   if (submit.deploymentId !== build.review.deploymentId) {
-    throw new PreprodClaimStageError("claim_submit_deployment_mismatch", "Claim submit deployment id did not match the reviewed build.");
+    throw new PreprodClaimStageError(
+      "claim_submit_deployment_mismatch",
+      "Claim submit deployment id did not match the reviewed build.",
+    );
   }
   if (submit.selectedOutrefs?.join("|") !== selectedOutrefs.join("|")) {
-    throw new PreprodClaimStageError("claim_submit_selected_outrefs_mismatch", "Claim submit selected outrefs did not match the selected batch.");
+    throw new PreprodClaimStageError(
+      "claim_submit_selected_outrefs_mismatch",
+      "Claim submit selected outrefs did not match the selected batch.",
+    );
   }
 }
 
@@ -263,7 +314,10 @@ async function waitForSelectedOutrefsSpent(fetchFn, baseUrl, selectedOutrefs, op
     const progress = await fetchJson(fetchFn, endpoint);
     const selected = progress?.outrefs;
     if (!Array.isArray(selected)) {
-      throw new PreprodClaimStageError("claim_progress_malformed", "Claim progress response did not include selected outref statuses.");
+      throw new PreprodClaimStageError(
+        "claim_progress_malformed",
+        "Claim progress response did not include selected outref statuses.",
+      );
     }
     const statuses = new Map(selected.map((item) => [item.outRefId, item.state]));
     const missing = selectedOutrefs.filter((outRef) => !statuses.has(outRef));
@@ -281,11 +335,17 @@ async function waitForSelectedOutrefsSpent(fetchFn, baseUrl, selectedOutrefs, op
       };
     }
     if (states.some((state) => state === "dropped" || state === "replaced")) {
-      throw new PreprodClaimStageError("claim_progress_terminal_failure", "Claim progress reported a dropped or replaced selected outref.");
+      throw new PreprodClaimStageError(
+        "claim_progress_terminal_failure",
+        "Claim progress reported a dropped or replaced selected outref.",
+      );
     }
     await options.sleep(options.pollMs);
   }
-  throw new PreprodClaimStageError("claim_progress_timeout", "Timed out waiting for selected reclaim outrefs to be spent.");
+  throw new PreprodClaimStageError(
+    "claim_progress_timeout",
+    "Timed out waiting for selected reclaim outrefs to be spent.",
+  );
 }
 
 async function fetchJson(fetchFn, url) {
@@ -293,7 +353,10 @@ async function fetchJson(fetchFn, url) {
   try {
     response = await fetchFn(url);
   } catch (error) {
-    throw new PreprodClaimStageError("fetch_failed", `Claim stage request failed: ${error?.message ?? "request failed"}`);
+    throw new PreprodClaimStageError(
+      "fetch_failed",
+      `Claim stage request failed: ${error?.message ?? "request failed"}`,
+    );
   }
   if (!response || response.status < 200 || response.status >= 300) {
     throw new PreprodClaimStageError("http_error", `${url.pathname} returned HTTP ${response?.status ?? "unknown"}.`);
@@ -392,7 +455,11 @@ function sortJson(value) {
     return value.map(sortJson);
   }
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => [key, sortJson(item)]));
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, sortJson(item)]),
+    );
   }
   return value;
 }

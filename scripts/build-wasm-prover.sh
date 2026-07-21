@@ -9,8 +9,9 @@
 #   runtime-manifest.json    — go version, build flags, and per-file
 #                              size / sha256 / blake2b256 digests
 #
-# Builds use -trimpath and -ldflags "-buildid=" so two clean builds of the same
-# tree with the same toolchain produce byte-identical wasm (identical hashes).
+# Builds use -trimpath, disable repository-dependent VCS stamping, and clear the
+# build ID so two clean builds of the same tree with the same toolchain produce
+# byte-identical wasm (identical hashes), including from linked worktrees.
 #
 # After each module is built, wasm-opt (Binaryen) runs a deterministic -O3
 # post-pass: single-digit-percent size and speed gains on Go wasm output, no
@@ -28,7 +29,7 @@ out_dir="$(cd "${out_dir}" && pwd)"
 cd "${repo_root}"
 
 go_version="$(go version)"
-build_flags="-trimpath -mod=vendor -ldflags -buildid="
+build_flags="-trimpath -buildvcs=false -mod=vendor -ldflags -buildid="
 echo "toolchain: ${go_version}"
 echo "build flags: ${build_flags}"
 echo "output dir: ${out_dir}"

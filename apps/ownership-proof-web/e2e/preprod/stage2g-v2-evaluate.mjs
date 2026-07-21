@@ -28,7 +28,17 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, constants as fsConstants, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import {
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -211,7 +221,10 @@ export function loadBenchmarkMaterial(materialPath, readTextFile = (filePath) =>
 export function validateBenchmarkMaterial(raw) {
   const root = requireObject(raw, "benchmark material");
   if (root.schema !== MATERIAL_SCHEMA) {
-    throw new Stage2gV2EvaluationError("benchmark_material_schema", `benchmark material schema must be ${MATERIAL_SCHEMA}.`);
+    throw new Stage2gV2EvaluationError(
+      "benchmark_material_schema",
+      `benchmark material schema must be ${MATERIAL_SCHEMA}.`,
+    );
   }
   if (root.network !== NETWORK) {
     throw new Stage2gV2EvaluationError("benchmark_material_network", "benchmark material network must be Preprod.");
@@ -277,7 +290,10 @@ function normalizeParams(raw) {
   const policyId = normalizeHex(params.policy_id, "params.policy_id", 28);
   const tokenName = normalizeHex(params.token_name, "params.token_name");
   if (tokenName !== PARAMS_TOKEN_NAME) {
-    throw new Stage2gV2EvaluationError("benchmark_params_token_name", "params.token_name must be the RECLAIMPARAMS token name.");
+    throw new Stage2gV2EvaluationError(
+      "benchmark_params_token_name",
+      "params.token_name must be the RECLAIMPARAMS token name.",
+    );
   }
   return {
     policyId,
@@ -305,7 +321,10 @@ function normalizeBootstrap(raw) {
     const outputIndex = normalizeOutputIndex(utxo.output_index, `bootstrap.utxos[${index}].output_index`);
     const outRef = `${txHash}#${outputIndex}`;
     if (seen.has(outRef)) {
-      throw new Stage2gV2EvaluationError("benchmark_outref_duplicate", "benchmark bootstrap UTxO outrefs must be unique.");
+      throw new Stage2gV2EvaluationError(
+        "benchmark_outref_duplicate",
+        "benchmark bootstrap UTxO outrefs must be unique.",
+      );
     }
     seen.add(outRef);
     return {
@@ -335,8 +354,15 @@ function normalizeBenchmarkEntries(raw) {
     const outRef = `${txHash}#${outputIndex}`;
     const credential = normalizeHex(entry.credential, `entries[${index}].credential`, 28);
     const proofHex = normalizeHex(entry.proof_hex, `entries[${index}].proof_hex`, 336);
-    const publicInputDigestHex = normalizeHex(entry.public_input_digest_hex, `entries[${index}].public_input_digest_hex`, 32);
-    const destinationAddress = normalizePreprodAddress(entry.destination_address, `entries[${index}].destination_address`);
+    const publicInputDigestHex = normalizeHex(
+      entry.public_input_digest_hex,
+      `entries[${index}].public_input_digest_hex`,
+      32,
+    );
+    const destinationAddress = normalizePreprodAddress(
+      entry.destination_address,
+      `entries[${index}].destination_address`,
+    );
     const destinationAddressV1 = destinationAddressV1Bytes(destinationAddress, `entries[${index}].destination_address`);
     const expectedDigest = destinationPublicInputDigest(credential, destinationAddressV1);
     if (publicInputDigestHex !== expectedDigest) {
@@ -372,7 +398,11 @@ function normalizeBenchmarkEntries(raw) {
   return entries.sort(compareOutRefs);
 }
 
-export async function exportAttachedV2Scripts({ material, repoRoot = REPO_ROOT, execFile: execFileFn = execFileAsync }) {
+export async function exportAttachedV2Scripts({
+  material,
+  repoRoot = REPO_ROOT,
+  execFile: execFileFn = execFileAsync,
+}) {
   const contractDir = path.join(repoRoot, "contracts", "ownership-verifier");
   const global = await exportScript(execFileFn, contractDir, [
     "global-v2",
@@ -407,67 +437,59 @@ export async function exportAttachedV2Scripts({ material, repoRoot = REPO_ROOT, 
   };
 }
 
-export async function exportAttachedBaselineScripts({ material, repoRoot = REPO_ROOT, execFile: execFileFn = execFileAsync }) {
-  const contractDir = path.join(repoRoot, "contracts", "ownership-verifier");
-  const global = await exportScript(execFileFn, contractDir, [
-    "global",
-    material.params.policyId,
-    material.params.tokenName,
-    material.cardanoVkHex,
-  ]);
-  assertScriptShape(global, "global");
-  if (global.proof_slot_encoding !== "bytes-empty-same-as-previous-v1") {
-    throw new Stage2gV2EvaluationError(
-      "stage2g_baseline_export_invalid",
-      "baseline exporter did not return the canonical current proof-slot encoding.",
-    );
-  }
-  const globalScript = { type: global.type, script: global.script };
-  const globalScriptHash = validatorToScriptHash(globalScript).toLowerCase();
-  const base = await exportScript(execFileFn, contractDir, ["base", globalScriptHash]);
-  assertScriptShape(base, "base");
-  return {
-    baseScript: { type: base.type, script: base.script },
-    globalScript,
-    baseScriptHash: validatorToScriptHash({ type: base.type, script: base.script }).toLowerCase(),
-    globalScriptHash,
-    proofSlotEncoding: "bytes-empty-same-as-previous-v1",
-    batchTranscript: "proof-only-v1",
-    attachment: "direct",
-  };
-}
-
 async function exportScript(execFileFn, contractDir, args) {
   try {
-    const result = await execFileFn(
-      "cabal",
-      ["v2-run", "reclaim-scripts-export", "--", ...args],
-      { cwd: contractDir, maxBuffer: 256 * 1024 * 1024 },
-    );
+    const result = await execFileFn("cabal", ["v2-run", "reclaim-scripts-export", "--", ...args], {
+      cwd: contractDir,
+      maxBuffer: 256 * 1024 * 1024,
+    });
     const stdout = typeof result === "string" ? result : result.stdout;
     return JSON.parse(String(stdout).slice(String(stdout).indexOf("{")));
   } catch (error) {
-    throw new Stage2gV2EvaluationError("stage2g_script_export_failed", `Unable to export attached Stage 2g scripts: ${redactError(error)}.`);
+    throw new Stage2gV2EvaluationError(
+      "stage2g_script_export_failed",
+      `Unable to export attached Stage 2g scripts: ${redactError(error)}.`,
+    );
   }
 }
 
 function assertScriptShape(script, label) {
-  if (!script || script.type !== "PlutusV3" || !/^[0-9a-f]+$/iu.test(script.script ?? "") || script.script.length % 2 !== 0) {
-    throw new Stage2gV2EvaluationError("stage2g_script_export_invalid", `${label} script export is not a Plutus V3 script.`);
+  if (
+    !script ||
+    script.type !== "PlutusV3" ||
+    !/^[0-9a-f]+$/iu.test(script.script ?? "") ||
+    script.script.length % 2 !== 0
+  ) {
+    throw new Stage2gV2EvaluationError(
+      "stage2g_script_export_invalid",
+      `${label} script export is not a Plutus V3 script.`,
+    );
   }
 }
 
 function assertAttachedV2Scripts(scripts, material) {
   if (!scripts || scripts.attachment !== "direct") {
-    throw new Stage2gV2EvaluationError("stage2g_script_attachment", "Stage 2g must use direct attached base and global scripts.");
+    throw new Stage2gV2EvaluationError(
+      "stage2g_script_attachment",
+      "Stage 2g must use direct attached base and global scripts.",
+    );
   }
   assertScriptShape(scripts.baseScript, "base");
   assertScriptShape(scripts.globalScript, "global");
-  if (!/^[0-9a-f]{56}$/iu.test(scripts.baseScriptHash ?? "") || !/^[0-9a-f]{56}$/iu.test(scripts.globalScriptHash ?? "")) {
-    throw new Stage2gV2EvaluationError("stage2g_script_hash", "Stage 2g exporter did not return canonical base/global script hashes.");
+  if (
+    !/^[0-9a-f]{56}$/iu.test(scripts.baseScriptHash ?? "") ||
+    !/^[0-9a-f]{56}$/iu.test(scripts.globalScriptHash ?? "")
+  ) {
+    throw new Stage2gV2EvaluationError(
+      "stage2g_script_hash",
+      "Stage 2g exporter did not return canonical base/global script hashes.",
+    );
   }
   if (scripts.cardanoVkHash !== undefined && scripts.cardanoVkHash !== material.cardanoVkHash) {
-    throw new Stage2gV2EvaluationError("stage2g_script_export_invalid", "Stage 2g exporter key hash does not match benchmark material.");
+    throw new Stage2gV2EvaluationError(
+      "stage2g_script_export_invalid",
+      "Stage 2g exporter key hash does not match benchmark material.",
+    );
   }
 }
 
@@ -487,33 +509,28 @@ export async function buildSyntheticAttachedTx({ provider, material, scripts, lu
   const globalRedeemer = (ctx) => {
     const paramsIndex = ctx.referenceInputs.findIndex((utxo) => outRefId(utxo) === outRefId(synthetic.paramsUtxo));
     if (paramsIndex < 0) {
-      throw new Stage2gV2EvaluationError("stage2g_params_reference_missing", "Synthetic params UTxO is absent from the final reference-input order.");
+      throw new Stage2gV2EvaluationError(
+        "stage2g_params_reference_missing",
+        "Synthetic params UTxO is absent from the final reference-input order.",
+      );
     }
     const finalBaseOutRefs = ctx.inputs.filter((utxo) => baseOutRefs.has(outRefId(utxo))).map(outRefId);
     if (finalBaseOutRefs.length !== 7) {
-      throw new Stage2gV2EvaluationError("stage2g_base_input_count", "Final transaction does not contain exactly seven synthetic ReclaimBase inputs.");
+      throw new Stage2gV2EvaluationError(
+        "stage2g_base_input_count",
+        "Final transaction does not contain exactly seven synthetic ReclaimBase inputs.",
+      );
     }
     const entries = finalBaseOutRefs.map((outRef) => entryByOutRef.get(outRef));
     if (entries.some((entry) => !entry)) {
-      throw new Stage2gV2EvaluationError("stage2g_base_input_order", "Final synthetic ReclaimBase input order is not represented in benchmark material.");
-    }
-    const proofs = entries.map((entry) => entry.proofHex);
-    if (scripts.proofSlotEncoding === PROOF_SLOT_ENCODING && scripts.batchTranscript === BATCH_TRANSCRIPT) {
-      return Data.to(
-        new Constr(0, [
-          BigInt(paramsIndex),
-          0n,
-          proofs,
-          entries.map((entry) => entry.publicInputDigestHex),
-        ]),
+      throw new Stage2gV2EvaluationError(
+        "stage2g_base_input_order",
+        "Final synthetic ReclaimBase input order is not represented in benchmark material.",
       );
     }
-    if (scripts.proofSlotEncoding === "bytes-empty-same-as-previous-v1" && scripts.batchTranscript === "proof-only-v1") {
-      return Data.to(new Constr(0, [BigInt(paramsIndex), 0n, proofs]));
-    }
-    throw new Stage2gV2EvaluationError(
-      "stage2g_proof_slot_encoding",
-      "Synthetic comparison builder received an unsupported proof-slot encoding.",
+    const proofs = entries.map((entry) => entry.proofHex);
+    return Data.to(
+      new Constr(0, [BigInt(paramsIndex), 0n, proofs, entries.map((entry) => entry.publicInputDigestHex)]),
     );
   };
 
@@ -648,11 +665,17 @@ function safeRedeemerIndex(value) {
 
 function boundedUnits(maximum) {
   if (maximum <= 0n) {
-    throw new Stage2gV2EvaluationError("stage2g_protocol_limits", "Provider protocol limits are unavailable for bounded serialization units.");
+    throw new Stage2gV2EvaluationError(
+      "stage2g_protocol_limits",
+      "Provider protocol limits are unavailable for bounded serialization units.",
+    );
   }
   const unit = maximum / 64n;
   if (unit > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Stage2gV2EvaluationError("stage2g_protocol_limits", "Provider protocol limit cannot be represented by Lucid's evaluator adapter.");
+    throw new Stage2gV2EvaluationError(
+      "stage2g_protocol_limits",
+      "Provider protocol limit cannot be represented by Lucid's evaluator adapter.",
+    );
   }
   return Math.max(1, Number(unit));
 }
@@ -667,7 +690,10 @@ export function summarizeProviderEvaluation(redeemers, protocolParameters) {
   const maxMemory = BigInt(protocolParameters?.maxTxExMem ?? 0n);
   const maxSteps = BigInt(protocolParameters?.maxTxExSteps ?? 0n);
   if (maxMemory <= 0n || maxSteps <= 0n) {
-    throw new Stage2gV2EvaluationError("stage2g_protocol_limits", "Provider did not return usable transaction execution limits.");
+    throw new Stage2gV2EvaluationError(
+      "stage2g_protocol_limits",
+      "Provider did not return usable transaction execution limits.",
+    );
   }
   let totalMemory = 0n;
   let totalSteps = 0n;
@@ -716,8 +742,16 @@ export function assertMeasuredV2Margin(evaluation, policy) {
 }
 
 function assertBuiltTransaction(built) {
-  if (!built || typeof built.txCbor !== "string" || !/^[0-9a-f]+$/iu.test(built.txCbor) || built.txCbor.length % 2 !== 0) {
-    throw new Stage2gV2EvaluationError("stage2g_tx_serialization", "Stage 2g bootstrap builder did not return unsigned transaction CBOR.");
+  if (
+    !built ||
+    typeof built.txCbor !== "string" ||
+    !/^[0-9a-f]+$/iu.test(built.txCbor) ||
+    built.txCbor.length % 2 !== 0
+  ) {
+    throw new Stage2gV2EvaluationError(
+      "stage2g_tx_serialization",
+      "Stage 2g bootstrap builder did not return unsigned transaction CBOR.",
+    );
   }
   if (!Array.isArray(built.additionalUtxos) || built.additionalUtxos.length < 10) {
     throw new Stage2gV2EvaluationError(
@@ -726,14 +760,20 @@ function assertBuiltTransaction(built) {
     );
   }
   if (built.attachment !== "direct") {
-    throw new Stage2gV2EvaluationError("stage2g_script_attachment", "Stage 2g bootstrap builder did not use directly attached scripts.");
+    throw new Stage2gV2EvaluationError(
+      "stage2g_script_attachment",
+      "Stage 2g bootstrap builder did not use directly attached scripts.",
+    );
   }
 }
 
 export function createPreprodProvider(env) {
   const projectId = env.RECLAIM_BLOCKFROST_PROJECT_ID?.trim() || env.BLOCKFROST_PROJECT_ID?.trim();
   if (!projectId) {
-    throw new Stage2gV2EvaluationError("blockfrost_project_id_missing", "RECLAIM_BLOCKFROST_PROJECT_ID is required for Stage 2g Preprod evaluation.");
+    throw new Stage2gV2EvaluationError(
+      "blockfrost_project_id_missing",
+      "RECLAIM_BLOCKFROST_PROJECT_ID is required for Stage 2g Preprod evaluation.",
+    );
   }
   const url = env.RECLAIM_BLOCKFROST_URL?.trim() || "https://cardano-preprod.blockfrost.io/api/v0";
   return new Blockfrost(url, projectId);
@@ -741,24 +781,36 @@ export function createPreprodProvider(env) {
 
 function assertProvider(provider) {
   if (!provider || typeof provider.evaluateTx !== "function" || typeof provider.getProtocolParameters !== "function") {
-    throw new Stage2gV2EvaluationError("stage2g_provider_invalid", "Stage 2g requires a provider with evaluateTx and getProtocolParameters.");
+    throw new Stage2gV2EvaluationError(
+      "stage2g_provider_invalid",
+      "Stage 2g requires a provider with evaluateTx and getProtocolParameters.",
+    );
   }
 }
 
 function resolveMaterialPath(env, repoRoot, explicitPath) {
   const configured = explicitPath ?? env[MATERIAL_FILE_ENV]?.trim();
   if (!configured) {
-    throw new Stage2gV2EvaluationError("benchmark_material_missing", `${MATERIAL_FILE_ENV} must point to local Stage 2g benchmark material.`);
+    throw new Stage2gV2EvaluationError(
+      "benchmark_material_missing",
+      `${MATERIAL_FILE_ENV} must point to local Stage 2g benchmark material.`,
+    );
   }
   const resolved = path.isAbsolute(configured) ? configured : path.resolve(repoRoot, configured);
   if (!existsSync(resolved)) {
-    throw new Stage2gV2EvaluationError("benchmark_material_missing", "Configured Stage 2g benchmark material file does not exist.");
+    throw new Stage2gV2EvaluationError(
+      "benchmark_material_missing",
+      "Configured Stage 2g benchmark material file does not exist.",
+    );
   }
   return resolved;
 }
 
 function resolveEvidencePath(env, repoRoot, explicitPath) {
-  const configured = explicitPath ?? env[EVIDENCE_FILE_ENV]?.trim() ?? path.join(...EVIDENCE_OUTPUT_RELATIVE_ROOT, "evaluation.local.json");
+  const configured =
+    explicitPath ??
+    env[EVIDENCE_FILE_ENV]?.trim() ??
+    path.join(...EVIDENCE_OUTPUT_RELATIVE_ROOT, "evaluation.local.json");
   const resolved = path.isAbsolute(configured) ? path.resolve(configured) : path.resolve(repoRoot, configured);
   assertSafeEvidencePath(resolved, repoRoot);
   return resolved;
@@ -875,12 +927,7 @@ function writeStage2gEvidenceExclusive(evidencePath, contents, repoRoot) {
   }
   const root = path.resolve(repoRoot);
   const relative = path.relative(root, evidencePath);
-  if (
-    relative === "" ||
-    path.isAbsolute(relative) ||
-    relative === ".." ||
-    relative.startsWith(`..${path.sep}`)
-  ) {
+  if (relative === "" || path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) {
     throw new Error("unsafe Stage 2g evidence output path");
   }
   const components = relative.split(path.sep).filter((part) => part && part !== ".");
@@ -889,7 +936,7 @@ function writeStage2gEvidenceExclusive(evidencePath, contents, repoRoot) {
     throw new Error("unsafe Stage 2g evidence output path");
   }
 
-	let directoryFd = openAbsoluteStage2gDirectory(root);
+  let directoryFd = openAbsoluteStage2gDirectory(root);
   try {
     for (const component of components) {
       const childPath = procFdPath(directoryFd, component);
@@ -930,10 +977,7 @@ function writeStage2gEvidenceExclusive(evidencePath, contents, repoRoot) {
 }
 
 function openStage2gDirectory(directoryPath) {
-  return openSync(
-    directoryPath,
-    fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW,
-  );
+  return openSync(directoryPath, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
 }
 
 function openAbsoluteStage2gDirectory(directoryPath) {
@@ -969,7 +1013,11 @@ function stageFailure(error) {
     return error;
   }
   const message = redactError(error);
-  if (/(stake|reward|withdrawal).{0,100}(not registered|unknown|missing|unregistered)|(?:not registered|unknown|missing|unregistered).{0,100}(stake|reward|withdrawal)/iu.test(message)) {
+  if (
+    /(stake|reward|withdrawal).{0,100}(not registered|unknown|missing|unregistered)|(?:not registered|unknown|missing|unregistered).{0,100}(stake|reward|withdrawal)/iu.test(
+      message,
+    )
+  ) {
     return new Stage2gV2EvaluationError(
       "synthetic_stake_state_rejected",
       "Provider rejected the synthetic script reward-account state. This stage intentionally does not register stake state; use an evaluator that accepts the supplied synthetic state or stop here.",
@@ -1032,7 +1080,10 @@ function normalizePreprodAddress(value, field) {
 function destinationAddressV1Bytes(address, field) {
   const details = getAddressDetails(address);
   if (details.networkId !== NETWORK_ID || details.type === "Pointer" || !details.paymentCredential) {
-    throw new Stage2gV2EvaluationError("benchmark_destination_invalid", `${field} is not a supported Preprod destination.`);
+    throw new Stage2gV2EvaluationError(
+      "benchmark_destination_invalid",
+      `${field} is not a supported Preprod destination.`,
+    );
   }
   const payment = credentialV1Bytes(details.paymentCredential, `${field}.paymentCredential`);
   const stake = details.stakeCredential
@@ -1090,7 +1141,11 @@ function normalizeBlake2b256(value, field) {
 
 function normalizeHex(value, field, byteLength) {
   const normalized = typeof value === "string" ? value.trim().replace(/^0x/iu, "").toLowerCase() : "";
-  if (!/^[0-9a-f]+$/u.test(normalized) || normalized.length % 2 !== 0 || (byteLength !== undefined && normalized.length !== byteLength * 2)) {
+  if (
+    !/^[0-9a-f]+$/u.test(normalized) ||
+    normalized.length % 2 !== 0 ||
+    (byteLength !== undefined && normalized.length !== byteLength * 2)
+  ) {
     const suffix = byteLength === undefined ? "even-length hexadecimal" : `${byteLength} bytes of hexadecimal`;
     throw new Stage2gV2EvaluationError("benchmark_hex_invalid", `${field} must be ${suffix}.`);
   }
@@ -1126,15 +1181,17 @@ function percentCeil(value, maximum) {
 
 export function redactError(error) {
   const message = error instanceof Error ? error.message : String(error ?? "provider error");
-  return message
-    .replace(/\b(addr(?:_test)?1[0-9a-z]{20,})\b/giu, "[address-redacted]")
-    .replace(/\b(stake(?:_test)?1[0-9a-z]{20,})\b/giu, "[address-redacted]")
-    .replace(/\b[0-9a-f]{56,}\b/giu, "[hex-redacted]")
-    .replace(/\b[A-Za-z0-9_-]{96,}\b/gu, "[token-redacted]")
-    .replace(/(project_id|api[-_ ]?key|authorization|bearer)\s*[:=]\s*\S+/giu, "$1=[redacted]")
-    .replace(/\s+/gu, " ")
-    .trim()
-    .slice(0, 360) || "provider error";
+  return (
+    message
+      .replace(/\b(addr(?:_test)?1[0-9a-z]{20,})\b/giu, "[address-redacted]")
+      .replace(/\b(stake(?:_test)?1[0-9a-z]{20,})\b/giu, "[address-redacted]")
+      .replace(/\b[0-9a-f]{56,}\b/giu, "[hex-redacted]")
+      .replace(/\b[A-Za-z0-9_-]{96,}\b/gu, "[token-redacted]")
+      .replace(/(project_id|api[-_ ]?key|authorization|bearer)\s*[:=]\s*\S+/giu, "$1=[redacted]")
+      .replace(/\s+/gu, " ")
+      .trim()
+      .slice(0, 360) || "provider error"
+  );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

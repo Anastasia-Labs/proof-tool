@@ -43,14 +43,23 @@ export function assertWalletAddress(value: unknown, network: ReclaimNetwork): st
 
 export function assertWalletAddresses(value: unknown, network: ReclaimNetwork): string[] {
   if (!Array.isArray(value)) {
-    throw new ReclaimValidationError("wallet_addresses_invalid", "Wallet addresses must be provided by the connected wallet.");
+    throw new ReclaimValidationError(
+      "wallet_addresses_invalid",
+      "Wallet addresses must be provided by the connected wallet.",
+    );
   }
   const addresses = [...new Set(value.map((address) => assertWalletAddress(address, network)))];
   if (addresses.length === 0) {
-    throw new ReclaimValidationError("wallet_addresses_empty", "Connected wallet did not provide any payment addresses.");
+    throw new ReclaimValidationError(
+      "wallet_addresses_empty",
+      "Connected wallet did not provide any payment addresses.",
+    );
   }
   if (addresses.length > 50) {
-    throw new ReclaimValidationError("wallet_addresses_too_many", "Connected wallet returned too many addresses for one build request.");
+    throw new ReclaimValidationError(
+      "wallet_addresses_too_many",
+      "Connected wallet returned too many addresses for one build request.",
+    );
   }
   return addresses;
 }
@@ -62,7 +71,9 @@ export function assertWalletNetwork(value: unknown, expectedNetworkId: 0 | 1): v
   if (value !== expectedNetworkId) {
     throw new ReclaimValidationError(
       "wallet_network_mismatch",
-      expectedNetworkId === 1 ? "Wallet is not connected to mainnet." : "Wallet is not connected to the expected testnet.",
+      expectedNetworkId === 1
+        ? "Wallet is not connected to mainnet."
+        : "Wallet is not connected to the expected testnet.",
     );
   }
 }
@@ -79,10 +90,16 @@ export function assertAssetMap(value: unknown): Record<string, bigint> {
       throw new ReclaimValidationError("asset_unit_invalid", "Asset unit cannot be empty.");
     }
     if (unit !== LOVELACE_UNIT && (!HEX_RE.test(unit) || unit.length < 56)) {
-      throw new ReclaimValidationError("asset_unit_invalid", "Native token unit must be policy id plus token name hex.");
+      throw new ReclaimValidationError(
+        "asset_unit_invalid",
+        "Native token unit must be policy id plus token name hex.",
+      );
     }
     if (typeof rawQuantity !== "string" || !DECIMAL_RE.test(rawQuantity.trim())) {
-      throw new ReclaimValidationError("asset_quantity_invalid", "Asset quantities must be non-negative decimal strings.");
+      throw new ReclaimValidationError(
+        "asset_quantity_invalid",
+        "Asset quantities must be non-negative decimal strings.",
+      );
     }
     const quantity = BigInt(rawQuantity.trim());
     if (quantity <= 0n) {

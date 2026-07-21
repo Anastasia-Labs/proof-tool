@@ -261,7 +261,9 @@ describe("Stage 2g V2 material generator", () => {
   });
 
   it("rejects submission mode before accessing local secrets", () => {
-    expect(() => assertMaterialGenerationGate({ ...gates(), RECLAIM_E2E_SUBMIT_TRANSACTIONS: "1" })).toThrow(Stage2gV2MaterialError);
+    expect(() => assertMaterialGenerationGate({ ...gates(), RECLAIM_E2E_SUBMIT_TRANSACTIONS: "1" })).toThrow(
+      Stage2gV2MaterialError,
+    );
     expect(() => assertMaterialGenerationGate({ RECLAIM_E2E_LIVE_PREPROD: "1" })).toThrowError(
       expect.objectContaining({ code: "stage2g_material_gate_missing" }),
     );
@@ -281,10 +283,22 @@ function walletFile() {
     schema: "proof-tool-preprod-test-wallets-v1",
     network: "Preprod",
     wallets: {
-      deployer: { mnemonic: "drip announce dwarf dose culture friend nasty large foam boy estate fault scan bar banner index swarm nut horse law sick swift cherry enough" },
-      reclaim_funder: { mnemonic: "fix kite shoot check image divert armor receive long mind meat version grid robot green crucial couple object curtain soft scorpion main discover return" },
-      compromised_user: { mnemonic: "enrich next used cinnamon rug warrior maid maple grocery video remind program govern fat journey abuse fish thunder capital smoke ensure crater firm column" },
-      safe_claim_destination: { mnemonic: "current salt affair theory oil acoustic fun evidence present dose cook bicycle warrior arch real pluck surprise dice enlist same echo pulp tooth record" },
+      deployer: {
+        mnemonic:
+          "drip announce dwarf dose culture friend nasty large foam boy estate fault scan bar banner index swarm nut horse law sick swift cherry enough",
+      },
+      reclaim_funder: {
+        mnemonic:
+          "fix kite shoot check image divert armor receive long mind meat version grid robot green crucial couple object curtain soft scorpion main discover return",
+      },
+      compromised_user: {
+        mnemonic:
+          "enrich next used cinnamon rug warrior maid maple grocery video remind program govern fat journey abuse fish thunder capital smoke ensure crater firm column",
+      },
+      safe_claim_destination: {
+        mnemonic:
+          "current salt affair theory oil acoustic fun evidence present dose cook bicycle warrior arch real pluck surprise dice enlist same echo pulp tooth record",
+      },
     },
   };
 }

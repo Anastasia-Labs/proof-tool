@@ -1,0 +1,47 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.4/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "apps/ownership-proof-web/**",
+      "apps/proof-helper-desktop/**",
+      "packages/client-ts/**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/.next",
+      "!**/output",
+      "!apps/ownership-proof-web/public",
+      "!apps/proof-helper-desktop/src-tauri"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "a11y": {
+        "useSemanticElements": "off",
+        "noStaticElementInteractions": "off"
+      }
+    }
+  },
+  "assist": {
+    "enabled": false
+  }
+}

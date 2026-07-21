@@ -170,24 +170,13 @@ export function browserDiagnosticHostSignals(
   calibration: BrowserCalibrationSummary | null,
 ): BrowserDiagnosticHostSignals {
   const nav = typeof navigator === "undefined" ? null : navigator;
-  const deviceMemory = (nav as (Navigator & { deviceMemory?: number }) | null)
-    ?.deviceMemory;
+  const deviceMemory = (nav as (Navigator & { deviceMemory?: number }) | null)?.deviceMemory;
   return {
-    hardwareConcurrency:
-      nav && Number.isFinite(nav.hardwareConcurrency)
-        ? Math.floor(nav.hardwareConcurrency)
-        : null,
-    deviceMemoryGiB:
-      typeof deviceMemory === "number" && Number.isFinite(deviceMemory)
-        ? deviceMemory
-        : null,
-    crossOriginIsolated:
-      typeof globalThis.crossOriginIsolated === "boolean" &&
-      globalThis.crossOriginIsolated,
+    hardwareConcurrency: nav && Number.isFinite(nav.hardwareConcurrency) ? Math.floor(nav.hardwareConcurrency) : null,
+    deviceMemoryGiB: typeof deviceMemory === "number" && Number.isFinite(deviceMemory) ? deviceMemory : null,
+    crossOriginIsolated: typeof globalThis.crossOriginIsolated === "boolean" && globalThis.crossOriginIsolated,
     sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined",
-    wasmStreaming:
-      typeof WebAssembly !== "undefined" &&
-      typeof WebAssembly.instantiateStreaming === "function",
+    wasmStreaming: typeof WebAssembly !== "undefined" && typeof WebAssembly.instantiateStreaming === "function",
     online: nav && typeof nav.onLine === "boolean" ? nav.onLine : null,
     calibration,
   };
@@ -212,9 +201,7 @@ export function downloadLastBrowserProvingDiagnostic(): boolean {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `browser-proving-diagnostic-${new Date()
-    .toISOString()
-    .replace(/[:.]/gu, "-")}.json`;
+  link.download = `browser-proving-diagnostic-${new Date().toISOString().replace(/[:.]/gu, "-")}.json`;
   link.click();
   URL.revokeObjectURL(url);
   return true;
@@ -247,10 +234,7 @@ function buildDiagnostic(input: {
     applied = mergeApplied(applied, {
       worker_count: numberField(trace, "worker_count"),
       shard_count: numberField(trace, "shard_count"),
-      range_fetch_concurrency: numberField(
-        trace,
-        "range_fetch_concurrency",
-      ),
+      range_fetch_concurrency: numberField(trace, "range_fetch_concurrency"),
       chunk_prefetch_window: numberField(trace, "chunk_prefetch_window"),
     });
     const events = traceEvents(trace);
@@ -266,22 +250,20 @@ function buildDiagnostic(input: {
       if (workerID === null || workerID < 0) {
         continue;
       }
-      const worker =
-        workers.get(workerID) ??
-        {
-          worker_id: workerID,
-          requests: 0,
-          cache_hits: 0,
-          cache_misses: 0,
-          bytes_fetched: 0,
-          bytes_from_cache: 0,
-          bytes_used: 0,
-          fetch_ms: 0,
-          hash_ms: 0,
-          decode_ms: 0,
-          kernel_ms: 0,
-          queue_ms: 0,
-        };
+      const worker = workers.get(workerID) ?? {
+        worker_id: workerID,
+        requests: 0,
+        cache_hits: 0,
+        cache_misses: 0,
+        bytes_fetched: 0,
+        bytes_from_cache: 0,
+        bytes_used: 0,
+        fetch_ms: 0,
+        hash_ms: 0,
+        decode_ms: 0,
+        kernel_ms: 0,
+        queue_ms: 0,
+      };
       worker.requests += finite(fields.fetch_requests);
       worker.cache_hits += finite(fields.cache_hits);
       worker.cache_misses += finite(fields.cache_misses);
@@ -292,17 +274,13 @@ function buildDiagnostic(input: {
       worker.hash_ms += finite(fields.hash_ms);
       worker.decode_ms += finite(fields.decode_ms);
       worker.kernel_ms +=
-        typeof fields.kernel_ms === "number"
-          ? finite(fields.kernel_ms)
-          : finite(fields.worker_compute_ms);
+        typeof fields.kernel_ms === "number" ? finite(fields.kernel_ms) : finite(fields.worker_compute_ms);
       worker.queue_ms += finite(fields.queue_wait_ms);
       workers.set(workerID, worker);
     }
   }
 
-  const workerRows = [...workers.values()]
-    .sort((left, right) => left.worker_id - right.worker_id)
-    .map(roundWorker);
+  const workerRows = [...workers.values()].sort((left, right) => left.worker_id - right.worker_id).map(roundWorker);
   const pk = workerRows.reduce(
     (total, worker) => ({
       requests: total.requests + worker.requests,
@@ -339,9 +317,7 @@ function buildDiagnostic(input: {
       hash_ms: round(finite(timings?.ccs_hash_ms)),
       bytes_fetched: Math.round(finite(timings?.ccs_bytes_fetched)),
       browser_prefetch_ms: round(finite(timings?.ccs_browser_prefetch_ms)),
-      browser_prefetch_bytes: Math.round(
-        finite(timings?.ccs_browser_prefetch_bytes),
-      ),
+      browser_prefetch_bytes: Math.round(finite(timings?.ccs_browser_prefetch_bytes)),
     },
     applied,
     workers: workerRows,
@@ -368,9 +344,7 @@ function appliedTuning(value: unknown): BrowserProvingDiagnostic["applied"] {
   return {
     worker_count: Math.round(finite(fields.worker_count)),
     shard_count: Math.round(finite(fields.shard_count)),
-    range_fetch_concurrency: Math.round(
-      finite(fields.range_fetch_concurrency),
-    ),
+    range_fetch_concurrency: Math.round(finite(fields.range_fetch_concurrency)),
     chunk_prefetch_window: Math.round(finite(fields.chunk_prefetch_window)),
   };
 }
@@ -382,10 +356,8 @@ function mergeApplied(
   return {
     worker_count: right.worker_count || left.worker_count,
     shard_count: right.shard_count || left.shard_count,
-    range_fetch_concurrency:
-      right.range_fetch_concurrency || left.range_fetch_concurrency,
-    chunk_prefetch_window:
-      right.chunk_prefetch_window || left.chunk_prefetch_window,
+    range_fetch_concurrency: right.range_fetch_concurrency || left.range_fetch_concurrency,
+    chunk_prefetch_window: right.chunk_prefetch_window || left.chunk_prefetch_window,
   };
 }
 
@@ -414,10 +386,7 @@ function traceEvents(trace: RawProofTrace): Array<{
   });
 }
 
-function stageDuration(
-  events: ReturnType<typeof traceEvents>,
-  stage: string,
-): number {
+function stageDuration(events: ReturnType<typeof traceEvents>, stage: string): number {
   const starts: number[] = [];
   let total = 0;
   for (const event of events) {
@@ -436,9 +405,7 @@ function stageDuration(
   return total;
 }
 
-function roundWorker(
-  worker: BrowserProvingDiagnostic["workers"][number],
-): BrowserProvingDiagnostic["workers"][number] {
+function roundWorker(worker: BrowserProvingDiagnostic["workers"][number]): BrowserProvingDiagnostic["workers"][number] {
   return {
     ...worker,
     requests: Math.round(worker.requests),
@@ -460,9 +427,7 @@ function asTrace(value: unknown): RawProofTrace {
 }
 
 function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function numberField(value: unknown, key: string): number {
@@ -474,9 +439,7 @@ function integer(value: unknown): number | null {
 }
 
 function finite(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? value
-    : 0;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 function round(value: number): number {
@@ -484,7 +447,5 @@ function round(value: number): number {
 }
 
 function now(): number {
-  return typeof performance !== "undefined" && typeof performance.now === "function"
-    ? performance.now()
-    : Date.now();
+  return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
 }

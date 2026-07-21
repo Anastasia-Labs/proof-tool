@@ -36,7 +36,7 @@ type Options struct {
 //
 // On native (non-js/wasm) builds the sharded branch returns a stubShardedMSM
 // so that TestSelectLadder can verify the ladder decision without the js
-// transport. The real shardedMSM is wired via makeShardedEngine in
+// transport. The real shardedMSM is wired via makeShardedEngineWithOptions in
 // selector_js.go (js && wasm only).
 func Select(p Probe) MSMEngine {
 	return SelectWithOptions(p, Options{})

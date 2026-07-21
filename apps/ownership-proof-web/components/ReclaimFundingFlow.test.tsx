@@ -1,5 +1,4 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReclaimFundingFlow } from "./ReclaimFundingFlow";
 
@@ -19,7 +18,10 @@ afterEach(() => {
 
 describe("ReclaimFundingFlow", () => {
   it("renders loading deployment with disabled wallet and form controls", () => {
-    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => undefined)),
+    );
 
     render(<ReclaimFundingFlow />);
 

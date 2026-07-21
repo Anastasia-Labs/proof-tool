@@ -8,12 +8,6 @@ import {
   type DeploymentConfigResult,
 } from "./manifest";
 
-const NETWORK_IDS: Record<ReclaimNetwork, 0 | 1> = {
-  Mainnet: 1,
-  Preprod: 0,
-  Preview: 0,
-};
-
 const KOIOS_URLS: Record<ReclaimNetwork, string> = {
   Mainnet: "https://api.koios.rest/api/v1",
   Preprod: "https://preprod.koios.rest/api/v1",

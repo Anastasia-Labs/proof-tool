@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import type { SubmitReclaimTxRequest } from "../../../lib/reclaim/types";
 import { getProvider, getReclaimDeployment } from "../../../lib/reclaim-server/config";
 import { submitReclaimTx } from "../../../lib/reclaim-server/transactions";

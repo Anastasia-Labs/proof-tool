@@ -1,0 +1,65 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-deps:
+        patterns: ["*"]
+    ignore:
+      # The gnark stack is hand-patched via scripts/bootstrap-vendor.sh; bumps
+      # must be done deliberately together with the vendored patch.
+      - dependency-name: github.com/consensys/gnark
+      - dependency-name: github.com/consensys/gnark-crypto
+
+  - package-ecosystem: npm
+    directory: /apps/ownership-proof-web
+    schedule:
+      interval: weekly
+    groups:
+      web-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /apps/proof-helper-desktop
+    schedule:
+      interval: weekly
+    groups:
+      desktop-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /packages/client-ts
+    schedule:
+      interval: weekly
+    groups:
+      client-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      tooling-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directories:
+      - /apps/proof-helper-desktop/src-tauri
+      - /apps/proof-helper-desktop/src-tauri/key-bundle-core
+      - /apps/proof-helper-desktop/src-tauri/sidecar-core
+    schedule:
+      interval: weekly
+    groups:
+      rust-deps:
+        patterns: ["*"]

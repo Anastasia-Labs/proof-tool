@@ -1,0 +1,87 @@
+{
+  "schema": "proof-tool-global-helper-formal-evidence-v1",
+  "recorded_at": "2026-07-16",
+  "lean_target": "ProofToolFormal.GlobalHelpers",
+  "lean_result": "Pass",
+  "source_helpers": [
+    "Ownership.ReclaimGlobalV2.findReferenceInputAt",
+    "Ownership.ReclaimGlobalV2.hasExactlyOneParamToken",
+    "Ownership.ReclaimGlobalV2.valueCoversData",
+    "Ownership.Verify.ownershipDestinationPublicInputDigest",
+    "Ownership.ReclaimGlobalV2.reclaimBatchTranscriptV2"
+  ],
+  "artifact_provenance": "formal/assurance/helper-artifacts.json",
+  "reference_index": {
+    "kernel_theorem": "ProofToolFormal.GlobalHelpers.findReferenceAtNat_eq_get?",
+    "exact_compiled_branches": [
+      "ProofToolFormal.GlobalHelpers.exact_findReference_zero_success_iff_head_equals",
+      "ProofToolFormal.GlobalHelpers.exact_findReference_empty_is_unsuccessful"
+    ],
+    "meaning": "The reference index is a routing input, not an authorization claim. Index zero and empty-list behavior are proved directly; an unselectable positive or negative index fails by exhausting the finite list."
+  },
+  "parameter_nft": {
+    "exact_compiled_soundness_theorem": "ProofToolFormal.GlobalHelpers.exact_hasParamToken_success_requires_configured_quantity_one",
+    "typed_extras_theorem": "ProofToolFormal.GlobalHelpers.typed_parameter_quantity_ignores_trailing_unrelated_assets",
+    "meaning": "For a ledger-valid output and the deployment-audited 28-byte policy ID, compiled-helper success requires the configured token quantity to be one. The typed semantics prove that unrelated trailing tokens and policies do not affect that quantity, and the production compiled-validator tests accept both same-policy and other-policy extras.",
+    "tool_limitation": "Lean's isolated CEK replay of the recursive helper reports a machine error when a raw Value carries trailing map entries, while the Haskell Plutus CEK accepts the same production behavior. The Lean artifact claim is therefore deliberately one-way; completeness for extra assets is supported by the typed theorem and compiled production-validator regression tests rather than a false cross-evaluator equivalence."
+  },
+  "statement_digest": {
+    "exact_compiled_theorem": "ProofToolFormal.GlobalHelpers.exact_statementDigest_success_iff_expected_digest",
+    "independent_spec": "BLAKE2b-256(ROOT-OWNERSHIP-DESTINATION-v1 || credential || destinationAddressV1)"
+  },
+  "value_coverage": {
+    "exact_compiled_theorems": [
+      "ProofToolFormal.GlobalHelpers.exact_canonicalValueCoverage_success_iff_componentwise_quantities",
+      "ProofToolFormal.GlobalHelpers.exact_canonicalValueCoverage_rejects_wrong_policy",
+      "ProofToolFormal.GlobalHelpers.exact_canonicalValueCoverage_rejects_wrong_token"
+    ],
+    "arbitrary_list_theorems": [
+      "ProofToolFormal.GlobalHelpers.mergeAssetAmountsCover_sound",
+      "ProofToolFormal.GlobalHelpers.mergePolicyAmountsCover_sound"
+    ],
+    "scope": "The generalized safety direction proves every successful typed merge walk independently covers every required policy/token quantity. The converse depends on unique sorted ledger-normalized maps from validScriptContext.",
+    "tool_limitation": "Symbolic arbitrary Data maps trigger a Lean-Blaster dependent-if optimizer kernel mismatch in the equalsData fast path. Exact compiled proofs therefore use canonical structurally unequal ledger Values, while arbitrary-list soundness is kernel-inductive over an independent typed model."
+  },
+  "batch_transcript_v2": {
+    "exact_compiled_theorems": [
+      "ProofToolFormal.GlobalHelpers.exact_emptyTranscript_success_iff_framed_bytes",
+      "ProofToolFormal.GlobalHelpers.exact_oneSlotTranscript_success_iff_framed_bytes",
+      "ProofToolFormal.GlobalHelpers.exact_transcript_rejects_missing_digest",
+      "ProofToolFormal.GlobalHelpers.exact_transcript_rejects_missing_proof",
+      "ProofToolFormal.GlobalHelpers.exact_transcript_success_requires_slot_widths"
+    ],
+    "arbitrary_list_theorems": [
+      "ProofToolFormal.GlobalHelpers.batchSlotsWellFormed_iff_parallel_fixed_width",
+      "ProofToolFormal.GlobalHelpers.batchTranscriptItemsRecursive_eq_fold",
+      "ProofToolFormal.GlobalHelpers.batchSlotsWellFormed_preserves_count",
+      "ProofToolFormal.GlobalHelpers.batchSlotsWellFormed_preserves_head_and_tail_order"
+    ],
+    "meaning": "The compiled empty/one-step branches establish the exact domain, deployment-pinned verifier-key-hash bytes, u16 header, and proof/digest widths. The hash width is an artifact-build obligation rather than a repeated runtime check. Kernel induction establishes equal cardinality and ordered proof/digest concatenation for arbitrary list lengths.",
+    "fuel": 1000
+  },
+  "typed_global_slot_semantics": {
+    "lean_target": "ProofToolFormal.GlobalSemanticLemmas",
+    "kernel_inductive_theorems": [
+      "ProofToolFormal.GlobalSemanticLemmas.slotsHaveExactCoverage_counts",
+      "ProofToolFormal.GlobalSemanticLemmas.slotsHaveMatchingStatements_implies_exactCoverage",
+      "ProofToolFormal.GlobalSemanticLemmas.everyConsumedStatementMatches_implies_exactOrderedSlotCoverage",
+      "ProofToolFormal.GlobalSemanticLemmas.slotsHaveValueCoverage_counts",
+      "ProofToolFormal.GlobalSemanticLemmas.destinationAddressV1Bytes_has_fixed_width"
+    ],
+    "meaning": "For arbitrary input lists, each matching base input consumes exactly one proof and digest and no more destinations than are available; matching statements imply exact ordered slot coverage; Value coverage has the same slot cardinality; successfully encoded destinationAddressV1 bytes have width 58.",
+    "boundary": "These are generalized theorems over the independent typed GlobalV2 specification. They do not by themselves bridge every success of the exact monolithic compiled artifact to that specification."
+  },
+  "independent_vectors": {
+    "haskell": "The complete ownership-verifier suite passes 114 tests, including at least 12,800 randomized Base cases in the observed coverage-expanded runs plus transcript framing, digest binding, address encoding, Value coverage, ordering, mutation, rewarding-only lifecycle, and compiled V2 extra-asset cases.",
+    "go": "go test ./internal/batchtranscript ./internal/proofassets passes with the repository vectors.",
+    "typescript": "Vitest passes 40 focused transcript, claim/address, and in-process manifest tests.",
+    "cross_evaluator": "The locked deployed-artifact replay record contains 10 agreeing Haskell/Lean decisions. The regenerated current-source context hash differs after these intentional contract changes and is not promoted as deployed evidence."
+  },
+  "top_level_boundary": {
+    "lean_target": "ProofToolFormal.ReclaimGlobalV2",
+    "exact_real_proof_replay": "ProofToolFormal.ConcreteReplay.exact_reclaimGlobalV2_real_proof_succeeds",
+    "negative_mutation_replay": "ProofToolFormal.ConcreteReplay.exact_reclaimGlobalV2_substituted_digest_rejects_within_fuel",
+    "remaining_obligation": "A generalized theorem still must bridge every successful execution of the monolithic exact active artifact to the independently proved recursive helper specifications. Shallow finite preprocessing is not counted as that bridge."
+  },
+  "axiom_boundary": "Exact compiled symbolic theorems depend on Blaster.Tactic.blasterProven and standard Lean axioms. Recursive list proofs are kernel-checked up to standard quotient/extensionality axioms. Concrete exact replays depend on native compiler trust."
+}

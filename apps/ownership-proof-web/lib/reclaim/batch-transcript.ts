@@ -6,9 +6,7 @@ export const BATCH_TRANSCRIPT_V2_PROOF_BYTES = 336;
 export const BATCH_TRANSCRIPT_V2_DIGEST_BYTES = 32;
 export const BATCH_TRANSCRIPT_V2_MAX_SLOTS = 65_535;
 
-const scalarFieldOrder = BigInt(
-  "52435875175126190479447740508185965837690552500527637822603658699938581184513",
-);
+const scalarFieldOrder = BigInt("52435875175126190479447740508185965837690552500527637822603658699938581184513");
 
 const encoder = new TextEncoder();
 
@@ -29,7 +27,10 @@ export function buildBatchTranscriptV2(
 
   const domain = encoder.encode(BATCH_TRANSCRIPT_V2_DOMAIN);
   const out = new Uint8Array(
-    domain.length + vkHash.length + 2 + proofs.length * (BATCH_TRANSCRIPT_V2_PROOF_BYTES + BATCH_TRANSCRIPT_V2_DIGEST_BYTES),
+    domain.length +
+      vkHash.length +
+      2 +
+      proofs.length * (BATCH_TRANSCRIPT_V2_PROOF_BYTES + BATCH_TRANSCRIPT_V2_DIGEST_BYTES),
   );
   let offset = 0;
   out.set(domain, offset);
@@ -44,7 +45,9 @@ export function buildBatchTranscriptV2(
       throw new Error(`proof ${index} is ${proof.length} bytes, want ${BATCH_TRANSCRIPT_V2_PROOF_BYTES}`);
     }
     if (digest.length !== BATCH_TRANSCRIPT_V2_DIGEST_BYTES) {
-      throw new Error(`public input digest ${index} is ${digest.length} bytes, want ${BATCH_TRANSCRIPT_V2_DIGEST_BYTES}`);
+      throw new Error(
+        `public input digest ${index} is ${digest.length} bytes, want ${BATCH_TRANSCRIPT_V2_DIGEST_BYTES}`,
+      );
     }
     out.set(proof, offset);
     offset += proof.length;

@@ -45,7 +45,10 @@ export function createInjectedCip30HarnessDriver(harness) {
         await page.getByRole("button", { name: walletButtonName(role, this) }).click();
         return;
       }
-      throw new PreprodWalletDriverError("wallet_connect_purpose_unknown", `Unknown wallet connect purpose: ${purpose}.`);
+      throw new PreprodWalletDriverError(
+        "wallet_connect_purpose_unknown",
+        `Unknown wallet connect purpose: ${purpose}.`,
+      );
     },
     async probeWalletRoles(page) {
       return probeInjectedCip30Roles(page, this.roles);

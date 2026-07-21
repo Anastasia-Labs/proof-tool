@@ -13,9 +13,6 @@ import {
   CLAIM_DISTINCT_7_MAX_TX_CPU_PERCENT,
   CLAIM_DISTINCT_7_MAX_TX_MEM_PERCENT,
   CLAIM_HARD_BATCH_CAP,
-  CLAIM_LEGACY_DEFAULT_BATCH_CAP,
-  CLAIM_LEGACY_HARD_BATCH_CAP,
-  CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP,
   CLAIM_OPTIMIZATION_BATCH_CAP,
   DESTINATION_ADDRESS_V1_ENCODING,
   type ClaimDraftDestinationOutput,
@@ -38,8 +35,6 @@ import { compareIndexedUtxos, confirmationSlot, toIndexedReclaimUtxo } from "./i
 import { outRefsForProvider, supportsOutRefLookup } from "./provider";
 
 const MIN_SAFE_WALLET_LOVELACE = 5_000_000n;
-const STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING = "full-proof-plus-public-input-digest-v2";
-
 type ClaimBatchPolicy = {
   defaultCap: number;
   hardCap: number;
@@ -73,14 +68,19 @@ export async function createClaimDraft(
     reclaimUtxos = await loadSelectedReclaimUtxos(provider, selectedOutrefs);
   } else {
     if (raw.nextBatch !== true) {
-      throw new ClaimValidationError("claim_batch_selection_required", "Claim draft requires selected outrefs or nextBatch=true.");
+      throw new ClaimValidationError(
+        "claim_batch_selection_required",
+        "Claim draft requires selected outrefs or nextBatch=true.",
+      );
     }
     const allUtxos = await provider.getUtxos(deployment.reclaimBaseAddress);
     const eligible = allUtxos
       .filter((utxo) => !pendingOutrefs.has(outRefToString(utxo)))
       .filter((utxo) => utxo.address === deployment.reclaimBaseAddress)
       .filter((utxo) => toIndexedReclaimUtxo(utxo, deployment).datum.status === "valid")
-      .sort((left, right) => compareIndexedUtxos(toIndexedReclaimUtxo(left, deployment), toIndexedReclaimUtxo(right, deployment)));
+      .sort((left, right) =>
+        compareIndexedUtxos(toIndexedReclaimUtxo(left, deployment), toIndexedReclaimUtxo(right, deployment)),
+      );
     if (eligible.length > requestedCap) {
       reductions.push(`reduced_to_batch_cap_${requestedCap}`);
     }
@@ -184,7 +184,10 @@ async function loadSafeWallet(
 
 async function loadSelectedReclaimUtxos(provider: Provider, selectedOutrefs: ClaimOutRef[]): Promise<UTxO[]> {
   if (!supportsOutRefLookup(provider)) {
-    throw new ClaimValidationError("provider_outref_lookup_unavailable", "Configured Cardano provider cannot query selected outrefs.");
+    throw new ClaimValidationError(
+      "provider_outref_lookup_unavailable",
+      "Configured Cardano provider cannot query selected outrefs.",
+    );
   }
   const selectedIds = new Set(selectedOutrefs.map(outRefToString));
   const utxos = (await provider.getUtxosByOutRef(outRefsForProvider(selectedOutrefs))).filter((utxo) =>
@@ -200,7 +203,10 @@ async function loadSelectedReclaimUtxos(provider: Provider, selectedOutrefs: Cla
 
 function reclaimDraftInputFromUtxo(utxo: UTxO, deployment: ReclaimDeployment): ClaimDraftInput {
   if (utxo.address !== deployment.reclaimBaseAddress) {
-    throw new ClaimValidationError("selected_outref_wrong_address", "Selected outref is not locked at the current ReclaimBase address.");
+    throw new ClaimValidationError(
+      "selected_outref_wrong_address",
+      "Selected outref is not locked at the current ReclaimBase address.",
+    );
   }
   if (!utxo.datum) {
     throw new ClaimValidationError("missing_inline_datum", "Selected reclaim UTxO is missing an inline datum.");
@@ -227,64 +233,39 @@ function assertBatchCap(value: unknown, policy: ClaimBatchPolicy): number {
     throw new ClaimValidationError("batch_cap_invalid", "Claim batch cap must be a positive integer.");
   }
   if (value > policy.hardCap) {
-    throw new ClaimValidationError("batch_cap_exceeded", `Claim batch cap cannot exceed this deployment's ${policy.hardCap} UTxO limit.`);
+    throw new ClaimValidationError(
+      "batch_cap_exceeded",
+      `Claim batch cap cannot exceed this deployment's ${policy.hardCap} UTxO limit.`,
+    );
   }
   return value;
 }
 
 function deploymentBatchPolicy(deployment: ReclaimDeployment): ClaimBatchPolicy {
-  if (isStatementBoundV2(deployment)) {
-    const batching = deployment.batching;
-    const distinctSevenOptIn = batching?.distinct_7_opt_in;
-    if (
-      !batching ||
-      batching.default_utxo_count !== CLAIM_DEFAULT_BATCH_CAP ||
-      batching.optimization_utxo_count !== CLAIM_OPTIMIZATION_BATCH_CAP ||
-      batching.hard_max_utxo_count !== CLAIM_HARD_BATCH_CAP ||
-      batching.max_tx_cpu_percent !== CLAIM_DISTINCT_7_MAX_TX_CPU_PERCENT ||
-      batching.max_tx_mem_percent !== CLAIM_DISTINCT_7_MAX_TX_MEM_PERCENT ||
-      distinctSevenOptIn?.request_parameter !== "maxUtxos" ||
-      distinctSevenOptIn.request_value !== CLAIM_HARD_BATCH_CAP ||
-      distinctSevenOptIn.require_explicit_request !== true ||
-      distinctSevenOptIn.require_measured_execution_units !== true
-    ) {
-      throw new ClaimValidationError(
-        "batch_cap_manifest_invalid",
-        "Statement-bound V2 requires the explicit seven-slot batching policy and measured execution limits.",
-      );
-    }
-    return {
-      defaultCap: CLAIM_DEFAULT_BATCH_CAP,
-      hardCap: CLAIM_HARD_BATCH_CAP,
-    };
-  }
-
-  const configuredDefault = deployment.batching?.default_utxo_count ?? CLAIM_LEGACY_DEFAULT_BATCH_CAP;
-  const configuredCap = deployment.batching?.hard_max_utxo_count ?? CLAIM_LEGACY_OPTIMIZATION_BATCH_CAP;
-  if (!Number.isInteger(configuredDefault) || configuredDefault <= 0) {
-    throw new ClaimValidationError("batch_cap_manifest_invalid", "Claim deployment default batch cap must be a positive integer.");
-  }
-  if (!Number.isInteger(configuredCap) || configuredCap < configuredDefault) {
+  const batching = deployment.batching;
+  const distinctSevenOptIn = batching?.distinct_7_opt_in;
+  if (
+    deployment.reclaimGlobalProofSlotEncoding !== "full-proof-plus-public-input-digest-v2" ||
+    !batching ||
+    batching.default_utxo_count !== CLAIM_DEFAULT_BATCH_CAP ||
+    batching.optimization_utxo_count !== CLAIM_OPTIMIZATION_BATCH_CAP ||
+    batching.hard_max_utxo_count !== CLAIM_HARD_BATCH_CAP ||
+    batching.max_tx_cpu_percent !== CLAIM_DISTINCT_7_MAX_TX_CPU_PERCENT ||
+    batching.max_tx_mem_percent !== CLAIM_DISTINCT_7_MAX_TX_MEM_PERCENT ||
+    distinctSevenOptIn?.request_parameter !== "maxUtxos" ||
+    distinctSevenOptIn.request_value !== CLAIM_HARD_BATCH_CAP ||
+    distinctSevenOptIn.require_explicit_request !== true ||
+    distinctSevenOptIn.require_measured_execution_units !== true
+  ) {
     throw new ClaimValidationError(
       "batch_cap_manifest_invalid",
-      "Claim deployment batch cap must be an integer at least as large as its default batch cap.",
-    );
-  }
-  const hardCap = Math.min(configuredCap, CLAIM_LEGACY_HARD_BATCH_CAP);
-  if (configuredDefault > hardCap) {
-    throw new ClaimValidationError(
-      "batch_cap_manifest_invalid",
-      `Claim deployment default batch cap cannot exceed the client hard limit of ${hardCap}.`,
+      "ReclaimGlobalV2 requires the explicit seven-slot batching policy and measured execution limits.",
     );
   }
   return {
-    defaultCap: configuredDefault,
-    hardCap,
+    defaultCap: CLAIM_DEFAULT_BATCH_CAP,
+    hardCap: CLAIM_HARD_BATCH_CAP,
   };
-}
-
-function isStatementBoundV2(deployment: ReclaimDeployment): boolean {
-  return deployment.reclaimGlobalProofSlotEncoding === STATEMENT_BOUND_V2_PROOF_SLOT_ENCODING;
 }
 
 function compareDraftInputs(left: ClaimDraftInput, right: ClaimDraftInput): number {

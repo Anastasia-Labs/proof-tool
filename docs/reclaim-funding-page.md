@@ -142,7 +142,7 @@ must show the normalized credential before the rescuer signs.
 ## Why The Original Owner Can Reclaim
 
 The `ReclaimBase` script only allows its UTxOs to be spent in a transaction that
-also invokes the configured `ReclaimGlobal` rewarding script. `ReclaimGlobal`
+also invokes the configured `ReclaimGlobalV2` rewarding script. `ReclaimGlobalV2`
 then checks proofs for the matching `ReclaimBase` inputs.
 
 For each matching input, the global reclaim script:
@@ -272,12 +272,12 @@ Before enabling deposits:
 - Publish a valid reclaim deployment manifest.
 - Verify the `ReclaimBase` address from the manifest matches the deployed
   script parameters.
-- Verify the `ReclaimGlobal` verifier key hash matches the published proof
+- Verify the `ReclaimGlobalV2` verifier key hash matches the published proof
   helper/verifier key bundle.
 - Run a preprod deposit from the page.
 - Confirm the output has inline `ReclaimBaseDatum` with the expected payment key
   hash.
-- Run a preprod reclaim spend through `ReclaimGlobal`.
+- Run a preprod reclaim spend through `ReclaimGlobalV2`.
 - Save tx hashes and manifest version in release notes.
 
 ## Troubleshooting

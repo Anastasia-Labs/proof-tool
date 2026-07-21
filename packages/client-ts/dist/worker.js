@@ -70,7 +70,6 @@ function errorMessage(error) {
             return "The seed phrase is not a valid recovery phrase.";
         case "crypto_unavailable":
             return "Secure browser crypto is unavailable in this context.";
-        case "derive_failed":
         default:
             return "The proof setup could not read that phrase.";
     }

@@ -1,10 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as defaultSleep } from "node:timers/promises";
-import {
-  COMPROMISED_WALLET_ROLE_ENV,
-  NATIVE_RECLAIM_COUNT_ENV,
-} from "./funding-stage.mjs";
+import { COMPROMISED_WALLET_ROLE_ENV, NATIVE_RECLAIM_COUNT_ENV } from "./funding-stage.mjs";
 import { approveWalletConnection, selectClaimRole } from "./wallet-driver.mjs";
 import { EXISTING_NATIVE_RECLAIM_COUNT_ENV } from "./live-config.mjs";
 
@@ -42,7 +39,10 @@ export async function runClaimDiscoveryStage(options = {}) {
   const discoveryWaitMs = parseClaimDiscoveryWaitMs(env);
   const beforeState = walletHarness.roleState?.(compromisedRole);
   if (!beforeState) {
-    throw new PreprodClaimDiscoveryStageError("impacted_wallet_missing", `${compromisedRole} is not available in the CIP-30 harness.`);
+    throw new PreprodClaimDiscoveryStageError(
+      "impacted_wallet_missing",
+      `${compromisedRole} is not available in the CIP-30 harness.`,
+    );
   }
   const signAttemptsBefore = numberOrZero(beforeState.signAttempts);
 
@@ -137,14 +137,25 @@ async function readMatchingUtxoCount(page, { minimum, timeoutMs, sleep }) {
   if (lastCount !== null) {
     return lastCount;
   }
-  throw lastError ?? new PreprodClaimDiscoveryStageError("matching_utxo_count_missing", "Claim discovery UI did not expose a matching UTxO count.");
+  throw (
+    lastError ??
+    new PreprodClaimDiscoveryStageError(
+      "matching_utxo_count_missing",
+      "Claim discovery UI did not expose a matching UTxO count.",
+    )
+  );
 }
 
 async function readCurrentMatchingUtxoCount(page) {
-  const summaryText = sanitizeText(await page.locator(".claim-summary-tile").filter({ hasText: "Matching UTxOs" }).locator("strong").textContent());
+  const summaryText = sanitizeText(
+    await page.locator(".claim-summary-tile").filter({ hasText: "Matching UTxOs" }).locator("strong").textContent(),
+  );
   const match = /^([0-9]+)$/u.exec(summaryText);
   if (!match) {
-    throw new PreprodClaimDiscoveryStageError("matching_utxo_count_missing", "Claim discovery UI did not expose a matching UTxO count.");
+    throw new PreprodClaimDiscoveryStageError(
+      "matching_utxo_count_missing",
+      "Claim discovery UI did not expose a matching UTxO count.",
+    );
   }
   return Number(match[1]);
 }
@@ -161,7 +172,10 @@ function parseExistingMinimum(value) {
 
 function parseExpectedMinimum(value) {
   if (!/^[1-9][0-9]*$/u.test(value)) {
-    throw new PreprodClaimDiscoveryStageError("native_reclaim_count_invalid", `${NATIVE_RECLAIM_COUNT_ENV} must be a positive integer.`);
+    throw new PreprodClaimDiscoveryStageError(
+      "native_reclaim_count_invalid",
+      `${NATIVE_RECLAIM_COUNT_ENV} must be a positive integer.`,
+    );
   }
   return Number(value);
 }
@@ -172,7 +186,10 @@ function parseClaimDiscoveryWaitMs(env) {
     return (env.RECLAIM_E2E_LIVE_PREPROD ?? "").trim() === "1" ? DEFAULT_LIVE_CLAIM_DISCOVERY_WAIT_MS : 0;
   }
   if (!/^(?:0|[1-9][0-9]*)$/u.test(configured)) {
-    throw new PreprodClaimDiscoveryStageError("claim_discovery_wait_ms_invalid", `${CLAIM_DISCOVERY_WAIT_MS_ENV} must be a non-negative integer.`);
+    throw new PreprodClaimDiscoveryStageError(
+      "claim_discovery_wait_ms_invalid",
+      `${CLAIM_DISCOVERY_WAIT_MS_ENV} must be a non-negative integer.`,
+    );
   }
   return Number(configured);
 }

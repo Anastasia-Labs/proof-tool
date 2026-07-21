@@ -1,0 +1,6 @@
+{
+  "schema": "proof-tool-reclaim-script-export-v1",
+  "name": "reclaim-params-holder",
+  "type": "PlutusV3",
+  "script": "450101002601"
+}

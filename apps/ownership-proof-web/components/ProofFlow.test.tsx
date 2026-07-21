@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import React from "react";
+import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProofFlow } from "./ProofFlow";
 
@@ -125,9 +125,11 @@ describe("ProofFlow", () => {
   it("shows update-required helper state", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValueOnce(
-        new Response(JSON.stringify({ connected: true, compatibility: "update_required" }), { status: 200 }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ connected: true, compatibility: "update_required" }), { status: 200 }),
+        ),
     );
 
     renderPaired(<ProofFlow createWorker={fakeWorkerSuccess} />);
@@ -154,11 +156,7 @@ function readyHelperStatus() {
 }
 
 function renderPaired(element: React.ReactElement) {
-  window.history.replaceState(
-    null,
-    "",
-    "/#helper=http%3A%2F%2F127.0.0.1%3A18080&pair=token",
-  );
+  window.history.replaceState(null, "", "/#helper=http%3A%2F%2F127.0.0.1%3A18080&pair=token");
   return render(element);
 }
 
@@ -179,7 +177,13 @@ function fakeWorkerError() {
   });
 }
 
-function makeFakeWorker(response: { id: string; type: string; masterXPrv?: ArrayBuffer; code?: string; message?: string }) {
+function makeFakeWorker(response: {
+  id: string;
+  type: string;
+  masterXPrv?: ArrayBuffer;
+  code?: string;
+  message?: string;
+}) {
   let listener: ((event: MessageEvent) => void) | null = null;
   return {
     postMessage(message: { id: string }) {

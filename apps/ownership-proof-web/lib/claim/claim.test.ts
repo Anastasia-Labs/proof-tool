@@ -8,11 +8,7 @@ import {
   scriptHashToCredential,
 } from "@lucid-evolution/lucid";
 import { parseReclaimBaseDatum, tryParseReclaimBaseDatum } from "./datum";
-import {
-  destinationAddressV1,
-  extractShelleyPaymentKeyHash,
-  findPaymentCredentialOverlap,
-} from "./addresses";
+import { destinationAddressV1, extractShelleyPaymentKeyHash, findPaymentCredentialOverlap } from "./addresses";
 import { ClaimValidationError } from "./validation";
 
 const PAYMENT = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";

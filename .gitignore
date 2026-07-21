@@ -7,10 +7,14 @@ deployments/reclaim/preprod/*.local.json
 *.vk
 .playwright-cli/
 output/
+# Repo-root tooling (Biome, lefthook)
+/node_modules/
 packages/client-ts/node_modules/
 packages/client-ts/.vite/
 apps/ownership-proof-web/.next/
 apps/ownership-proof-web/node_modules/
+# App uses pnpm-lock.yaml; ignore npm lockfiles from accidental npm install.
+apps/ownership-proof-web/package-lock.json
 apps/ownership-proof-web/tsconfig.tsbuildinfo
 !apps/ownership-proof-web/public/proof-assets/ownership.vk
 !apps/ownership-proof-web/public/proof-releases/*/assets/ownership.vk

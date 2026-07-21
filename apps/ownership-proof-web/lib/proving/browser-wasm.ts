@@ -1,16 +1,7 @@
-import type {
-  BrowserProvingDescriptor,
-  BrowserProvingTuning,
-} from "../reclaim/types";
+import type { BrowserProvingDescriptor, BrowserProvingTuning } from "../reclaim/types";
 import type { ClaimProofRequest } from "../claim/types";
-import {
-  calibrateBrowserWorkerCapacity,
-  checkBrowserProvingCapability,
-} from "./capability";
-import {
-  BrowserProvingDiagnosticCollector,
-  browserDiagnosticHostSignals,
-} from "./diagnostic";
+import { calibrateBrowserWorkerCapacity, checkBrowserProvingCapability } from "./capability";
+import { BrowserProvingDiagnosticCollector, browserDiagnosticHostSignals } from "./diagnostic";
 import type {
   BrowserProvingCheckResult,
   DestinationProofResponse,
@@ -40,35 +31,34 @@ export const PREPARED_PROVER_TIMEOUT_MS = 180_000;
 // Gate G1 defaults. Deployments may still pin explicit values; host adaptation
 // occurs only when the descriptor explicitly opts into W5 and omits
 // worker_count, which preserves the worker-8 floor for older descriptors.
-const DEFAULT_TUNING: Required<Omit<BrowserProvingTuning, "shard_multiplier">> =
-  {
-    worker_count: 8,
-    shard_count: 8,
-    range_fetch_concurrency: 2,
-    chunk_prefetch_window: 2,
-    // Warm the HTTP cache with PK chunks in dispatch order while the proof
-    // head (CCS fetch, path search, solve) leaves the downlink idle; MSM
-    // workers then hit the cache instead of the network. 2 lanes keeps the
-    // low-priority readahead from starving needed-now fetches.
-    chunk_readahead: 2,
-    pinned_decode: true,
-    opt_w1: true,
-    opt_w2: true,
-    opt_w3: true,
-    opt_w5: true,
-    opt_w6: true,
-    opt_w7: true,
-    // W8 offloads computeH's whole-vector FFTs to dedicated workers; the
-    // engine self-gates to pools of >= 8 MSM workers, so small hosts keep
-    // the main-thread FFT.
-    opt_w8: true,
-    // gogc=15/3200MiB measured faster than 50/3000MiB across cold/warm and
-    // 8/16-worker cases (output/gogc50-comparison vs remote-browser-matrix-v2-opt-r1):
-    // on the single-threaded main instance, small frequent GC cycles beat
-    // large deferred ones, and the higher limit adds headroom against GC thrash.
-    gogc: 15,
-    gomemlimit: "3200MiB",
-  };
+const DEFAULT_TUNING: Required<Omit<BrowserProvingTuning, "shard_multiplier">> = {
+  worker_count: 8,
+  shard_count: 8,
+  range_fetch_concurrency: 2,
+  chunk_prefetch_window: 2,
+  // Warm the HTTP cache with PK chunks in dispatch order while the proof
+  // head (CCS fetch, path search, solve) leaves the downlink idle; MSM
+  // workers then hit the cache instead of the network. 2 lanes keeps the
+  // low-priority readahead from starving needed-now fetches.
+  chunk_readahead: 2,
+  pinned_decode: true,
+  opt_w1: true,
+  opt_w2: true,
+  opt_w3: true,
+  opt_w5: true,
+  opt_w6: true,
+  opt_w7: true,
+  // W8 offloads computeH's whole-vector FFTs to dedicated workers; the
+  // engine self-gates to pools of >= 8 MSM workers, so small hosts keep
+  // the main-thread FFT.
+  opt_w8: true,
+  // gogc=15/3200MiB measured faster than 50/3000MiB across cold/warm and
+  // 8/16-worker cases (output/gogc50-comparison vs remote-browser-matrix-v2-opt-r1):
+  // on the single-threaded main instance, small frequent GC cycles beat
+  // large deferred ones, and the higher limit adds headroom against GC thrash.
+  gogc: 15,
+  gomemlimit: "3200MiB",
+};
 
 export class ProvingCancelledError extends Error {
   constructor() {
@@ -121,18 +111,12 @@ export async function checkBrowserProving(
   }
 
   try {
-    const session = await prepareProverSession(
-      descriptor,
-      expectedVkHash,
-      options,
-    );
+    const session = await prepareProverSession(descriptor, expectedVkHash, options);
     return { status: "ready", capability, preflight: session.preflight };
   } catch (error) {
     const message = sanitizeProverError(error);
     capability.failures.push({
-      check: message.includes("do not match this deployment")
-        ? "vk-hash"
-        : "asset-preflight",
+      check: message.includes("do not match this deployment") ? "vk-hash" : "asset-preflight",
       message,
     });
     return {
@@ -176,22 +160,25 @@ export async function proveDestinationInBrowser(
     input.signal?.addEventListener("abort", onAbort);
 
     masterXPrvHex = bytesToHex(input.masterXPrv);
-    const discovery = await client.discover(
-      buildDiscoveryRequestJson(masterXPrvHex, input.draft.proofRequests),
-      (progress) => {
-        input.onProgress?.({
-          provider: "browser-wasm",
-          stage: progress.stage ?? "find-path",
-          frac: progress.frac,
-          current: total > 0 ? 1 : 0,
-          total,
-          engine: "local-key-discovery",
-          discovery: workerDiscoveryMetrics(progress),
-        });
-      },
-    );
-    if (discovery.ok !== true) {
-      throw new Error("The browser could not locate the requested credential keys.");
+    const discoveryRequests = input.draft.proofRequests.filter((request) => request.path == null);
+    if (discoveryRequests.length > 0) {
+      const discovery = await client.discover(
+        buildDiscoveryRequestJson(masterXPrvHex, discoveryRequests),
+        (progress) => {
+          input.onProgress?.({
+            provider: "browser-wasm",
+            stage: progress.stage ?? "find-path",
+            frac: progress.frac,
+            current: total > 0 ? 1 : 0,
+            total,
+            engine: "local-key-discovery",
+            discovery: workerDiscoveryMetrics(progress),
+          });
+        },
+      );
+      if (discovery.ok !== true) {
+        throw new Error("The browser could not locate the requested credential keys.");
+      }
     }
     input.onProgress?.({
       provider: "browser-wasm",
@@ -201,11 +188,7 @@ export async function proveDestinationInBrowser(
       total,
       engine: "streampk-sharded-groth16",
     });
-    await ensureProverSessionPreflight(
-      session,
-      descriptor,
-      input.expectedVkHash,
-    );
+    await ensureProverSessionPreflight(session, descriptor, input.expectedVkHash);
     const artifacts: Array<{
       out_ref: string;
       artifact: Record<string, unknown>;
@@ -230,12 +213,7 @@ export async function proveDestinationInBrowser(
         continue;
       }
       const result = await client.prove(
-        buildProveRequestJson(
-          descriptor,
-          session.workerCount,
-          masterXPrvHex,
-          request,
-        ),
+        buildProveRequestJson(descriptor, session.workerCount, masterXPrvHex, request),
         (progress) => {
           input.onProgress?.({
             provider: "browser-wasm",
@@ -250,14 +228,10 @@ export async function proveDestinationInBrowser(
       );
       session.collector.addProof(result);
       if (result.verified_locally !== true) {
-        throw new Error(
-          "The browser prover could not verify a generated proof locally.",
-        );
+        throw new Error("The browser prover could not verify a generated proof locally.");
       }
       if (!result.artifact || typeof result.artifact !== "object") {
-        throw new Error(
-          "The browser prover returned a malformed proof artifact.",
-        );
+        throw new Error("The browser prover returned a malformed proof artifact.");
       }
       artifactByStatement.set(statementKey, result.artifact);
       artifacts.push({ out_ref: request.out_ref, artifact: result.artifact });
@@ -298,16 +272,10 @@ async function takeOrPrepareProverSession(
   const publicKey = preparedSessionPublicKey(descriptor, expectedVkHash);
   if (preparedSession?.publicKey === publicKey) {
     clearTimeout(preparedSession.expiry);
-    preparedSession.collector.recordPreparedSessionReuse(
-      nowMS() - preparedSession.createdAt,
-    );
+    preparedSession.collector.recordPreparedSessionReuse(nowMS() - preparedSession.createdAt);
     return preparedSession;
   }
-  const session = await prepareProverSession(
-    descriptor,
-    expectedVkHash,
-    options,
-  );
+  const session = await prepareProverSession(descriptor, expectedVkHash, options);
   clearTimeout(session.expiry);
   return session;
 }
@@ -315,9 +283,7 @@ async function takeOrPrepareProverSession(
 // Settles a session-preparation promise the caller no longer wants (the user
 // aborted while it was in flight). The finished session stays parked for
 // reuse under its expiry timer; anything else is torn down immediately.
-function reparkAbandonedSession(
-  preparation: Promise<PreparedProverSession>,
-): void {
+function reparkAbandonedSession(preparation: Promise<PreparedProverSession>): void {
   void preparation.then(
     (session) => {
       if (preparedSession === session) {
@@ -411,9 +377,7 @@ async function createProverSession(
       }
     : await calibrateBrowserWorkerCapacity(descriptor);
   const workerCount = calibration.appliedWorkerCount;
-  const collector = new BrowserProvingDiagnosticCollector(
-    browserDiagnosticHostSignals(calibration),
-  );
+  const collector = new BrowserProvingDiagnosticCollector(browserDiagnosticHostSignals(calibration));
   const client = new ProverWorkerClient(
     options.createWorker ?? (() => defaultCreateProverWorker(descriptor.prover_worker_js_url)),
   );
@@ -450,9 +414,7 @@ async function ensureProverSessionPreflight(
   }
   const ccsPrefetch = prefetchPublicCCS(descriptor.ccs_url);
   const preflightStarted = nowMS();
-  const preflight = await session.client.preflight(
-    buildPreflightRequestJson(descriptor, session.workerCount),
-  );
+  const preflight = await session.client.preflight(buildPreflightRequestJson(descriptor, session.workerCount));
   const prefetched = await ccsPrefetch;
   preflight.timings = {
     ...preflight.timings,
@@ -479,10 +441,7 @@ function resetPreparedSessionExpiry(session: PreparedProverSession): void {
   }, PREPARED_PROVER_TIMEOUT_MS);
 }
 
-function preparedSessionPublicKey(
-  descriptor: BrowserProvingDescriptor,
-  expectedVkHash: string,
-): string {
+function preparedSessionPublicKey(descriptor: BrowserProvingDescriptor, expectedVkHash: string): string {
   return JSON.stringify({
     artifacts: buildArtifactsBlock(descriptor),
     tuning: descriptor.tuning ?? null,
@@ -496,17 +455,11 @@ function preparedSessionPublicKey(
 // preparation proceeds without the warm cache.
 const PUBLIC_CCS_PREFETCH_TIMEOUT_MS = 120_000;
 
-async function prefetchPublicCCS(
-  ccsURL: string,
-): Promise<{ durationMS: number; bytes: number }> {
+async function prefetchPublicCCS(ccsURL: string): Promise<{ durationMS: number; bytes: number }> {
   const started = nowMS();
   let bytes = 0;
-  const controller =
-    typeof AbortController !== "undefined" ? new AbortController() : null;
-  const deadline = setTimeout(
-    () => controller?.abort(),
-    PUBLIC_CCS_PREFETCH_TIMEOUT_MS,
-  );
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const deadline = setTimeout(() => controller?.abort(), PUBLIC_CCS_PREFETCH_TIMEOUT_MS);
   try {
     const response = await fetch(absolutize(ccsURL), {
       cache: "force-cache",
@@ -530,42 +483,27 @@ async function prefetchPublicCCS(
 }
 
 function nowMS(): number {
-  return typeof performance !== "undefined" &&
-    typeof performance.now === "function"
-      ? performance.now()
-      : Date.now();
+  return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
 }
 
 function proofRequestStatementKey(request: ClaimProofRequest): string {
-  return [
-    request.target_credential,
-    request.destination_address_encoding,
-    request.destination_address,
-  ].join(":");
+  return [request.target_credential, request.destination_address_encoding, request.destination_address].join(":");
 }
 
-function buildPreflightRequestJson(
-  descriptor: BrowserProvingDescriptor,
-  workerCount: number,
-): string {
+function buildPreflightRequestJson(descriptor: BrowserProvingDescriptor, workerCount: number): string {
   return JSON.stringify({
     artifacts: buildArtifactsBlock(descriptor),
     tuning: buildTuningBlock(descriptor, workerCount),
   });
 }
 
-function buildDiscoveryRequestJson(
-  masterXPrvHex: string,
-  requests: ClaimProofRequest[],
-): string {
+function buildDiscoveryRequestJson(masterXPrvHex: string, requests: ClaimProofRequest[]): string {
   return JSON.stringify({
     master_xprv_hex: masterXPrvHex,
-    target_credentials_hex: [
-      ...new Set(requests.map((request) => request.target_credential)),
-    ],
+    target_credentials_hex: [...new Set(requests.map((request) => request.target_credential))],
     search: {
       max_account: 9,
-      max_index: 999,
+      max_index: 5000,
     },
   });
 }
@@ -580,9 +518,7 @@ function workerDiscoveryMetrics(
   return {
     candidatesScanned: finiteProgressNumber(progress.candidates_scanned),
     candidatesTotal: total,
-    candidatesPerSecond: finiteProgressNumber(
-      progress.candidates_per_second,
-    ),
+    candidatesPerSecond: finiteProgressNumber(progress.candidates_per_second),
     etaSeconds: finiteProgressNumber(progress.eta_seconds),
     matched: finiteProgressNumber(progress.matched),
     targets: finiteProgressNumber(progress.targets),
@@ -590,9 +526,7 @@ function workerDiscoveryMetrics(
 }
 
 function finiteProgressNumber(value: number | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? value
-    : 0;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 function buildProveRequestJson(
@@ -601,18 +535,26 @@ function buildProveRequestJson(
   masterXPrvHex: string,
   request: ClaimProofRequest,
 ): string {
-  return JSON.stringify({
+  const body: Record<string, unknown> = {
     master_xprv_hex: masterXPrvHex,
     target_credential_hex: request.target_credential,
     destination_address_hex: request.destination_address,
     search: {
       max_account: 9,
-      max_index: 999,
+      max_index: 5000,
     },
     artifacts: buildArtifactsBlock(descriptor),
     tuning: buildTuningBlock(descriptor, workerCount),
     include_debug_path: false,
-  });
+  };
+  if (request.path != null) {
+    body.path = {
+      account: request.path.account,
+      role: request.path.role,
+      index: request.path.index,
+    };
+  }
+  return JSON.stringify(body);
 }
 
 function buildTuningBlock(
@@ -620,8 +562,7 @@ function buildTuningBlock(
   appliedWorkerCount?: number,
 ): Record<string, boolean | number> {
   const tuning = { ...DEFAULT_TUNING, ...descriptor.tuning };
-  const workerCount =
-    appliedWorkerCount ?? resolveBrowserWorkerCount(descriptor);
+  const workerCount = appliedWorkerCount ?? resolveBrowserWorkerCount(descriptor);
   return {
     worker_count: workerCount,
     // Every selected Worker must receive at least one section shard. The
@@ -687,15 +628,9 @@ function browserWorkerHostCapacity(): BrowserWorkerHostCapacity {
   if (typeof navigator === "undefined") {
     return { hardwareConcurrency: null, deviceMemoryGiB: null };
   }
-  const hardwareConcurrency = Number.isFinite(navigator.hardwareConcurrency)
-    ? navigator.hardwareConcurrency
-    : null;
-  const deviceMemory = (navigator as Navigator & { deviceMemory?: number })
-    .deviceMemory;
-  const deviceMemoryGiB =
-    typeof deviceMemory === "number" && Number.isFinite(deviceMemory)
-      ? deviceMemory
-      : null;
+  const hardwareConcurrency = Number.isFinite(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : null;
+  const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const deviceMemoryGiB = typeof deviceMemory === "number" && Number.isFinite(deviceMemory) ? deviceMemory : null;
   return { hardwareConcurrency, deviceMemoryGiB };
 }
 
@@ -718,9 +653,7 @@ function msmWorkerUrlWithTuning(url: string): string {
 // always loads `msmworker.wasm` relative to its own script URL. The descriptor
 // must keep both files co-located under runtime_base_url so the pinned URL and
 // the actually-loaded URL coincide.
-function buildArtifactsBlock(
-  descriptor: BrowserProvingDescriptor,
-): Record<string, string> {
+function buildArtifactsBlock(descriptor: BrowserProvingDescriptor): Record<string, string> {
   return {
     manifest_url: absolutize(descriptor.manifest_url),
     manifest_sig_url: absolutize(descriptor.manifest_sig_url),
@@ -756,9 +689,7 @@ class ProverWorkerClient {
     {
       resolve: (response: ProverWorkerResponse) => void;
       reject: (error: unknown) => void;
-      onProgress?: (
-        progress: Extract<ProverWorkerResponse, { type: "progress" }>,
-      ) => void;
+      onProgress?: (progress: Extract<ProverWorkerResponse, { type: "progress" }>) => void;
     }
   >();
   private nextId = 0;
@@ -821,33 +752,21 @@ class ProverWorkerClient {
 
   async discover(
     requestJson: string,
-    onProgress: (
-      progress: Extract<ProverWorkerResponse, { type: "progress" }>,
-    ) => void,
+    onProgress: (progress: Extract<ProverWorkerResponse, { type: "progress" }>) => void,
   ) {
-    const response = await this.request(
-      { type: "discover", requestJson },
-      { expected: "discover-result", onProgress },
-    );
+    const response = await this.request({ type: "discover", requestJson }, { expected: "discover-result", onProgress });
     return response.type === "discover-result" ? response.result : {};
   }
 
   async prove(
     requestJson: string,
-    onProgress: (
-      progress: Extract<ProverWorkerResponse, { type: "progress" }>,
-    ) => void,
+    onProgress: (progress: Extract<ProverWorkerResponse, { type: "progress" }>) => void,
   ): Promise<ProverProveResult> {
-    const response = await this.request(
-      { type: "prove", requestJson },
-      { expected: "prove-result", onProgress },
-    );
+    const response = await this.request({ type: "prove", requestJson }, { expected: "prove-result", onProgress });
     return response.type === "prove-result" ? response.result : {};
   }
 
-  terminate(
-    pendingError: unknown = new Error("The proving worker was stopped."),
-  ): void {
+  terminate(pendingError: unknown = new Error("The proving worker was stopped.")): void {
     // Remember why we stopped so any request issued after termination (e.g. the
     // next prove in the loop racing an abort) rejects with the same reason,
     // not a generic "not running".
@@ -874,26 +793,21 @@ class ProverWorkerClient {
     options: {
       timeoutMs?: number;
       expected: ProverWorkerResponse["type"];
-      onProgress?: (
-        progress: Extract<ProverWorkerResponse, { type: "progress" }>,
-      ) => void;
+      onProgress?: (progress: Extract<ProverWorkerResponse, { type: "progress" }>) => void;
     },
   ): Promise<ProverWorkerResponse> {
     if (!this.worker) {
-      throw (
-        this.terminationError ?? new Error("The proving worker is not running.")
-      );
+      throw this.terminationError ?? new Error("The proving worker is not running.");
     }
-    const id = `prove-${(this.nextId += 1)}`;
+    this.nextId += 1;
+    const id = `prove-${this.nextId}`;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
       return await new Promise<ProverWorkerResponse>((resolve, reject) => {
         this.pending.set(id, {
           resolve: (response) => {
             if (response.type !== options.expected) {
-              reject(
-                new Error("The proving worker sent an unexpected response."),
-              );
+              reject(new Error("The proving worker sent an unexpected response."));
               return;
             }
             resolve(response);
@@ -920,12 +834,7 @@ class ProverWorkerClient {
 // Defense in depth for the secrets policy: no prover error may surface a long
 // hex value (master xprv, witness material) to state, logs, or the UI.
 export function sanitizeProverError(error: unknown): string {
-  const raw =
-    typeof error === "string"
-      ? error
-      : error instanceof Error
-        ? error.message
-        : "Browser proving failed.";
+  const raw = typeof error === "string" ? error : error instanceof Error ? error.message : "Browser proving failed.";
   const redacted = raw.replace(/[0-9a-fA-F]{32,}/gu, "[redacted]");
   return redacted || "Browser proving failed.";
 }
@@ -936,8 +845,4 @@ function bytesToHex(bytes: Uint8Array): string {
     hex += bytes[index].toString(16).padStart(2, "0");
   }
   return hex;
-}
-
-function trimSlash(value: string): string {
-  return value.replace(/\/+$/u, "");
 }

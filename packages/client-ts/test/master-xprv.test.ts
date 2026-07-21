@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { masterXprvHexFromSeedPhrase, normalizeSeedPhrase } from "../src/index.js";
 
-const phrase =
-  "eight country switch draw meat scout mystery blade tip drift useless good keep usage title";
+const phrase = "eight country switch draw meat scout mystery blade tip drift useless good keep usage title";
 
 const expected =
   "c065afd2832cd8b087c4d9ab7011f481ee1e0721e78ea5dd609f3ab3f156d245" +
@@ -19,9 +18,6 @@ describe("masterXprvFromSeedPhrase", () => {
   });
 
   it("rejects invalid phrases", async () => {
-    await expect(masterXprvHexFromSeedPhrase("not a real seed phrase")).rejects.toThrow(
-      /invalid BIP-39 seed phrase/,
-    );
+    await expect(masterXprvHexFromSeedPhrase("not a real seed phrase")).rejects.toThrow(/invalid BIP-39 seed phrase/);
   });
 });
-

@@ -29,7 +29,9 @@ export async function loadWalletAssets(
 ) {
   const changeAddress = assertWalletAddress(input.changeAddress, deployment.network);
   const walletAddresses = assertWalletAddresses(input.walletAddresses, deployment.network);
-  const queryAddresses = walletAddresses.includes(changeAddress) ? walletAddresses : [changeAddress, ...walletAddresses];
+  const queryAddresses = walletAddresses.includes(changeAddress)
+    ? walletAddresses
+    : [changeAddress, ...walletAddresses];
   const utxoGroups = await Promise.all(queryAddresses.map((address) => provider.getUtxos(address)));
   const utxos = dedupeUtxos(utxoGroups.flat());
   return {
@@ -264,7 +266,11 @@ function verifyReviewToken(
   if (parsed.v !== 1 || parsed.deploymentId !== deployment.id || parsed.network !== deployment.network) {
     throw new Error("reviewToken was issued for a different reclaim deployment.");
   }
-  if (typeof parsed.txHash !== "string" || typeof parsed.txCborHash !== "string" || typeof parsed.reviewHash !== "string") {
+  if (
+    typeof parsed.txHash !== "string" ||
+    typeof parsed.txCborHash !== "string" ||
+    typeof parsed.reviewHash !== "string"
+  ) {
     throw new Error("reviewToken payload is malformed.");
   }
   return {

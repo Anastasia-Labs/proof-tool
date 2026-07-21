@@ -1,8 +1,6 @@
 export type ReclaimNetwork = "Mainnet" | "Preprod" | "Preview";
 
-export type ReclaimGlobalProofSlotEncoding =
-  | "bytes-empty-same-as-previous-v1"
-  | "full-proof-plus-public-input-digest-v2";
+export type ReclaimGlobalProofSlotEncoding = "full-proof-plus-public-input-digest-v2";
 
 export type ReclaimDistinctSevenOptIn = {
   // The serialized field name records the distinct-7 capacity benchmark. It
@@ -64,8 +62,8 @@ export type ReclaimDeployment = {
   reclaimBaseScriptHash: string;
   reclaimGlobalCredential: string;
   reclaimGlobalScriptHash: string;
-  reclaimGlobalProofSlotEncoding?: ReclaimGlobalProofSlotEncoding;
-  reclaimGlobalBatchTranscriptVkHash?: string;
+  reclaimGlobalProofSlotEncoding: ReclaimGlobalProofSlotEncoding;
+  reclaimGlobalBatchTranscriptVkHash: string;
   paramsCurrencySymbol: string;
   paramsTokenName: string;
   verifierVkHash: string;

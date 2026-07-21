@@ -6,8 +6,9 @@ import { runNegativeGuardrailsStage } from "./guardrails-stage.mjs";
 
 const tempDirs = [];
 const deploymentId = `Preprod:${"a".repeat(56)}:test`;
-const selectedOutrefs = ["1".repeat(64) + "#0"];
-const txCbor = "84a40081825820000000000000000000000000000000000000000000000000000000000000000000018182581d6019e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e41a001e8480021a0002a300a0f5f6";
+const selectedOutrefs = [`${"1".repeat(64)}#0`];
+const txCbor =
+  "84a40081825820000000000000000000000000000000000000000000000000000000000000000000018182581d6019e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e41a001e8480021a0002a300a0f5f6";
 const witnessSetCbor = "a100";
 const reviewToken = "review-token-secret";
 const proofHex = "ab".repeat(96);
@@ -115,7 +116,11 @@ function fakeFetch(options = {}) {
       if (options.acceptTamperedSubmit) {
         return jsonResponse({ txHash: "5".repeat(64) });
       }
-      if (body.unsignedTxCbor !== txCbor && body.witnessSetCbor === witnessSetCbor && body.claimBuildReviewToken === reviewToken) {
+      if (
+        body.unsignedTxCbor !== txCbor &&
+        body.witnessSetCbor === witnessSetCbor &&
+        body.claimBuildReviewToken === reviewToken
+      ) {
         return jsonResponse({ code: "claim_submit_review_mismatch", error: "tampered tx" }, 400);
       }
       return jsonResponse({ txHash: "5".repeat(64) });
@@ -157,7 +162,7 @@ function proofBundle() {
         out_ref: selectedOutrefs[0],
         artifact: {
           schema: "root-ownership-proof-artifact-v1",
-          destination_address: "01" + "2a".repeat(28) + "00" + "00".repeat(28),
+          destination_address: `01${"2a".repeat(28)}00${"00".repeat(28)}`,
           cardano: {
             proof_hex: proofHex,
           },

@@ -3,14 +3,9 @@
 
 module Main (main) where
 
-import Control.Exception (SomeException, evaluate, finally, try)
+import Control.Exception (SomeException, evaluate, try)
 import Control.Monad (forM_)
-import Data.Aeson (Value (..), eitherDecode, encode, toJSON)
-import qualified Data.Aeson.Key as Key
-import qualified Data.Aeson.KeyMap as KeyMap
-import qualified Data.ByteString.Lazy as BL
 import Data.Char (digitToInt, isHexDigit)
-import Data.Foldable (toList)
 import Data.List (nubBy, zipWith4)
 
 import qualified PlutusCore as PLC
@@ -20,9 +15,6 @@ import PlutusCore.Evaluation.Machine.ExBudget
   )
 import PlutusCore.Evaluation.Machine.ExBudgetingDefaults (defaultCekParametersForTesting)
 import PlutusCore.Evaluation.Machine.ExMemory (ExCPU (..), ExMemory (..))
-import PlutusCore.Evaluation.Machine.MachineParameters.Default
-  ( DefaultMachineParameters
-  )
 import qualified PlutusCore.MkPlc as PLC
 import PlutusLedgerApi.Common
   ( ScriptNamedDeBruijn (..)
@@ -49,18 +41,6 @@ import Ownership.ReclaimBase
   , reclaimBaseValidatorCode
   , txInfoWdrlFromContextData
   )
-import Ownership.ReclaimGlobal
-  ( foldBatchScalarState
-  , retainBatchScalarState
-  , reclaimGlobalParamsData
-  , reclaimProofBytesConcat
-  , reclaimGlobalRedeemerData
-  , reclaimSameAsPreviousProof
-  , reclaimGlobalValidator
-  , reclaimGlobalValidatorCode
-  , valueCoversData
-  )
-import qualified Ownership.ReclaimGlobalV2Bench as V2Global
 import qualified Ownership.ReclaimGlobalV2 as StatementV2
 import Ownership.ReclaimGlobalMulti
   ( destinationAddressV1FromTxOutData
@@ -84,7 +64,6 @@ import Ownership.Verify
   , blsScalarFieldOrder
   , coefficientFirstVkX
   , commitmentYIsCanonical
-  , committedProofMergedBatchSidesWithBatchVK
   , committedProofMergedSidesWithVK
   , expandMsgXmd48
   , groth16VerifyCommittedParsedNoPok
@@ -100,26 +79,15 @@ import Ownership.Verify
   , parseVerifyingKey
   , parseVerifyingKeyBatch
   , verifyOwnershipDestinationWithParsedBatchVKKnown28NoPok
-  , verifyOwnershipDestinationWithParsedBatchVKLegacyKnown28NoPok
   , verifyOwnershipDestinationWithParsedVKKnown28NoPok
-  , verifyCommittedProofGrothBatch
-  , verifyCommittedProofMergedBatchWithBatchVK
   , verifyCommittedProofMergedWithVK
-  , verifyCommittedProofPokBatchWithBatchVK
   , verifyCommittedProofPokBatch
   , verifyOwnershipWithVK
   )
-import qualified PlutusLedgerApi.V1.Value as Value
 import qualified PlutusLedgerApi.V3 as V3
-import Protocol11Snapshot
-  ( Protocol11Snapshot (..)
-  , loadProtocol11Snapshot
-  )
 import ReclaimBaseOracle (reclaimBaseValidatorOracle)
 import ScriptContextBuilder
-import System.Directory (removeFile)
 import System.Exit (ExitCode (ExitFailure))
-import System.IO (hClose, openBinaryTempFile)
 import System.Process (readProcessWithExitCode)
 
 import Test.Tasty
@@ -159,10 +127,6 @@ readDistinctOwnershipFixtures path = do
             }
         _ -> error "malformed distinct ownership fixture row"
 
-tamperProof :: BuiltinByteString -> BuiltinByteString
-tamperProof proof =
-  B.consByteString 0 (B.sliceByteString 1 335 proof)
-
 proofWithCommitmentY :: Integer -> BuiltinByteString -> BuiltinByteString
 proofWithCommitmentY y proof =
   B.sliceByteString 0 240 proof
@@ -175,18 +139,6 @@ replaceProofSlice offset width replacement proof =
     <> replacement
     <> B.sliceByteString (offset + width) (336 - offset - width) proof
 
-compressedIdentity :: Integer -> BuiltinByteString
-compressedIdentity width =
-  B.consByteString 192 (bytesToBuiltin (replicate (fromInteger width - 1) 0))
-
-malformedCompressedPoint :: Integer -> BuiltinByteString
-malformedCompressedPoint width =
-  B.consByteString 255 (bytesToBuiltin (replicate (fromInteger width - 1) 255))
-
-uncompressedCommitmentIdentity :: BuiltinByteString
-uncompressedCommitmentIdentity =
-  B.consByteString 64 (bytesToBuiltin (replicate 95 0))
-
 flipFirstBit :: BuiltinByteString -> BuiltinByteString
 flipFirstBit bytes =
   let firstByte = B.indexByteString bytes 0
@@ -198,32 +150,6 @@ flipBitAt offset bytes =
   B.sliceByteString 0 offset bytes
     <> flipFirstBit (B.sliceByteString offset 1 bytes)
     <> B.sliceByteString (offset + 1) (B.lengthOfByteString bytes - offset - 1) bytes
-
-replaceAt :: Int -> a -> [a] -> [a]
-replaceAt index replacement values =
-  take index values <> [replacement] <> drop (index + 1) values
-
-distinctV2Context :: [DistinctOwnershipFixture] -> [BuiltinByteString] -> V3.ScriptContext
-distinctV2Context fixtures proofs =
-  distinctV2ContextWithOutputs fixtures proofs (replicate (length fixtures) singleDestinationOutput)
-
-distinctV2ContextWithOutputs :: [DistinctOwnershipFixture] -> [BuiltinByteString] -> [V3.TxOut] -> V3.ScriptContext
-distinctV2ContextWithOutputs fixtures proofs outputs =
-  reclaimGlobalContextWithOutputs
-    proofs
-    0
-    [ reclaimBaseInputAtWithDatum
-        (B.consByteString (toInteger index) "v2-distinct")
-        (toInteger index)
-        (ReclaimBaseDatum (distinctFixtureCredential fixture))
-    | (index, fixture) <- zip [0 :: Int ..] fixtures
-    ]
-    [paramInput]
-    outputs
-
-replaceProofComponentFrom :: Integer -> Integer -> BuiltinByteString -> BuiltinByteString -> BuiltinByteString
-replaceProofComponentFrom offset width donor proof =
-  replaceProofSlice offset width (B.sliceByteString offset width donor) proof
 
 batchPowers :: Integer -> Int -> [Integer]
 batchPowers challenge count =
@@ -293,18 +219,6 @@ v8FrozenOracle =
   , (20408575888598363472074565533343346233650921066493644253234235177544607757237, 23503706297217456716252376843778474386831402656596089862165390917578226273549, 22758881971505448432558392706152000198335364978117121033584575808251427722287, 31642004732034419122469584493237329613967213972131674137279477063596969466721)
   , (1798154814053191814673675094630726133966691227209037801793217750533554170715, 23540052811365506733268996157123482851850172370880410673415625202779070649460, 43429006371487139155772788962368599530646571065816866097018277631863101142236, 66491749857469224189329191298909567256418651152250996157723511154399292912)
   , (17429327968848838354173297802306428513733999120619034431253556411933158794297, 49358161649994204865730070606441017630069309847630576157765577877925870379296, 21673031299103894338042973667441471770581287634887008546302843392695021473049, 39003710787239659322167481374543680233735483060007793929213729722179617098157)
-  ]
-
-v2FrozenMergeChallenges :: [Integer]
-v2FrozenMergeChallenges =
-  [ 41990679094145725765141998649932872258938640311399289605778015057166159464326
-  , 21415847308921884533109839760503663853840428083883773187719150801500688762100
-  , 20976884203304348741067320685030207182773593971393657697761443646113708764380
-  , 21239155599768587654462017683896151518539905211062408258496431139442774081001
-  , 33070125807488501890138905568095885550195351398074354865062391109837784264302
-  , 40194257211921244345805352042126102883484382751295030857363950672998421534616
-  , 7141264274522442137281511997518071184652554290842714459571680157049246125264
-  , 29108666883649509077288371354144174169872910210905544745074600417030659434476
   ]
 
 v8ComputedScalars :: BuiltinByteString -> [DistinctOwnershipFixture] -> (Integer, Integer, Integer, Integer)
@@ -418,14 +332,6 @@ builtinBoolToBool :: BI.BuiltinBool -> Bool
 builtinBoolToBool condition =
   BI.ifThenElse condition (\_ -> True) (\_ -> False) BI.unitval
 
-runReclaimGlobal :: BuiltinByteString -> V3.ScriptContext -> Bool
-runReclaimGlobal verifierKey ctx =
-  reclaimGlobalValidator paramCurrencySymbol paramTokenName verifierKey (V3.toBuiltinData ctx)
-
-runReclaimGlobalV2 :: BuiltinByteString -> V3.ScriptContext -> Bool
-runReclaimGlobalV2 verifierKey ctx =
-  V2Global.reclaimGlobalValidator paramCurrencySymbol paramTokenName verifierKey (V3.toBuiltinData ctx)
-
 runReclaimGlobalStatementV2 :: BuiltinByteString -> BuiltinByteString -> V3.ScriptContext -> Bool
 runReclaimGlobalStatementV2 verifierKey verifierKeyHash ctx =
   StatementV2.reclaimGlobalValidatorV2 paramCurrencySymbol paramTokenName verifierKey verifierKeyHash (V3.toBuiltinData ctx)
@@ -455,14 +361,6 @@ runCompiledReclaimBase :: V3.Credential -> V3.ScriptContext -> Bool
 runCompiledReclaimBase credential ctx =
   fst (evaluateCompiledScript (compiledReclaimBaseScript credential) ctx)
 
-compiledReclaimGlobalScript :: BuiltinByteString -> Script
-compiledReclaimGlobalScript verifierKey =
-  compiledToProgram $
-    reclaimGlobalValidatorCode
-      `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef paramCurrencySymbol
-      `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef paramTokenName
-      `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef verifierKey
-
 compiledReclaimGlobalStatementV2Script :: BuiltinByteString -> BuiltinByteString -> Script
 compiledReclaimGlobalStatementV2Script verifierKey verifierKeyHash =
   compiledToProgram $
@@ -478,15 +376,6 @@ assertCompiledReclaimGlobalStatementV2Rejects label verifierKey verifierKeyHash 
         evaluateCompiledScript
           (compiledReclaimGlobalStatementV2Script verifierKey verifierKeyHash)
           ctx
-  assertBool (label <> " unexpectedly succeeded") (not succeeded)
-  assertBool (label <> " emitted trace output from the production script") logsEmpty
-
-assertCompiledReclaimGlobalRejects :: String -> BuiltinByteString -> BuiltinByteString -> Assertion
-assertCompiledReclaimGlobalRejects label verifierKey proof = do
-  let (succeeded, logsEmpty) =
-        evaluateCompiledScript
-          (compiledReclaimGlobalScript verifierKey)
-          (reclaimGlobalContext proof 0 [reclaimBaseInput] [paramInput])
   assertBool (label <> " unexpectedly succeeded") (not succeeded)
   assertBool (label <> " emitted trace output from the production script") logsEmpty
 
@@ -518,22 +407,6 @@ evaluateCompiledScript script ctx =
         (Right _, _, logs) -> (True, null logs)
         (Left _, _, logs)  -> (False, null logs)
 
-evaluateCompiledScriptWith ::
-  DefaultMachineParameters ->
-  Script ->
-  V3.ScriptContext ->
-  (Bool, ExBudget, Bool)
-evaluateCompiledScriptWith machineParameters script ctx =
-  let UPLC.Program _ _ term = applyContextArgument script ctx
-      namedTerm = UPLC.termMapNames UPLC.fakeNameDeBruijn term
-   in case Cek.runCekDeBruijn
-        machineParameters
-        Cek.counting
-        Cek.logEmitter
-        namedTerm of
-        (Right _, Cek.CountingSt budget, logs) -> (True, budget, null logs)
-        (Left _, Cek.CountingSt budget, logs)  -> (False, budget, null logs)
-
 applyContextArgument :: Script -> V3.ScriptContext -> Script
 applyContextArgument (UPLC.Program ann version term) ctx =
   UPLC.Program ann version $
@@ -544,55 +417,6 @@ unlimitedBudget = ExBudget (ExCPU maxBound) (ExMemory maxBound)
 
 protocolVersion :: V3.MajorProtocolVersion
 protocolVersion = V3.MajorProtocolVersion 11
-
-renderExBudget :: ExBudget -> String
-renderExBudget (ExBudget (ExCPU cpu) (ExMemory memory)) =
-  "memory="
-    <> show (V3.fromSatInt memory :: Integer)
-    <> ",cpu="
-    <> show (V3.fromSatInt cpu :: Integer)
-
-protocol11SnapshotPath :: FilePath
-protocol11SnapshotPath = "bench/results/preprod-protocol-v11-epoch-300.json"
-
-withEncodedSnapshot :: Value -> (FilePath -> IO a) -> IO a
-withEncodedSnapshot value action = do
-  (path, handle) <- openBinaryTempFile "/tmp" "protocol-v11-snapshot.json"
-  BL.hPut handle (encode value)
-  hClose handle
-  action path `finally` removeFile path
-
-mutatePlutusV3Model :: ([Value] -> [Value]) -> Value -> Value
-mutatePlutusV3Model mutation (Object snapshot) =
-  Object $ adjustKey "protocol_parameters" mutateProtocolParameters snapshot
-  where
-    mutateProtocolParameters (Object parameters) =
-      Object $ adjustKey "costModels" mutateCostModels parameters
-    mutateProtocolParameters other = other
-    mutateCostModels (Object models) =
-      Object $ adjustKey "PlutusV3" mutateModel models
-    mutateCostModels other = other
-    mutateModel (Array values) = toJSON (mutation (toList values))
-    mutateModel other = other
-mutatePlutusV3Model _ other = other
-
-adjustKey :: Key.Key -> (Value -> Value) -> KeyMap.KeyMap Value -> KeyMap.KeyMap Value
-adjustKey key update object =
-  case KeyMap.lookup key object of
-    Nothing -> object
-    Just value -> KeyMap.insert key (update value) object
-
-dropLast :: [a] -> [a]
-dropLast [] = []
-dropLast values = init values
-
-swapFirstTwo :: [a] -> [a]
-swapFirstTwo (first : second : rest) = second : first : rest
-swapFirstTwo values = values
-
-replaceFirstMalformed :: [Value] -> [Value]
-replaceFirstMalformed (_ : rest) = String "malformed" : rest
-replaceFirstMalformed [] = [String "malformed"]
 
 main :: IO ()
 main = do
@@ -811,7 +635,7 @@ main = do
               @?= True
         ]
     , testGroup "Ownership.ReclaimBase"
-        [ testCase "accepts a spending context with datum and global withdrawal" $
+        [ testCase "accepts when the configured withdrawal is present" $
             reclaimBaseValidatorOracle globalCredential (reclaimBaseContext (Just validBaseDatum) [(globalCredential, 0)])
               @?= True
         , testCase "ignores the global withdrawal amount" $
@@ -831,15 +655,15 @@ main = do
                     (reclaimBaseContext (Just validBaseDatum) [])
             assertBool "compiled validator must preserve the traced failure branch" (not succeeded)
             assertBool "remove-trace must remove the failure message" emittedNoLogs
-        , testCase "rejects missing datum" $
+        , testCase "ignores a missing datum because GlobalV2 owns datum validation" $
             reclaimBaseValidatorOracle globalCredential (reclaimBaseContext Nothing [(globalCredential, 0)])
-              @?= False
-        , testCase "rejects non-28-byte datum key hash" $
+              @?= True
+        , testCase "ignores datum credential width because GlobalV2 owns proof input validation" $
             reclaimBaseValidatorOracle globalCredential (reclaimBaseContext (Just invalidBaseDatum) [(globalCredential, 0)])
-              @?= False
-        , testCase "rejects a key credential even when its withdrawal is present" $
+              @?= True
+        , testCase "does not revalidate the deployment credential constructor" $
             reclaimBaseValidatorOracle keyGlobalCredential (reclaimBaseContext (Just validBaseDatum) [(keyGlobalCredential, 0)])
-              @?= False
+              @?= True
         , testCase "raw validator accepts the golden inline datum with multiple mixed withdrawals" $
             runCompiledReclaimBase
               globalCredential
@@ -848,52 +672,52 @@ main = do
                   [(keyGlobalCredential, 4), (otherGlobalCredential, 9), (globalCredential, 1234567)]
               )
               @?= True
-        , testGroup "raw validator rejects wrong datum lengths" $
+        , testGroup "raw validator ignores datum lengths" $
             [ testCase ("length " <> show datumLength) $
                 runCompiledReclaimBase
                   globalCredential
                   (reclaimBaseContextForDatum (DatumInlineWrongLength datumLength) [(globalCredential, 0)])
-                  @?= False
+                  @?= True
             | datumLength <- [0, 5, 27, 29, 64]
             ]
-        , testGroup "raw validator rejects malformed inline datum encodings" $
+        , testGroup "raw validator ignores malformed inline datum encodings" $
             [ testCase label $
                 runCompiledReclaimBase
                   globalCredential
                   (reclaimBaseContextForDatum datumMode [(globalCredential, 0)])
-                  @?= False
+                  @?= True
             | (label, datumMode) <-
                 [ ("wrong constructor", DatumInlineWrongConstructor)
                 , ("missing constructor field", DatumInlineNoFields)
                 , ("non-bytes credential field", DatumInlineNonBytesField)
                 ]
             ]
-        , testCase "raw validator preserves typed-decoder acceptance of trailing datum fields" $
+        , testCase "raw validator ignores trailing datum fields" $
             runCompiledReclaimBase
               globalCredential
               (reclaimBaseContextForDatum DatumInlineExtraField [(globalCredential, 0)])
               @?= True
-        , testCase "raw validator rejects a missing datum" $
+        , testCase "raw validator ignores a missing datum" $
             runCompiledReclaimBase globalCredential (reclaimBaseContext Nothing [(globalCredential, 0)])
-              @?= False
-        , testCase "raw validator rejects datum-by-hash" $
+              @?= True
+        , testCase "raw validator ignores datum-by-hash" $
             runCompiledReclaimBase globalCredential (reclaimBaseContextForDatum DatumByHash [(globalCredential, 0)])
-              @?= False
+              @?= True
         , testCase "raw validator rejects an absent withdrawal" $
             runCompiledReclaimBase globalCredential (reclaimBaseContext (Just validBaseDatum) [(otherGlobalCredential, 0)])
               @?= False
         , testCase "raw validator rejects a wrong configured global credential" $
             runCompiledReclaimBase otherGlobalCredential (reclaimBaseContext (Just validBaseDatum) [(globalCredential, 0)])
               @?= False
-        , testCase "raw validator rejects a key-shaped configured global credential" $
+        , testCase "raw validator accepts a key-shaped configured credential when present" $
             runCompiledReclaimBase keyGlobalCredential (reclaimBaseContext (Just validBaseDatum) [(keyGlobalCredential, 0)])
-              @?= False
-        , testGroup "raw validator rejects every non-Spending V3 ScriptInfo variant" $
+              @?= True
+        , testGroup "raw validator ignores ScriptInfo purpose" $
             [ testCase label $
                 runCompiledReclaimBase
                   globalCredential
                   (withBasePurpose purpose (reclaimBaseContext (Just validBaseDatum) [(globalCredential, 0)]))
-                  @?= False
+                  @?= True
             | (label, purpose) <-
                 [ ("MintingScript", PurposeMinting)
                 , ("RewardingScript", PurposeRewarding)
@@ -902,603 +726,25 @@ main = do
                 , ("ProposingScript", PurposeProposing)
                 ]
             ]
-        , testCase "plutus-ledger-api 1.38 full TxInfo layout walk selects txInfoWdrl field 6" $ do
+        , testCase "plutus-ledger-api 1.38 fixed TxInfo projection selects txInfoWdrl field 6" $ do
             let ctx =
                   reclaimBaseContext
                     (Just validBaseDatum)
                     [(keyGlobalCredential, 3), (globalCredential, 7), (otherGlobalCredential, 11)]
                 expectedWdrl = V3.toBuiltinData (V3.txInfoWdrl (V3.scriptContextTxInfo ctx))
-                walkedWdrl = txInfoWdrlFromContextData (V3.toBuiltinData ctx)
-            B.equalsData walkedWdrl expectedWdrl @?= True
+                projectedWdrl = txInfoWdrlFromContextData (V3.toBuiltinData ctx)
+            B.equalsData projectedWdrl expectedWdrl @?= True
         -- Stage 2b acceptance-equivalence qualification: configure at least
         -- 5,000 successes; checkCoverage may run more for confidence.
         , localOption (QC.QuickCheckTests 5000) $
-            QC.testProperty "raw walker matches the old typed oracle on randomized well-formed contexts" $
+            QC.testProperty "raw projection matches the withdrawal-only oracle on randomized well-formed contexts" $
               QC.forAllShrink
                 genReclaimBaseDifferentialCase
                 shrinkReclaimBaseDifferentialCase
                 reclaimBaseDifferentialProperty
         ]
-    , testGroup "V2 benchmark-only merged finalVerify"
-        [ testGroup "frozen merge challenge"
-            [ testCase ("S1 exact distinct N=" <> show inputCount) $ do
-                let transcript = mconcat (fmap distinctFixtureProof (take inputCount distinctFixtures))
-                    mergeChallenge = ownershipProofBatchMergeChallenge transcript
-                mergeChallenge @?= v2FrozenMergeChallenges !! (inputCount - 1)
-                assertBool "merge challenge must be nonzero and canonical"
-                  (mergeChallenge >= 1 && mergeChallenge < blsScalarFieldOrder)
-            | inputCount <- [1 .. 8]
-            ]
-        , testCase "S1 reordered, tampered, repeated-marker, and Multi vectors" $ do
-            let proof1 = distinctFixtureProof (head distinctFixtures)
-                proof2 = distinctFixtureProof (distinctFixtures !! 1)
-                markerTranscript =
-                  V2Global.reclaimProofBytesConcat
-                    (proofSlotData [proof1, V2Global.reclaimSameAsPreviousProof])
-            ownershipProofBatchMergeChallenge (proof2 <> proof1)
-              @?= 3961882019454325166842866730953628675910503824031253986762552929938394337944
-            ownershipProofBatchMergeChallenge (flipBitAt 0 proof1 <> proof2)
-              @?= 12107605022154603732039557716572645030458308367785335900633417181877011479775
-            ownershipProofBatchMergeChallenge markerTranscript
-              @?= 41880180735321536865844818014126746409913616421263593869203786399114953572745
-            ownershipProofBatchMergeChallenge multiProof
-              @?= 25168615990545306024971660901831754687099805661150605711399580878569654845810
-        , testCase "S2/S3 nonzero map and suffix separation are exact" $ do
-            let nz raw = 1 + raw `B.modInteger` (blsScalarFieldOrder - 1)
-                proof1 = distinctFixtureProof (head distinctFixtures)
-                domain = "ROOT-OWNERSHIP-POK-BATCH-v1"
-                expected = ownershipProofBatchMergeChallenge proof1
-                hashWith bytes = nz (B.byteStringToInteger BigEndian (B.blake2b_256 bytes))
-            fmap nz [0, 1, blsScalarFieldOrder - 2, blsScalarFieldOrder - 1, blsScalarFieldOrder, 2 * blsScalarFieldOrder - 3]
-              @?= [1, 2, blsScalarFieldOrder - 1, 1, 2, blsScalarFieldOrder - 1]
-            expected @?= hashWith (domain <> proof1 <> B.consByteString 1 B.emptyByteString)
-            forM_
-              [ hashWith (domain <> proof1)
-              , hashWith (domain <> B.consByteString 1 B.emptyByteString <> proof1)
-              , hashWith (domain <> proof1 <> B.consByteString 0 B.emptyByteString)
-              , hashWith (domain <> proof1 <> B.consByteString 2 B.emptyByteString)
-              ] $ \mutated -> assertBool "mutated merge domain unexpectedly matched" (mutated /= expected)
-        , testCase "VK coherence gate: IC1/K2/gamma and pairing bases are nonidentity" $ do
-            let destinationParsed = parseVerifyingKeyBatch destinationVk
-                multiParsed = parseVerifyingKey multiVk
-                checkGate label ic1 k2 gamma = do
-                  let identityG1 = 0 `B.bls12_381_G1_scalarMul` ic1
-                      identityG2 = 0 `B.bls12_381_G2_scalarMul` gamma
-                      identityMl = B.bls12_381_millerLoop identityG1 gamma
-                  assertBool (label <> " IC1 is identity")
-                    (B.bls12_381_G1_compress ic1 /= B.bls12_381_G1_compress identityG1)
-                  assertBool (label <> " K2 is identity")
-                    (B.bls12_381_G1_compress k2 /= B.bls12_381_G1_compress identityG1)
-                  assertBool (label <> " gamma is identity")
-                    (B.bls12_381_G2_compress gamma /= B.bls12_381_G2_compress identityG2)
-                  assertBool (label <> " e(IC1,gamma) is identity") $
-                    not (B.bls12_381_finalVerify (B.bls12_381_millerLoop ic1 gamma) identityMl)
-                  assertBool (label <> " e(K2,gamma) is identity") $
-                    not (B.bls12_381_finalVerify (B.bls12_381_millerLoop k2 gamma) identityMl)
-            checkGate "destination" (parsedBatchIc1 destinationParsed) (parsedBatchK2 destinationParsed) (parsedBatchGamma destinationParsed)
-            checkGate "Multi" (parsedIc1 multiParsed) (parsedK2 multiParsed) (parsedGamma multiParsed)
-        , testCase "S4 every A/B/C/D/PoK byte class at every N=1..8 changes s" $ do
-            forM_ [1 .. 8] $ \inputCount -> do
-              let proofs = fmap distinctFixtureProof (take inputCount distinctFixtures)
-                  original = ownershipProofBatchMergeChallenge (mconcat proofs)
-              forM_ [0 .. inputCount - 1] $ \position ->
-                forM_ [0, 48, 144, 192, 288] $ \offset ->
-                  assertBool "component mutation left s unchanged" $
-                    ownershipProofBatchMergeChallenge
-                      (mconcat (replaceAt position (flipBitAt offset (proofs !! position)) proofs))
-                      /= original
-        , testCase "A1 old Groth/PoK conjunction equals merged Miller product N=1..8" $ do
-            let parsed = parseVerifyingKeyBatch destinationVk
-            forM_ [1 .. 8] $ \inputCount -> do
-              let fixtures = take inputCount distinctFixtures
-                  proofs = fmap distinctFixtureProof fixtures
-                  r = ownershipProofBatchChallenge (mconcat proofs)
-                  s = ownershipProofBatchMergeChallenge (mconcat proofs)
-                  weights = batchPowers r inputCount
-                  checks =
-                    [ verifyOwnershipDestinationWithParsedBatchVKKnown28NoPok
-                        parsed
-                        (distinctFixtureProof fixture)
-                        (distinctFixtureCredential fixture)
-                        destinationAddressBytes
-                    | fixture <- fixtures
-                    ]
-                  coefficientSum = sum weights `B.modInteger` blsScalarFieldOrder
-                  foldedCommitment = foldWeightedG1 (zip weights (fmap batchCommittedProofCommitment checks))
-                  foldedPok = foldWeightedG1 (zip weights (fmap batchCommittedProofPok checks))
-                  foldedC = foldWeightedG1 (zip weights (fmap batchCommittedProofC checks))
-                  foldedPub = foldScalarProducts (zip weights (fmap batchCommittedProofPub checks))
-                  foldedECmt = foldScalarProducts (zip weights (fmap batchCommittedProofECmt checks))
-                  foldedVkX = coefficientFirstVkX parsed coefficientSum foldedPub foldedECmt foldedCommitment
-                  foldedGrothLhs =
-                    foldl1 B.bls12_381_mulMlResult
-                      [ B.bls12_381_millerLoop
-                          (weight `B.bls12_381_G1_scalarMul` batchCommittedProofA check)
-                          (batchCommittedProofB check)
-                      | (weight, check) <- zip weights checks
-                      ]
-                  oldGroth = verifyCommittedProofGrothBatch parsed coefficientSum foldedGrothLhs foldedVkX foldedC
-                  oldPok = verifyCommittedProofPokBatchWithBatchVK parsed foldedCommitment foldedPok
-                  merged = verifyCommittedProofMergedBatchWithBatchVK parsed coefficientSum foldedGrothLhs foldedVkX foldedC foldedCommitment foldedPok s
-                  (actualLhs, actualRhs) =
-                    committedProofMergedBatchSidesWithBatchVK
-                      parsed coefficientSum foldedGrothLhs foldedVkX foldedC foldedCommitment foldedPok s
-                  batchAlpha =
-                    if builtinBoolToBool (batchCoefficientUsesUnscaledAlpha coefficientSum)
-                      then parsedBatchAlpha parsed
-                      else coefficientSum `B.bls12_381_G1_scalarMul` parsedBatchAlpha parsed
-                  oldGrothRhs =
-                    B.bls12_381_millerLoop batchAlpha (parsedBatchBeta parsed)
-                      `B.bls12_381_mulMlResult` B.bls12_381_millerLoop foldedVkX (parsedBatchGamma parsed)
-                      `B.bls12_381_mulMlResult` B.bls12_381_millerLoop foldedC (parsedBatchDelta parsed)
-                  expectedPokLhs =
-                    foldl1 B.bls12_381_mulMlResult
-                      [ B.bls12_381_millerLoop
-                          ((s * weight `B.modInteger` blsScalarFieldOrder) `B.bls12_381_G1_scalarMul` batchCommittedProofPok check)
-                          (parsedBatchCkG parsed)
-                      | (weight, check) <- zip weights checks
-                      ]
-                  expectedPokRhs =
-                    foldl1 B.bls12_381_mulMlResult
-                      [ B.bls12_381_millerLoop
-                          ( B.bls12_381_G1_neg
-                              ((s * weight `B.modInteger` blsScalarFieldOrder) `B.bls12_381_G1_scalarMul` batchCommittedProofCommitment check)
-                          )
-                          (parsedBatchCkGSN parsed)
-                      | (weight, check) <- zip weights checks
-                      ]
-                  expectedLhs = foldedGrothLhs `B.bls12_381_mulMlResult` expectedPokLhs
-                  expectedRhs = oldGrothRhs `B.bls12_381_mulMlResult` expectedPokRhs
-              oldGroth @?= True
-              oldPok @?= True
-              merged @?= (oldGroth && oldPok)
-              assertBool "actual merged LHS differs from independent per-row oracle"
-                (B.bls12_381_finalVerify actualLhs expectedLhs)
-              assertBool "actual merged RHS differs from independent per-row oracle"
-                (B.bls12_381_finalVerify actualRhs expectedRhs)
-        , testCase "A3/F1 terminal s-fold equals per-row s*w fold for N=1..8" $ do
-            let parsed = parseVerifyingKeyBatch destinationVk
-            forM_ [1 .. 8] $ \inputCount -> do
-              let fixtures = take inputCount distinctFixtures
-                  proofs = fmap distinctFixtureProof fixtures
-                  r = ownershipProofBatchChallenge (mconcat proofs)
-                  productionS = ownershipProofBatchMergeChallenge (mconcat proofs)
-                  weights = batchPowers r inputCount
-                  checks =
-                    [ verifyOwnershipDestinationWithParsedBatchVKKnown28NoPok
-                        parsed
-                        (distinctFixtureProof fixture)
-                        (distinctFixtureCredential fixture)
-                        destinationAddressBytes
-                    | fixture <- fixtures
-                    ]
-                  commitments = fmap batchCommittedProofCommitment checks
-                  poks = fmap batchCommittedProofPok checks
-              forM_ [1, blsScalarFieldOrder - 1, productionS] $ \s -> do
-                let terminalD = s `B.bls12_381_G1_scalarMul` foldWeightedG1 (zip weights commitments)
-                    perRowD = foldWeightedG1 (zip (fmap (\w -> s * w `B.modInteger` blsScalarFieldOrder) weights) commitments)
-                    terminalP = s `B.bls12_381_G1_scalarMul` foldWeightedG1 (zip weights poks)
-                    perRowP = foldWeightedG1 (zip (fmap (\w -> s * w `B.modInteger` blsScalarFieldOrder) weights) poks)
-                B.bls12_381_G1_compress terminalD @?= B.bls12_381_G1_compress perRowD
-                B.bls12_381_G1_compress terminalP @?= B.bls12_381_G1_compress perRowP
-        , testCase "A4/F2 merged helper preserves unscaled Groth D and scales only PoK D/P" $ do
-            let parsed = parseVerifyingKeyBatch destinationVk
-                fixture = head distinctFixtures
-                proof1 = distinctFixtureProof fixture
-                s = ownershipProofBatchMergeChallenge proof1
-            case verifyOwnershipDestinationWithParsedBatchVKLegacyKnown28NoPok parsed proof1 (distinctFixtureCredential fixture) destinationAddressBytes of
-              CommittedProofCheck commitment pok a b c vkX -> do
-                let grothLhs = B.bls12_381_millerLoop a b
-                assertBool "old Groth equation rejected fixture" (verifyCommittedProofGrothBatch parsed 1 grothLhs vkX c)
-                assertBool "old PoK equation rejected fixture" (verifyCommittedProofPokBatchWithBatchVK parsed commitment pok)
-                assertBool "merged equation rejected fixture"
-                  (verifyCommittedProofMergedBatchWithBatchVK parsed 1 grothLhs vkX c commitment pok s)
-                B.bls12_381_G1_compress ((1 + blsScalarFieldOrder) `B.bls12_381_G1_scalarMul` commitment)
-                  @?= B.bls12_381_G1_compress (1 `B.bls12_381_G1_scalarMul` commitment)
-                assertBool "X4 swapped commitment bases unexpectedly verified" $
-                  not $
-                    B.bls12_381_finalVerify
-                      (B.bls12_381_millerLoop pok (parsedBatchCkGSN parsed))
-                      (B.bls12_381_millerLoop (B.bls12_381_G1_neg commitment) (parsedBatchCkG parsed))
-                assertBool "X4 wrong commitment sign unexpectedly verified" $
-                  not $
-                    B.bls12_381_finalVerify
-                      (B.bls12_381_millerLoop pok (parsedBatchCkG parsed))
-                      (B.bls12_381_millerLoop commitment (parsedBatchCkGSN parsed))
-                let pokLhs = B.bls12_381_millerLoop pok (parsedBatchCkG parsed)
-                    pokRhs = B.bls12_381_millerLoop (B.bls12_381_G1_neg commitment) (parsedBatchCkGSN parsed)
-                    identity = 0 `B.bls12_381_G1_scalarMul` commitment
-                    identityMl = B.bls12_381_millerLoop identity (parsedBatchCkG parsed)
-                assertBool "X4 P/D point swap unexpectedly verified" $
-                  not $
-                    B.bls12_381_finalVerify
-                      (B.bls12_381_millerLoop commitment (parsedBatchCkG parsed))
-                      (B.bls12_381_millerLoop (B.bls12_381_G1_neg pok) (parsedBatchCkGSN parsed))
-                assertBool "X4 omitted PoK Miller loop unexpectedly verified" $
-                  not (B.bls12_381_finalVerify identityMl pokRhs)
-                assertBool "X4 doubled one PoK side unexpectedly verified" $
-                  not (B.bls12_381_finalVerify (pokLhs `B.bls12_381_mulMlResult` pokLhs) pokRhs)
-                let wrongVkX =
-                      vkX
-                        `B.bls12_381_G1_add` ((s - 1) `B.bls12_381_G1_scalarMul` commitment)
-                    omittedD = vkX `B.bls12_381_G1_add` B.bls12_381_G1_neg commitment
-                    doubledD = vkX `B.bls12_381_G1_add` commitment
-                assertBool "scaled D was incorrectly accepted in Groth vkX"
-                  (not (verifyCommittedProofMergedBatchWithBatchVK parsed 1 grothLhs wrongVkX c commitment pok s))
-                assertBool "omitted Groth D was incorrectly accepted"
-                  (not (verifyCommittedProofMergedBatchWithBatchVK parsed 1 grothLhs omittedD c commitment pok s))
-                assertBool "D plus D_s/doubled Groth D was incorrectly accepted"
-                  (not (verifyCommittedProofMergedBatchWithBatchVK parsed 1 grothLhs doubledD c commitment pok s))
-        , testCase "N2/R1/R2 valid equations accept every s; independent and paired errors reject" $ do
-            let parsed = parseVerifyingKeyBatch destinationVk
-                fixture = head distinctFixtures
-                proof1 = distinctFixtureProof fixture
-                productionS = ownershipProofBatchMergeChallenge proof1
-            case verifyOwnershipDestinationWithParsedBatchVKLegacyKnown28NoPok parsed proof1 (distinctFixtureCredential fixture) destinationAddressBytes of
-              CommittedProofCheck commitment pok a b c vkX -> do
-                let grothLhs = B.bls12_381_millerLoop a b
-                    tweakPoint scalar point = point `B.bls12_381_G1_add` (scalar `B.bls12_381_G1_scalarMul` parsedBatchIc0 parsed)
-                forM_ [1, blsScalarFieldOrder - 1, productionS] $ \s ->
-                  assertBool "valid equations depend on s"
-                    (verifyCommittedProofMergedBatchWithBatchVK parsed 1 grothLhs vkX c commitment pok s)
-                let alternateS =
-                      1
-                        + B.byteStringToInteger
-                            BigEndian
-                            ( B.blake2b_256
-                                ( "ROOT-OWNERSHIP-POK-BATCH-v1"
-                                    <> proof1
-                                    <> B.consByteString 2 B.emptyByteString
-                                )
-                            )
-                          `B.modInteger` (blsScalarFieldOrder - 1)
-                assertBool "R1 alternate suffix must derive a different s" (alternateS /= productionS)
-                assertBool "R1 valid proof rejected under alternate suffix/domain s"
-                  (verifyCommittedProofMergedBatchWithBatchVK parsed 1 grothLhs vkX c commitment pok alternateS)
-                forM_ [1 .. 8] $ \scalar -> do
-                  let changedC = tweakPoint scalar c
-                      changedPok = tweakPoint (scalar + 9) pok
-                  assertBool "Groth-only error accepted"
-                    (not (verifyCommittedProofMergedBatchWithBatchVK parsed 1 grothLhs vkX changedC commitment pok productionS))
-                  assertBool "PoK-only error accepted"
-                    (not (verifyCommittedProofMergedBatchWithBatchVK parsed 1 grothLhs vkX c commitment changedPok productionS))
-                  assertBool "paired Groth/PoK error accepted"
-                    (not (verifyCommittedProofMergedBatchWithBatchVK parsed 1 grothLhs vkX changedC commitment changedPok productionS))
-                let staleS = ownershipProofBatchMergeChallenge (distinctFixtureProof (distinctFixtures !! 1))
-                    changedC = tweakPoint 17 c
-                assertBool "R2 fixture must use a different stale s" (staleS /= productionS)
-                assertBool "invalid proof accepted with stale s"
-                  (not (verifyCommittedProofMergedBatchWithBatchVK parsed 1 grothLhs vkX changedC commitment pok staleS))
-        , testCase "X1 paired valid-subgroup Groth/PoK corpus covers every position N=1..8" $ do
-            let parsed = parseVerifyingKeyBatch destinationVk
-                corpusCount :: Int
-                corpusCount = sum [4 * inputCount | inputCount <- [1 .. 8]]
-            corpusCount @?= 144
-            forM_ [1 .. 8] $ \inputCount -> do
-              let fixtures = take inputCount distinctFixtures
-                  proofs = fmap distinctFixtureProof fixtures
-                  originalS = ownershipProofBatchMergeChallenge (mconcat proofs)
-              forM_ [0 .. inputCount - 1] $ \position ->
-                forM_ [(cChoice, pChoice) | cChoice <- [1, 2], pChoice <- [3, 4]] $ \(cChoice, pChoice) -> do
-                  let originalProof = proofs !! position
-                      donorC = distinctFixtureProof (distinctFixtures !! ((position + cChoice) `mod` length distinctFixtures))
-                      donorPok = distinctFixtureProof (distinctFixtures !! ((position + pChoice) `mod` length distinctFixtures))
-                      changedProof =
-                        replaceProofSlice 288 48 (B.sliceByteString 288 48 donorPok) $
-                          replaceProofSlice 144 48 (B.sliceByteString 144 48 donorC) originalProof
-                      changedProofs = replaceAt position changedProof proofs
-                      changedTranscript = mconcat changedProofs
-                      r = ownershipProofBatchChallenge changedTranscript
-                      s = ownershipProofBatchMergeChallenge changedTranscript
-                      weights = batchPowers r inputCount
-                      checks =
-                        [ verifyOwnershipDestinationWithParsedBatchVKKnown28NoPok parsed changed (distinctFixtureCredential fixture) destinationAddressBytes
-                        | (fixture, changed) <- zip fixtures changedProofs
-                        ]
-                      coefficientSum = sum weights `B.modInteger` blsScalarFieldOrder
-                      foldedCommitment = foldWeightedG1 (zip weights (fmap batchCommittedProofCommitment checks))
-                      foldedPok = foldWeightedG1 (zip weights (fmap batchCommittedProofPok checks))
-                      foldedC = foldWeightedG1 (zip weights (fmap batchCommittedProofC checks))
-                      foldedPub = foldScalarProducts (zip weights (fmap batchCommittedProofPub checks))
-                      foldedECmt = foldScalarProducts (zip weights (fmap batchCommittedProofECmt checks))
-                      foldedVkX = coefficientFirstVkX parsed coefficientSum foldedPub foldedECmt foldedCommitment
-                      foldedGrothLhs =
-                        foldl1 B.bls12_381_mulMlResult
-                          [ B.bls12_381_millerLoop
-                              (weight `B.bls12_381_G1_scalarMul` batchCommittedProofA check)
-                              (batchCommittedProofB check)
-                          | (weight, check) <- zip weights checks
-                          ]
-                      oldGroth = verifyCommittedProofGrothBatch parsed coefficientSum foldedGrothLhs foldedVkX foldedC
-                      oldPok = verifyCommittedProofPokBatchWithBatchVK parsed foldedCommitment foldedPok
-                      merged = verifyCommittedProofMergedBatchWithBatchVK parsed coefficientSum foldedGrothLhs foldedVkX foldedC foldedCommitment foldedPok s
-                      changedContext = distinctV2Context fixtures changedProofs
-                  assertBool "X1 serialized mutation did not recompute s" (s /= originalS)
-                  oldGroth @?= False
-                  oldPok @?= False
-                  merged @?= False
-                  oldSerialized <- safeBool (runReclaimGlobal destinationVk changedContext)
-                  v2Serialized <- safeBool (runReclaimGlobalV2 destinationVk changedContext)
-                  oldSerialized @?= False
-                  v2Serialized @?= oldSerialized
-        , testCase "X2/X3 target-group oracle demonstrates cancellation and forced-zero failure" $ do
-            let parsed = parseVerifyingKeyBatch destinationVk
-                point = parsedBatchIc1 parsed
-                gamma = parsedBatchGamma parsed
-                identity = 0 `B.bls12_381_G1_scalarMul` point
-                oneMl = B.bls12_381_millerLoop identity gamma
-                pMl = B.bls12_381_millerLoop point gamma
-                s = 7
-                sPMl = B.bls12_381_millerLoop (s `B.bls12_381_G1_scalarMul` point) gamma
-                oldGroth = B.bls12_381_finalVerify oneMl sPMl
-                oldPok = B.bls12_381_finalVerify pMl oneMl
-                mergedCancellation =
-                  B.bls12_381_finalVerify
-                    (oneMl `B.bls12_381_mulMlResult` sPMl)
-                    (sPMl `B.bls12_381_mulMlResult` oneMl)
-                forcedZero =
-                  B.bls12_381_finalVerify
-                    (oneMl `B.bls12_381_mulMlResult` B.bls12_381_millerLoop identity gamma)
-                    (oneMl `B.bls12_381_mulMlResult` oneMl)
-                ignoredS =
-                  B.bls12_381_finalVerify
-                    (oneMl `B.bls12_381_mulMlResult` pMl)
-                    (sPMl `B.bls12_381_mulMlResult` oneMl)
-            oldGroth @?= False
-            oldPok @?= False
-            mergedCancellation @?= True
-            forcedZero @?= True
-            ignoredS @?= False
-        , testGroup "A1/G1/P1/P2 distinct N=1..8 differential"
-            [ testCase ("N=" <> show inputCount) $ do
-                let fixtures = take inputCount distinctFixtures
-                    proofs = fmap distinctFixtureProof fixtures
-                    parsed = parseVerifyingKeyBatch destinationVk
-                    positiveContext = distinctV2Context fixtures proofs
-                oldPositive <- safeBool (runReclaimGlobal destinationVk positiveContext)
-                v2Positive <- safeBool (runReclaimGlobalV2 destinationVk positiveContext)
-                oldPositive @?= True
-                v2Positive @?= oldPositive
-                forM_ [0 .. inputCount - 1] $ \position ->
-                  forM_
-                    [ ("A", 0)
-                    , ("B", 48)
-                    , ("C", 144)
-                    , ("D", 192)
-                    , ("PoK", 288)
-                    ] $ \(label, offset) -> do
-                      let changed = flipBitAt offset (proofs !! position)
-                          negativeContext = distinctV2Context fixtures (replaceAt position changed proofs)
-                      oldNegative <- safeBool (runReclaimGlobal destinationVk negativeContext)
-                      v2Negative <- safeBool (runReclaimGlobalV2 destinationVk negativeContext)
-                      assertBool (label <> " mutation unexpectedly accepted by old N=" <> show inputCount) (not oldNegative)
-                      assertBool (label <> " mutation unexpectedly accepted by V2 N=" <> show inputCount) (not v2Negative)
-                      v2Negative @?= oldNegative
-                forM_ [0 .. inputCount - 1] $ \position -> do
-                  let donorProof = distinctFixtureProof (distinctFixtures !! ((position + 1) `mod` length distinctFixtures))
-                      originalProof = proofs !! position
-                      validSubgroupMutations =
-                        [ ( "A-valid-subgroup"
-                          , replaceProofSlice 0 48 (B.sliceByteString 0 48 donorProof) originalProof
-                          , True
-                          )
-                        , ( "B-valid-subgroup"
-                          , replaceProofSlice 48 96 (B.sliceByteString 48 96 donorProof) originalProof
-                          , True
-                          )
-                        , ( "C-valid-subgroup"
-                          , replaceProofSlice 144 48 (B.sliceByteString 144 48 donorProof) originalProof
-                          , True
-                          )
-                        , ( "D-valid-subgroup"
-                          , replaceProofSlice 192 96 (B.sliceByteString 192 96 donorProof) originalProof
-                          , False
-                          )
-                        , ( "PoK-valid-subgroup"
-                          , replaceProofSlice 288 48 (B.sliceByteString 288 48 donorProof) originalProof
-                          , False
-                          )
-                        ]
-                  forM_ validSubgroupMutations $ \(label, changed, preservesPok) -> do
-                    let negativeContext = distinctV2Context fixtures (replaceAt position changed proofs)
-                    oldNegative <- safeBool (runReclaimGlobal destinationVk negativeContext)
-                    v2Negative <- safeBool (runReclaimGlobalV2 destinationVk negativeContext)
-                    assertBool (label <> " unexpectedly accepted by old N=" <> show inputCount) (not oldNegative)
-                    assertBool (label <> " unexpectedly accepted by V2 N=" <> show inputCount) (not v2Negative)
-                    v2Negative @?= oldNegative
-                    if preservesPok
-                      then
-                        case verifyOwnershipDestinationWithParsedBatchVKLegacyKnown28NoPok parsed changed (distinctFixtureCredential (fixtures !! position)) destinationAddressBytes of
-                          CommittedProofCheck commitment pok a b c vkX -> do
-                            assertBool (label <> " changed old PoK")
-                              (verifyCommittedProofPokBatchWithBatchVK parsed commitment pok)
-                            assertBool (label <> " did not fail old Groth")
-                              (not (verifyCommittedProofGrothBatch parsed 1 (B.bls12_381_millerLoop a b) vkX c))
-                      else pure ()
-            | inputCount <- [1 .. 8]
-            ]
-        , testGroup "S6/G2/G3/R3 authenticated statement/order differential"
-            [ testCase ("N=" <> show inputCount) $ do
-                let fixtures = take inputCount distinctFixtures
-                    proofs = fmap distinctFixtureProof fixtures
-                    transcriptS = ownershipProofBatchMergeChallenge (mconcat proofs)
-                forM_ [0 .. inputCount - 1] $ \position -> do
-                  let fixture = fixtures !! position
-                      changedFixture =
-                        fixture
-                          { distinctFixtureCredential = flipBitAt 0 (distinctFixtureCredential fixture)
-                          }
-                      changedContext = distinctV2Context (replaceAt position changedFixture fixtures) proofs
-                  ownershipProofBatchMergeChallenge (mconcat proofs) @?= transcriptS
-                  oldNegative <- safeBool (runReclaimGlobal destinationVk changedContext)
-                  v2Negative <- safeBool (runReclaimGlobalV2 destinationVk changedContext)
-                  oldNegative @?= False
-                  v2Negative @?= oldNegative
-                  let changedDestinationContext =
-                        distinctV2ContextWithOutputs
-                          fixtures
-                          proofs
-                          (replaceAt position changedSingleDestinationOutput (replicate inputCount singleDestinationOutput))
-                  oldDestinationNegative <- safeBool (runReclaimGlobal destinationVk changedDestinationContext)
-                  v2DestinationNegative <- safeBool (runReclaimGlobalV2 destinationVk changedDestinationContext)
-                  oldDestinationNegative @?= False
-                  v2DestinationNegative @?= oldDestinationNegative
-                if inputCount >= 2
-                  then do
-                    let swappedProofs = swapFirstTwo proofs
-                        inconsistent = distinctV2Context fixtures swappedProofs
-                        consistent = distinctV2Context (swapFirstTwo fixtures) swappedProofs
-                    oldInconsistent <- safeBool (runReclaimGlobal destinationVk inconsistent)
-                    v2Inconsistent <- safeBool (runReclaimGlobalV2 destinationVk inconsistent)
-                    oldConsistent <- safeBool (runReclaimGlobal destinationVk consistent)
-                    v2Consistent <- safeBool (runReclaimGlobalV2 destinationVk consistent)
-                    oldInconsistent @?= False
-                    v2Inconsistent @?= oldInconsistent
-                    oldConsistent @?= True
-                    v2Consistent @?= oldConsistent
-                  else pure ()
-            | inputCount <- [1 .. 8]
-            ]
-        , testCase "S7 malformed marker chains and proof lengths match production rejection" $ do
-            let malformedProofs =
-                  [ V2Global.reclaimSameAsPreviousProof
-                  , B.sliceByteString 0 335 destinationProof
-                  , destinationProof <> B.consByteString 0 B.emptyByteString
-                  ]
-            forM_ malformedProofs $ \malformedProof -> do
-              let ctx = reclaimGlobalContext malformedProof 0 [reclaimBaseInput] [paramInput]
-              oldNegative <- safeBool (runReclaimGlobal destinationVk ctx)
-              v2Negative <- safeBool (runReclaimGlobalV2 destinationVk ctx)
-              oldNegative @?= False
-              v2Negative @?= oldNegative
-            let markerContexts =
-                  [ reclaimGlobalContextWithOutputs
-                      [destinationProof, V2Global.reclaimSameAsPreviousProof]
-                      0
-                      [reclaimBaseInput, differentOwnerReclaimBaseInput]
-                      [paramInput]
-                      [singleDestinationOutput, singleDestinationOutput]
-                  , reclaimGlobalContextWithOutputs
-                      [destinationProof, V2Global.reclaimSameAsPreviousProof]
-                      0
-                      [reclaimBaseInput, secondReclaimBaseInput]
-                      [paramInput]
-                      [singleDestinationOutput, changedSingleDestinationOutput]
-                  ]
-            forM_ markerContexts $ \ctx -> do
-              oldNegative <- safeBool (runReclaimGlobal destinationVk ctx)
-              v2Negative <- safeBool (runReclaimGlobalV2 destinationVk ctx)
-              oldNegative @?= False
-              v2Negative @?= oldNegative
-        , testCase "N1 broad serialized negatives replay against V2" $ do
-            let negativeContexts =
-                  [ reclaimGlobalContext destinationProof 0
-                      [reclaimBaseInputWithDatum (ReclaimBaseDatum wrongPaymentKeyHash)]
-                      [paramInput]
-                  , reclaimGlobalContextWithOutputs [destinationProof] 0 [reclaimBaseInput] [paramInput] [changedSingleDestinationOutput]
-                  , reclaimGlobalContextWithOutputs [destinationProof] 0 [reclaimBaseInput] [paramInput] [underpaidSingleDestinationOutput]
-                  , reclaimGlobalSpendingContext destinationProof 0 [reclaimBaseInput] [paramInput]
-                  , reclaimGlobalMintingContext destinationProof 0 [reclaimBaseInput] [paramInput]
-                  , reclaimGlobalContext destinationProof 0 [reclaimBaseInput] [paramInputWithValue mempty]
-                  , reclaimGlobalContext (proofWithCommitmentY blsBaseFieldOrder destinationProof) 0 [reclaimBaseInput] [paramInput]
-                  ]
-            forM_ negativeContexts $ \ctx -> do
-              oldNegative <- safeBool (runReclaimGlobal destinationVk ctx)
-              v2Negative <- safeBool (runReclaimGlobalV2 destinationVk ctx)
-              oldNegative @?= False
-              v2Negative @?= oldNegative
-        , let malformedCommitment = B.consByteString 127 (bytesToBuiltin (replicate 95 255))
-              pointMutations =
-                [ ("identity A", replaceProofSlice 0 48 (compressedIdentity 48))
-                , ("identity B", replaceProofSlice 48 96 (compressedIdentity 96))
-                , ("identity C", replaceProofSlice 144 48 (compressedIdentity 48))
-                , ("identity D", replaceProofSlice 192 96 uncompressedCommitmentIdentity)
-                , ("identity PoK", replaceProofSlice 288 48 (compressedIdentity 48))
-                , ("malformed A", replaceProofSlice 0 48 (malformedCompressedPoint 48))
-                , ("malformed B", replaceProofSlice 48 96 (malformedCompressedPoint 96))
-                , ("malformed C", replaceProofSlice 144 48 (malformedCompressedPoint 48))
-                , ("malformed D", replaceProofSlice 192 96 malformedCommitment)
-                , ("malformed PoK", replaceProofSlice 288 48 (malformedCompressedPoint 48))
-                ]
-           in testGroup "P3/N1 V2 identity, malformed, and VK-length differential"
-                [ testCase "N=1 legacy parser" $ do
-                    forM_ pointMutations $ \(label, mutate) -> do
-                      let ctx = reclaimGlobalContext (mutate destinationProof) 0 [reclaimBaseInput] [paramInput]
-                      oldNegative <- safeBool (runReclaimGlobal destinationVk ctx)
-                      v2Negative <- safeBool (runReclaimGlobalV2 destinationVk ctx)
-                      assertBool (label <> " accepted by old N=1") (not oldNegative)
-                      assertBool (label <> " accepted by V2 N=1") (not v2Negative)
-                , testCase "N=2 second-distinct parser" $ do
-                    let firstFixture = head distinctFixtures
-                        secondFixture = distinctFixtures !! 1
-                        fixtures = [firstFixture, secondFixture]
-                        proofs = fmap distinctFixtureProof fixtures
-                    forM_ pointMutations $ \(label, mutate) -> do
-                      let ctx = distinctV2Context fixtures [head proofs, mutate (proofs !! 1)]
-                      oldNegative <- safeBool (runReclaimGlobal destinationVk ctx)
-                      v2Negative <- safeBool (runReclaimGlobalV2 destinationVk ctx)
-                      assertBool (label <> " accepted by old N=2") (not oldNegative)
-                      assertBool (label <> " accepted by V2 N=2") (not v2Negative)
-                , testCase "671/673-byte VKs" $ do
-                    let ctx = reclaimGlobalContext destinationProof 0 [reclaimBaseInput] [paramInput]
-                        malformedVks =
-                          [ B.sliceByteString 0 671 destinationVk
-                          , destinationVk <> B.consByteString 0 B.emptyByteString
-                          ]
-                    forM_ malformedVks $ \malformedVk -> do
-                      oldNegative <- safeBool (runReclaimGlobal malformedVk ctx)
-                      v2Negative <- safeBool (runReclaimGlobalV2 malformedVk ctx)
-                      oldNegative @?= False
-                      v2Negative @?= oldNegative
-                ]
-        , testGroup "A2 repeated markers N=1,2,5,35"
-            [ testCase ("N=" <> show inputCount) $ do
-                let inputs =
-                      [ reclaimBaseInputAt
-                          (B.consByteString (toInteger index) "v2-repeat")
-                          (toInteger index)
-                      | index <- [0 :: Int .. inputCount - 1]
-                      ]
-                    markerProofs = destinationProof : replicate (inputCount - 1) V2Global.reclaimSameAsPreviousProof
-                    expandedProofs = replicate inputCount destinationProof
-                    markerTranscript = V2Global.reclaimProofBytesConcat (proofSlotData markerProofs)
-                    expandedTranscript = V2Global.reclaimProofBytesConcat (proofSlotData expandedProofs)
-                    markerContext = reclaimGlobalContextWithOutputs markerProofs 0 inputs [paramInput] (replicate inputCount singleDestinationOutput)
-                    expandedContext = reclaimGlobalContextWithOutputs expandedProofs 0 inputs [paramInput] (replicate inputCount singleDestinationOutput)
-                markerTranscript @?= expandedTranscript
-                ownershipProofBatchMergeChallenge markerTranscript @?= ownershipProofBatchMergeChallenge expandedTranscript
-                oldMarker <- safeBool (runReclaimGlobal destinationVk markerContext)
-                v2Marker <- safeBool (runReclaimGlobalV2 destinationVk markerContext)
-                v2Expanded <- safeBool (runReclaimGlobalV2 destinationVk expandedContext)
-                oldMarker @?= True
-                v2Marker @?= oldMarker
-                v2Expanded @?= v2Marker
-            | inputCount <- [1, 2, 5, 35]
-            ]
-        , testCase "A2 mixed cached/distinct chain matches expanded decisions" $ do
-            let firstFixture = head distinctFixtures
-                secondFixture = distinctFixtures !! 1
-                fixtures = [firstFixture, firstFixture, secondFixture, secondFixture]
-                markerProofs =
-                  [ distinctFixtureProof firstFixture
-                  , V2Global.reclaimSameAsPreviousProof
-                  , distinctFixtureProof secondFixture
-                  , V2Global.reclaimSameAsPreviousProof
-                  ]
-                expandedProofs = fmap distinctFixtureProof fixtures
-                markerTranscript = V2Global.reclaimProofBytesConcat (proofSlotData markerProofs)
-                expandedTranscript = V2Global.reclaimProofBytesConcat (proofSlotData expandedProofs)
-                markerContext = distinctV2Context fixtures markerProofs
-                expandedContext = distinctV2Context fixtures expandedProofs
-            markerTranscript @?= expandedTranscript
-            ownershipProofBatchMergeChallenge markerTranscript @?= ownershipProofBatchMergeChallenge expandedTranscript
-            oldMarker <- safeBool (runReclaimGlobal destinationVk markerContext)
-            v2Marker <- safeBool (runReclaimGlobalV2 destinationVk markerContext)
-            v2Expanded <- safeBool (runReclaimGlobalV2 destinationVk expandedContext)
-            oldMarker @?= True
-            v2Marker @?= oldMarker
-            v2Expanded @?= v2Marker
-        , testCase "M3/M4 Multi paired corpus and eager-vkX wiring mutations reject" $ do
+    , testGroup "ReclaimGlobalMulti benchmark-only merged finalVerify"
+        [ testCase "M3/M4 Multi paired corpus and eager-vkX wiring mutations reject" $ do
             let parsed = parseVerifyingKey multiVk
                 s = ownershipProofBatchMergeChallenge multiProof
             case groth16VerifyCommittedParsedNoPok parsed (Proof multiProof) (Scalar multiPub) of
@@ -1627,757 +873,6 @@ main = do
               oldNegative @?= False
               v2Negative @?= oldNegative
         ]
-    , testGroup "Ownership.ReclaimGlobal"
-        [ localOption (QC.QuickCheckTests 1000) $
-            QC.testProperty "ledger-normalized Value coverage matches Value.leq in V1 and V2" $
-              QC.forAll genLedgerValueCoverageCase valueCoverageDifferentialProperty
-        , testCase "ledger-normalized Value coverage rejects a missing required native asset" $
-            assertLedgerValueCoverage
-              False
-              (ledgerValue [(V3.adaSymbol, [(V3.adaToken, 10000000)]), (policyA, [(tokenA, 1)])])
-              (ledgerValue [(V3.adaSymbol, [(V3.adaToken, 10000000)])])
-        , testCase "ledger-normalized Value coverage rejects a quantity shortfall by one" $
-            assertLedgerValueCoverage
-              False
-              (ledgerValue [(V3.adaSymbol, [(V3.adaToken, 10000000)]), (policyA, [(tokenA, 5)])])
-              (ledgerValue [(V3.adaSymbol, [(V3.adaToken, 10000000)]), (policyA, [(tokenA, 4)])])
-        , testCase "ledger-normalized Value coverage rejects the right total under the wrong policy" $
-            assertLedgerValueCoverage
-              False
-              (ledgerValue [(V3.adaSymbol, [(V3.adaToken, 10000000)]), (policyA, [(tokenA, 5)])])
-              (ledgerValue [(V3.adaSymbol, [(V3.adaToken, 10000000)]), (policyB, [(tokenA, 5)])])
-        , testCase "ledger-normalized Value coverage allows positive extra paid assets" $
-            assertLedgerValueCoverage
-              True
-              (ledgerValue [(V3.adaSymbol, [(V3.adaToken, 10000000)])])
-              ( ledgerValue
-                  [ (V3.adaSymbol, [(V3.adaToken, 10000000)])
-                  , (policyB, [(tokenA, 9)])
-                  ]
-              )
-        , testCase "preprod protocol-v11 snapshot release gate evaluates production paths" $ do
-            loadedSnapshot <-
-              loadProtocol11Snapshot protocol11SnapshotPath
-            case loadedSnapshot of
-              Left err -> assertFailure err
-              Right snapshot -> do
-                let globalScript =
-                      compiledToProgram $
-                        reclaimGlobalValidatorCode
-                          `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef paramCurrencySymbol
-                          `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef paramTokenName
-                          `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef destinationVk
-                    baseScript =
-                      compiledToProgram $
-                        reclaimBaseValidatorCode
-                          `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.toBuiltinData globalCredential)
-                    (positiveSucceeded, positiveBudget, positiveLogsEmpty) =
-                      evaluateCompiledScriptWith
-                        (snapshotMachineParameters snapshot)
-                        globalScript
-                        (reclaimGlobalContext destinationProof 0 [reclaimBaseInput] [paramInput])
-                    (negativeSucceeded, negativeBudget, negativeLogsEmpty) =
-                      evaluateCompiledScriptWith
-                        (snapshotMachineParameters snapshot)
-                        baseScript
-                        (reclaimBaseContext (Just validBaseDatum) [])
-                snapshotCanonicalProtocolParametersHash snapshot
-                  @?= "e710abd050607fddc29d16a930bf222e465f053daed75ea4eebdac8134492bcb"
-                snapshotPlutusV3ParameterCount snapshot @?= 350
-                assertBool "replicateByte no-stake production path must succeed" positiveSucceeded
-                assertBool "trace-stripped missing-withdrawal branch must fail" (not negativeSucceeded)
-                assertBool "positive production path must emit no trace logs" positiveLogsEmpty
-                assertBool "trace-stripped failure must emit no trace logs" negativeLogsEmpty
-                putStrLn $
-                  "V7 protocol-v11 gate: PASS; hash="
-                    <> snapshotCanonicalProtocolParametersHash snapshot
-                    <> "; entries=350; evaluator_entries="
-                    <> show (snapshotEvaluatorParameterCount snapshot)
-                    <> "; positive_ex_units="
-                    <> renderExBudget positiveBudget
-                    <> "; negative_ex_units="
-                    <> renderExBudget negativeBudget
-                    <> "; negative_logs=0"
-        , testCase "protocol-v11 snapshot rejects missing, extra, reordered, and malformed model values" $ do
-            decoded <- eitherDecode <$> BL.readFile protocol11SnapshotPath
-            case decoded of
-              Left err -> assertFailure err
-              Right snapshotValue ->
-                forM_
-                  [ ("missing", mutatePlutusV3Model dropLast snapshotValue)
-                  , ("extra", mutatePlutusV3Model (<> [Number 0]) snapshotValue)
-                  , ("reordered", mutatePlutusV3Model swapFirstTwo snapshotValue)
-                  , ("malformed", mutatePlutusV3Model replaceFirstMalformed snapshotValue)
-                  ] $
-                  \(label, mutatedSnapshot) ->
-                    withEncodedSnapshot mutatedSnapshot $ \path -> do
-                      result <- loadProtocol11Snapshot path
-                      case result of
-                        Left _ -> pure ()
-                        Right _ -> assertFailure (label <> " cost-model mutation was accepted")
-        , testCase "accepts one reclaim base input with its real proof" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 0 [reclaimBaseInput] [paramInput])
-            ok @?= True
-        , testGroup "V8 distinct-proof decision matrix N=1..8" $
-            [ testCase ("N=" <> show inputCount) $ do
-                let fixtures = take inputCount distinctFixtures
-                    proofs = fmap distinctFixtureProof fixtures
-                    inputs =
-                      [ reclaimBaseInputAtWithDatum
-                          (B.consByteString (toInteger index) "v8-distinct")
-                          (toInteger index)
-                          (ReclaimBaseDatum (distinctFixtureCredential fixture))
-                      | (index, fixture) <- zip [0 :: Int ..] fixtures
-                      ]
-                    outputs = replicate inputCount singleDestinationOutput
-                    runWith candidateProofs candidateOutputs =
-                      safeBool $
-                        runReclaimGlobal destinationVk $
-                          reclaimGlobalContextWithOutputs
-                            candidateProofs
-                            0
-                            inputs
-                            [paramInput]
-                            candidateOutputs
-
-                positive <- runWith proofs outputs
-                positive @?= True
-
-                let tamperedProofs = init proofs <> [tamperProof (last proofs)]
-                tampered <- runWith tamperedProofs outputs
-                tampered @?= False
-
-                redirected <-
-                  runWith proofs (changedSingleDestinationOutput : drop 1 outputs)
-                redirected @?= False
-
-                if inputCount >= 2
-                  then do
-                    -- Proof order is the public-input order: swapping proof
-                    -- slots while authenticated input datums stay fixed swaps
-                    -- the proofs' pub values and must fail.
-                    reordered <- runWith (swapFirstTwo proofs) outputs
-                    reordered @?= False
-                  else pure ()
-            | inputCount <- [1 .. 8]
-            ]
-        , testGroup "O1/O2/O3 proof-public-input ordering N=2..8" $
-            [ testCase ("N=" <> show inputCount) $ do
-                let fixtures = take inputCount distinctFixtures
-                    proofs = fmap distinctFixtureProof fixtures
-                    credentials = fmap distinctFixtureCredential fixtures
-                    outputs = replicate inputCount singleDestinationOutput
-                    mkInputs candidateCredentials =
-                      [ reclaimBaseInputAtWithDatum
-                          (B.consByteString (toInteger index) "v8-order")
-                          (toInteger index)
-                          (ReclaimBaseDatum credential)
-                      | (index, credential) <- zip [0 :: Int ..] candidateCredentials
-                      ]
-                    runWith candidateProofs candidateCredentials =
-                      safeBool $
-                        runReclaimGlobal destinationVk $
-                          reclaimGlobalContextWithOutputs candidateProofs 0 (mkInputs candidateCredentials) [paramInput] outputs
-
-                swappedPubs <- runWith proofs (swapFirstTwo credentials)
-                assertBool "O1 swapped authenticated pub values accepted" (not swappedPubs)
-
-                swappedProofs <- runWith (swapFirstTwo proofs) credentials
-                assertBool "O2 swapped proof slots accepted" (not swappedProofs)
-
-                consistentlySwapped <- runWith (swapFirstTwo proofs) (swapFirstTwo credentials)
-                assertBool "O3 consistently swapped tuples rejected" consistentlySwapped
-            | inputCount <- [2 .. 8]
-            ]
-        , testGroup "C1-C5 position-complete mutation matrix N=1..8" $
-            [ testCase ("N=" <> show inputCount) $ do
-                let fixtures = take inputCount distinctFixtures
-                    proofs = fmap distinctFixtureProof fixtures
-                    credentials = fmap distinctFixtureCredential fixtures
-                    outputs = replicate inputCount singleDestinationOutput
-                    donorProof = distinctFixtureProof (distinctFixtures !! inputCount)
-                    mkInputs candidateCredentials =
-                      [ reclaimBaseInputAtWithDatum
-                          (B.consByteString (toInteger index) "v8-mutation")
-                          (toInteger index)
-                          (ReclaimBaseDatum credential)
-                      | (index, credential) <- zip [0 :: Int ..] candidateCredentials
-                      ]
-                    runWith candidateProofs candidateCredentials candidateOutputs =
-                      safeBool $
-                        runReclaimGlobal destinationVk $
-                          reclaimGlobalContextWithOutputs candidateProofs 0 (mkInputs candidateCredentials) [paramInput] candidateOutputs
-                    oneBitDestination = pubKeyOutput (flipFirstBit destinationPaymentKeyHash) reclaimValue
-                    componentMutations =
-                      [ ("A", 0, 48)
-                      , ("B", 48, 96)
-                      , ("C", 144, 48)
-                      ]
-
-                forM_ [0 .. inputCount - 1] $ \position -> do
-                  changedCredential <-
-                    runWith
-                      proofs
-                      (replaceAt position (flipFirstBit (credentials !! position)) credentials)
-                      outputs
-                  assertBool ("C1 credential bit at position " <> show position <> " accepted") (not changedCredential)
-
-                  changedDestination <-
-                    runWith proofs credentials (replaceAt position oneBitDestination outputs)
-                  assertBool ("C2 destination byte at position " <> show position <> " accepted") (not changedDestination)
-
-                  changedCommitment <-
-                    runWith
-                      (replaceAt position (flipBitAt 193 (proofs !! position)) proofs)
-                      credentials
-                      outputs
-                  assertBool ("C3 commitment byte at position " <> show position <> " accepted") (not changedCommitment)
-
-                  forM_ componentMutations $ \(component, offset, width) -> do
-                    changedComponent <-
-                      runWith
-                        (replaceAt position (replaceProofComponentFrom offset width donorProof (proofs !! position)) proofs)
-                        credentials
-                        outputs
-                    assertBool ("C4 " <> component <> " at position " <> show position <> " accepted") (not changedComponent)
-
-                  changedPok <-
-                    runWith
-                      (replaceAt position (replaceProofComponentFrom 288 48 donorProof (proofs !! position)) proofs)
-                      credentials
-                      outputs
-                  assertBool ("C5 PoK at position " <> show position <> " accepted") (not changedPok)
-            | inputCount <- [1 .. 8]
-            ]
-        , testCase "R1 cached marker chain does not advance the next distinct power" $ do
-            case take 2 distinctFixtures of
-              [firstFixture, secondFixture] -> do
-                let proof1 = distinctFixtureProof firstFixture
-                    proof2 = distinctFixtureProof secondFixture
-                    credential1 = distinctFixtureCredential firstFixture
-                    credential2 = distinctFixtureCredential secondFixture
-                    proofSlots =
-                      [ proof1
-                      , reclaimSameAsPreviousProof
-                      , reclaimSameAsPreviousProof
-                      , proof2
-                      ]
-                    expandedTranscript = reclaimProofBytesConcat (proofSlotData proofSlots)
-                    challenge = ownershipProofBatchChallenge expandedTranscript
-                    distinctCoefficients = [1, challenge]
-                    parsed = parseVerifyingKeyBatch destinationVk
-                    checks =
-                      [ verifyOwnershipDestinationWithParsedBatchVKKnown28NoPok parsed proof1 credential1 destinationAddressBytes
-                      , verifyOwnershipDestinationWithParsedBatchVKKnown28NoPok parsed proof2 credential2 destinationAddressBytes
-                      ]
-                    firstPub = batchCommittedProofPub (head checks)
-                    firstECmt = batchCommittedProofECmt (head checks)
-                    secondPub = batchCommittedProofPub (checks !! 1)
-                    secondECmt = batchCommittedProofECmt (checks !! 1)
-                    afterFirstCache =
-                      retainBatchScalarState challenge 1 firstPub firstECmt
-                    afterSecondCache =
-                      case afterFirstCache of
-                        (power, s0, sPub, sE) ->
-                          retainBatchScalarState power s0 sPub sE
-                    afterDistinct =
-                      case afterSecondCache of
-                        (power, s0, sPub, sE) ->
-                          foldBatchScalarState challenge power s0 sPub sE secondPub secondECmt
-                    credentials = [credential1, credential1, credential1, credential2]
-                    inputs =
-                      [ reclaimBaseInputAtWithDatum
-                          (B.consByteString (toInteger index) "v8-cache")
-                          (toInteger index)
-                          (ReclaimBaseDatum credential)
-                      | (index, credential) <- zip [0 :: Int ..] credentials
-                      ]
-                expandedTranscript @?= (proof1 <> proof1 <> proof1 <> proof2)
-                batchPowers challenge 2 @?= distinctCoefficients
-                afterFirstCache @?= (challenge, 1, firstPub, firstECmt)
-                afterSecondCache @?= (challenge, 1, firstPub, firstECmt)
-                afterDistinct
-                  @?= ( (challenge * challenge) `B.modInteger` blsScalarFieldOrder
-                      , (1 + challenge) `B.modInteger` blsScalarFieldOrder
-                      , (firstPub + challenge * secondPub) `B.modInteger` blsScalarFieldOrder
-                      , (firstECmt + challenge * secondECmt) `B.modInteger` blsScalarFieldOrder
-                      )
-                assertSyntheticCoefficientFold
-                  parsed
-                  distinctCoefficients
-                  (fmap batchCommittedProofPub checks)
-                  (fmap batchCommittedProofECmt checks)
-                  (fmap batchCommittedProofCommitment checks)
-                accepted <- safeBool $
-                  runReclaimGlobal destinationVk $
-                    reclaimGlobalContextWithOutputs
-                      proofSlots
-                      0
-                      inputs
-                      [paramInput]
-                      (replicate 4 singleDestinationOutput)
-                assertBool "cached chain followed by distinct proof rejected" accepted
-              _ -> assertFailure "distinct fixture file has fewer than two rows"
-        , let malformedCommitment =
-                B.consByteString 127 (bytesToBuiltin (replicate 95 255))
-              mutations =
-                [ ("identity A", replaceProofSlice 0 48 (compressedIdentity 48))
-                , ("identity B", replaceProofSlice 48 96 (compressedIdentity 96))
-                , ("identity C", replaceProofSlice 144 48 (compressedIdentity 48))
-                , ("identity commitment", replaceProofSlice 192 96 uncompressedCommitmentIdentity)
-                , ("identity PoK", replaceProofSlice 288 48 (compressedIdentity 48))
-                , ("malformed A", replaceProofSlice 0 48 (malformedCompressedPoint 48))
-                , ("malformed B", replaceProofSlice 48 96 (malformedCompressedPoint 96))
-                , ("malformed C", replaceProofSlice 144 48 (malformedCompressedPoint 48))
-                , ("malformed commitment", replaceProofSlice 192 96 malformedCommitment)
-                , ("malformed PoK", replaceProofSlice 288 48 (malformedCompressedPoint 48))
-                ]
-              legacyCase label mutate = testCase label $ do
-                ok <- safeBool $
-                  runReclaimGlobal
-                    destinationVk
-                    (reclaimGlobalContext (mutate destinationProof) 0 [reclaimBaseInput] [paramInput])
-                assertBool (label <> " unexpectedly accepted by the N=1 legacy parser") (not ok)
-              secondDistinctCase label mutate = testCase label $ do
-                case take 2 distinctFixtures of
-                  [firstFixture, secondFixture] -> do
-                    let proof1 = distinctFixtureProof firstFixture
-                        proof2 = distinctFixtureProof secondFixture
-                        credentials =
-                          [ distinctFixtureCredential firstFixture
-                          , distinctFixtureCredential secondFixture
-                          ]
-                        inputs =
-                          [ reclaimBaseInputAtWithDatum
-                              (B.consByteString (toInteger index) "v8-m1")
-                              (toInteger index)
-                              (ReclaimBaseDatum credential)
-                          | (index, credential) <- zip [0 :: Int ..] credentials
-                          ]
-                    assertBool "M1 fixtures must enter the distinct-proof transition" (proof1 /= proof2)
-                    ok <- safeBool $
-                      runReclaimGlobal destinationVk $
-                        reclaimGlobalContextWithOutputs
-                          [proof1, mutate proof2]
-                          0
-                          inputs
-                          [paramInput]
-                          (replicate 2 singleDestinationOutput)
-                    assertBool (label <> " unexpectedly accepted as second distinct proof") (not ok)
-                  _ -> assertFailure "distinct fixture file has fewer than two rows"
-           in testGroup "M1 rejects identity and malformed proof points"
-                [ testGroup "N=1 legacy parser"
-                    [legacyCase label mutate | (label, mutate) <- mutations]
-                , testGroup "N=2 second distinct coefficient-first transition"
-                    [secondDistinctCase label mutate | (label, mutate) <- mutations]
-                ]
-        , testCase "serialized batch path rejects proof lengths 0, 335, and 337" $ do
-            forM_
-              [ ("zero-length proof", B.emptyByteString)
-              , ("335-byte proof", B.sliceByteString 0 335 destinationProof)
-              , ("337-byte proof", destinationProof <> B.consByteString 0 B.emptyByteString)
-              ] $
-              \(label, malformedProof) ->
-                assertCompiledReclaimGlobalRejects label destinationVk malformedProof
-        , testCase "serialized batch path rejects verifier-key lengths 671 and 673" $ do
-            forM_
-              [ ("671-byte verifier key", B.sliceByteString 0 671 destinationVk)
-              , ("673-byte verifier key", destinationVk <> B.consByteString 0 B.emptyByteString)
-              ] $
-              \(label, malformedVerifierKey) ->
-                assertCompiledReclaimGlobalRejects label malformedVerifierKey destinationProof
-        , testCase "serialized batch path rejects commitment Y equal to the base-field modulus" $
-            assertCompiledReclaimGlobalRejects
-              "commitment Y=p"
-              destinationVk
-              (proofWithCommitmentY blsBaseFieldOrder destinationProof)
-        , testCase "rejects spending-script context even with a valid reclaim proof" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalSpendingContext destinationProof 0 [reclaimBaseInput] [paramInput])
-            ok @?= False
-        , testCase "rejects minting-script context even with a valid reclaim proof" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalMintingContext destinationProof 0 [reclaimBaseInput] [paramInput])
-            ok @?= False
-        , testCase "rejects invalid parameter reference index" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 1 [reclaimBaseInput] [paramInput])
-            ok @?= False
-        , testCase "rejects proof for a different base datum owner" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 0 [reclaimBaseInputWithDatum (ReclaimBaseDatum wrongPaymentKeyHash)] [paramInput])
-            ok @?= False
-        , testCase "rejects parameter reference without the parameter NFT" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 0 [reclaimBaseInput] [paramInputWithValue mempty])
-            ok @?= False
-        , testCase "rejects a parameter token with the right policy but wrong asset name" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 0 [reclaimBaseInput]
-                  [paramInputWithValue (V3.singleton paramCurrencySymbol otherTokenName 1)])
-            ok @?= False
-        , testCase "rejects a parameter token quantity other than one" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 0 [reclaimBaseInput]
-                  [paramInputWithValue (V3.singleton paramCurrencySymbol paramTokenName 2)])
-            ok @?= False
-        , testCase "rejects multiple token names under the parameter policy" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 0 [reclaimBaseInput]
-                  [paramInputWithValue
-                    ( V3.singleton paramCurrencySymbol paramTokenName 1
-                        <> V3.singleton paramCurrencySymbol otherTokenName 1
-                    )])
-            ok @?= False
-        , testCase "rejects extra non-ADA policies on the parameter output" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 0 [reclaimBaseInput]
-                  [paramInputWithValue
-                    ( V3.singleton paramCurrencySymbol paramTokenName 1
-                        <> V3.singleton otherSymbol otherTokenName 1
-                    )])
-            ok @?= False
-        , testCase "uses the explicitly indexed parameter output when two valid candidates exist" $ do
-            let firstParam = paramInputWithValueAt "params-a" 0 (V3.singleton paramCurrencySymbol paramTokenName 1)
-                secondParam = paramInputWithValueAt "params-b" 1 (V3.singleton paramCurrencySymbol paramTokenName 1)
-            firstSelected <- safeBool $
-              runReclaimGlobal destinationVk
-                (reclaimGlobalContext destinationProof 0 [reclaimBaseInput] [firstParam, secondParam])
-            secondSelected <- safeBool $
-              runReclaimGlobal destinationVk
-                (reclaimGlobalContext destinationProof 1 [reclaimBaseInput] [firstParam, secondParam])
-            firstSelected @?= True
-            secondSelected @?= True
-        , testCase "rejects parameter reference without inline params datum" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 0 [reclaimBaseInput] [paramInputWithoutDatum])
-            ok @?= False
-        , testCase "rejects unused proofs when no reclaim base inputs exist" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 0 [txIn otherRef] [paramInput])
-            ok @?= False
-        , testCase "skips non-base inputs while consuming proofs for base inputs" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 0 [txIn otherRef, reclaimBaseInput] [paramInput])
-            ok @?= True
-        , testCase "rejects missing proof for a reclaim base input" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithProofs [] 0 [reclaimBaseInput] [paramInput])
-            ok @?= False
-        , testCase "rejects malformed datum on a matching reclaim base input" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext destinationProof 0 [reclaimBaseInputWithDatum invalidBaseDatum] [paramInput])
-            ok @?= False
-        , testCase "rejects destination redirection" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof]
-                  0
-                  [reclaimBaseInput]
-                  [paramInput]
-                  [pubKeyOutput wrongPaymentKeyHash reclaimValue])
-            ok @?= False
-        , testCase "accepts two inputs with duplicate owner proofs and corresponding destination outputs" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof, destinationProof]
-                  0
-                  [reclaimBaseInput, secondReclaimBaseInput]
-                  [paramInput]
-                  [singleDestinationOutput, singleDestinationOutput])
-            ok @?= True
-        , testCase "accepts a full proof followed by a chain of same-as-previous markers" $ do
-            let inputs =
-                  [ reclaimBaseInput
-                  , secondReclaimBaseInput
-                  , reclaimBaseInputAt "base-3" 2
-                  , reclaimBaseInputAt "base-4" 3
-                  ]
-                outputs = replicate 4 singleDestinationOutput
-            markerDecision <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [ destinationProof
-                  , reclaimSameAsPreviousProof
-                  , reclaimSameAsPreviousProof
-                  , reclaimSameAsPreviousProof
-                  ]
-                  0
-                  inputs
-                  [paramInput]
-                  outputs)
-            expandedDecision <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  (replicate 4 destinationProof)
-                  0
-                  inputs
-                  [paramInput]
-                  outputs)
-            markerDecision @?= True
-            markerDecision @?= expandedDecision
-        , testCase "accepts mixed distinct proofs and marker runs" $ do
-            let secondDifferentOwnerInput =
-                  reclaimBaseInputAtWithDatum
-                    "base-different-2"
-                    2
-                    (ReclaimBaseDatum secondPaymentKeyHash)
-                inputs =
-                  [ reclaimBaseInput
-                  , secondReclaimBaseInput
-                  , differentOwnerReclaimBaseInput
-                  , secondDifferentOwnerInput
-                  ]
-                outputs = replicate 4 singleDestinationOutput
-                markerProofs =
-                  [ firstDistinctProof
-                  , reclaimSameAsPreviousProof
-                  , secondDistinctProof
-                  , reclaimSameAsPreviousProof
-                  ]
-                expandedProofs =
-                  [ firstDistinctProof
-                  , firstDistinctProof
-                  , secondDistinctProof
-                  , secondDistinctProof
-                  ]
-            markerDecision <- safeBool $
-              runReclaimGlobal destinationVk $
-                reclaimGlobalContextWithOutputs markerProofs 0 inputs [paramInput] outputs
-            expandedDecision <- safeBool $
-              runReclaimGlobal destinationVk $
-                reclaimGlobalContextWithOutputs expandedProofs 0 inputs [paramInput] outputs
-            markerDecision @?= True
-            markerDecision @?= expandedDecision
-        , testCase "marker transcript expands to the fully repeated proof bytes" $ do
-            let markerSlots =
-                  [ firstDistinctProof
-                  , reclaimSameAsPreviousProof
-                  , reclaimSameAsPreviousProof
-                  , secondDistinctProof
-                  , reclaimSameAsPreviousProof
-                  ]
-                expandedSlots =
-                  [ firstDistinctProof
-                  , firstDistinctProof
-                  , firstDistinctProof
-                  , secondDistinctProof
-                  , secondDistinctProof
-                  ]
-                markerTranscript = reclaimProofBytesConcat (proofSlotData markerSlots)
-                expandedTranscript = reclaimProofBytesConcat (proofSlotData expandedSlots)
-            markerTranscript @?= expandedTranscript
-            ownershipProofBatchChallenge markerTranscript
-              @?= ownershipProofBatchChallenge expandedTranscript
-        , testCase "rejects a same-as-previous marker in the first proof slot" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContext reclaimSameAsPreviousProof 0 [reclaimBaseInput] [paramInput])
-            ok @?= False
-        , testCase "rejects marker reuse for a different credential" $ do
-            markerDecision <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof, reclaimSameAsPreviousProof]
-                  0
-                  [reclaimBaseInput, differentOwnerReclaimBaseInput]
-                  [paramInput]
-                  [singleDestinationOutput, singleDestinationOutput])
-            expandedDecision <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof, destinationProof]
-                  0
-                  [reclaimBaseInput, differentOwnerReclaimBaseInput]
-                  [paramInput]
-                  [singleDestinationOutput, singleDestinationOutput])
-            markerDecision @?= False
-            markerDecision @?= expandedDecision
-        , testCase "rejects marker reuse for a different destination" $ do
-            markerDecision <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof, reclaimSameAsPreviousProof]
-                  0
-                  [reclaimBaseInput, secondReclaimBaseInput]
-                  [paramInput]
-                  [singleDestinationOutput, changedSingleDestinationOutput])
-            expandedDecision <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof, destinationProof]
-                  0
-                  [reclaimBaseInput, secondReclaimBaseInput]
-                  [paramInput]
-                  [singleDestinationOutput, changedSingleDestinationOutput])
-            markerDecision @?= False
-            markerDecision @?= expandedDecision
-        , testCase "rejects a marker after a failed full proof" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [tamperProof destinationProof, reclaimSameAsPreviousProof]
-                  0
-                  [reclaimBaseInput, secondReclaimBaseInput]
-                  [paramInput]
-                  [singleDestinationOutput, singleDestinationOutput])
-            ok @?= False
-        , testCase "rejects a missing second proof instead of inferring reuse" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof]
-                  0
-                  [reclaimBaseInput, secondReclaimBaseInput]
-                  [paramInput]
-                  [singleDestinationOutput, singleDestinationOutput])
-            ok @?= False
-        , testCase "only the exact empty bytestring is a proof-reuse marker" $ do
-            let nonEmptyNearMarker = B.consByteString 0 B.emptyByteString
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof, nonEmptyNearMarker]
-                  0
-                  [reclaimBaseInput, secondReclaimBaseInput]
-                  [paramInput]
-                  [singleDestinationOutput, singleDestinationOutput])
-            ok @?= False
-        , testCase "rejects a non-bytes proof-slot encoding" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithRawProofs
-                  [BI.mkB destinationProof, BI.mkI 0]
-                  0
-                  [reclaimBaseInput, secondReclaimBaseInput]
-                  [paramInput]
-                  [singleDestinationOutput, singleDestinationOutput])
-            ok @?= False
-        , testCase "rejects a destination output that underpays the input value" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof]
-                  0
-                  [reclaimBaseInput]
-                  [paramInput]
-                  [underpaidSingleDestinationOutput])
-            ok @?= False
-        , testCase "single path accepts multi-asset coverage plus an extra paid asset" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof]
-                  0
-                  [multiAssetReclaimBaseInput]
-                  [paramInput]
-                  [pubKeyOutput destinationPaymentKeyHash (multiAssetReclaimValue <> V3.singleton ownSymbol tokenName 1)])
-            ok @?= True
-        , testCase "single path rejects native-asset shortfall by one" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof]
-                  0
-                  [multiAssetReclaimBaseInput]
-                  [paramInput]
-                  [pubKeyOutput destinationPaymentKeyHash (reclaimValue <> V3.singleton otherSymbol otherTokenName 4)])
-            ok @?= False
-        , testCase "single path rejects the right native-asset quantity under a wrong policy" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputs
-                  [destinationProof]
-                  0
-                  [multiAssetReclaimBaseInput]
-                  [paramInput]
-                  [pubKeyOutput destinationPaymentKeyHash (reclaimValue <> V3.singleton ownSymbol otherTokenName 5)])
-            ok @?= False
-        , testCase "rejects a destination start index that points at another output" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputsAt
-                  [destinationProof]
-                  0
-                  1
-                  [reclaimBaseInput]
-                  [paramInput]
-                  [singleDestinationOutput, changedSingleDestinationOutput])
-            ok @?= False
-        , testCase "accepts destination outputs after the provided start index" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithOutputsAt
-                  [destinationProof]
-                  0
-                  1
-                  [reclaimBaseInput]
-                  [paramInput]
-                  [changedSingleDestinationOutput, singleDestinationOutput])
-            ok @?= True
-        , testCase "rejects a changed duplicate proof for the same owner" $ do
-            ok <- safeBool $
-              runReclaimGlobal
-                destinationVk
-                (reclaimGlobalContextWithProofs
-                  [destinationProof, tamperProof destinationProof]
-                  0
-                  [reclaimBaseInput, secondReclaimBaseInput]
-                  [paramInput])
-            ok @?= False
-        ]
     , testGroup "ZK-02 statement-bound ReclaimGlobal V2"
         [ testCase "golden ordinary transcript frames key hash, count, proof, and digest exactly" $ do
             let verifierKeyHash = B.blake2b_256 destinationVk
@@ -2432,6 +927,22 @@ main = do
                 ownershipProofBatchMergeChallengeV2 multiTranscript
                   @?= 8636757789949591304714306246332989594687787538241662237540073471059061109757
               _ -> assertFailure "distinct fixture file has fewer than two rows"
+        , testCase "transcript framing trusts the deployment-checked verifier-key-hash width" $ do
+            let transcriptProof = destinationProof
+                digest = ownershipDestinationPublicInputDigest goldenPaymentKeyHash destinationAddressBytes
+            forM_
+              [ B.sliceByteString 0 31 (B.blake2b_256 destinationVk)
+              , B.blake2b_256 destinationVk <> B.consByteString 0 B.emptyByteString
+              ] $ \verifierKeyHash ->
+                StatementV2.reclaimBatchTranscriptV2
+                    verifierKeyHash
+                    (proofSlotData [transcriptProof])
+                    (proofSlotData [digest])
+                  @?= ownershipProofBatchDomainV2
+                    <> verifierKeyHash
+                    <> B.integerToByteString BigEndian 2 1
+                    <> transcriptProof
+                    <> digest
         , testCase "accepts ordinary, all-distinct, and repeated full proof slots" $ do
             let verifierKeyHash = B.blake2b_256 destinationVk
                 ordinaryDigest = ownershipDestinationPublicInputDigest goldenPaymentKeyHash destinationAddressBytes
@@ -2460,14 +971,98 @@ main = do
                     reclaimGlobalStatementV2ContextWithOutputs proofs digests 0 inputs [paramInput] [singleDestinationOutput, singleDestinationOutput]
                 distinct @?= True
               _ -> assertFailure "distinct fixture file has fewer than two rows"
-        , testCase "rejects V1 redeemers, markers, and unauthenticated digest substitutions" $ do
+        , testCase "accepts noncanonical redeemer tags and trailing fields" $ do
+            let verifierKeyHash = B.blake2b_256 destinationVk
+                digest = ownershipDestinationPublicInputDigest goldenPaymentKeyHash destinationAddressBytes
+                context redeemer =
+                  reclaimGlobalStatementV2ContextWithRedeemerData
+                    redeemer
+                    [reclaimBaseInput]
+                    [paramInput]
+                    [singleDestinationOutput]
+                nonzeroTag =
+                  reclaimGlobalStatementV2RedeemerDataWithEnvelope
+                    7 [] [destinationProof] [digest]
+                trailingField =
+                  reclaimGlobalStatementV2RedeemerDataWithEnvelope
+                    0 [BI.mkI 99] [destinationProof] [digest]
+            nonzeroAccepted <- safeBool $
+              runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context nonzeroTag)
+            trailingAccepted <- safeBool $
+              runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context trailingField)
+            let (nonzeroCompiledAccepted, _) =
+                  evaluateCompiledScript
+                    (compiledReclaimGlobalStatementV2Script destinationVk verifierKeyHash)
+                    (context nonzeroTag)
+                (trailingCompiledAccepted, _) =
+                  evaluateCompiledScript
+                    (compiledReclaimGlobalStatementV2Script destinationVk verifierKeyHash)
+                    (context trailingField)
+            nonzeroAccepted @?= True
+            trailingAccepted @?= True
+            nonzeroCompiledAccepted @?= True
+            trailingCompiledAccepted @?= True
+        , testCase "rejects deregistration-purpose invocation to preserve the rewarding credential lifecycle" $ do
+            let verifierKeyHash = B.blake2b_256 destinationVk
+                digest = ownershipDestinationPublicInputDigest goldenPaymentKeyHash destinationAddressBytes
+                validContext =
+                  reclaimGlobalStatementV2ContextWithOutputs
+                    [destinationProof]
+                    [digest]
+                    0
+                    [reclaimBaseInput]
+                    [paramInput]
+                    [singleDestinationOutput]
+            accepted <- safeBool $
+              runReclaimGlobalStatementV2
+                destinationVk
+                verifierKeyHash
+                (withReclaimGlobalDeregistrationPurpose validContext)
+            let (compiledAccepted, _) =
+                  evaluateCompiledScript
+                    (compiledReclaimGlobalStatementV2Script destinationVk verifierKeyHash)
+                    (withReclaimGlobalDeregistrationPurpose validContext)
+            accepted @?= False
+            compiledAccepted @?= False
+        , testCase "accepts parameter outputs carrying unrelated native assets" $ do
+            let verifierKeyHash = B.blake2b_256 destinationVk
+                digest = ownershipDestinationPublicInputDigest goldenPaymentKeyHash destinationAddressBytes
+                context value =
+                  reclaimGlobalStatementV2ContextWithOutputs
+                    [destinationProof]
+                    [digest]
+                    0
+                    [reclaimBaseInput]
+                    [paramInputWithValue value]
+                    [singleDestinationOutput]
+                samePolicyExtra =
+                  V3.singleton paramCurrencySymbol paramTokenName 1
+                    <> V3.singleton paramCurrencySymbol otherTokenName 1
+                otherPolicyExtra =
+                  V3.singleton paramCurrencySymbol paramTokenName 1
+                    <> V3.singleton otherSymbol otherTokenName 1
+            samePolicyAccepted <- safeBool $
+              runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context samePolicyExtra)
+            otherPolicyAccepted <- safeBool $
+              runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context otherPolicyExtra)
+            let (samePolicyCompiledAccepted, _) =
+                  evaluateCompiledScript
+                    (compiledReclaimGlobalStatementV2Script destinationVk verifierKeyHash)
+                    (context samePolicyExtra)
+                (otherPolicyCompiledAccepted, _) =
+                  evaluateCompiledScript
+                    (compiledReclaimGlobalStatementV2Script destinationVk verifierKeyHash)
+                    (context otherPolicyExtra)
+            samePolicyAccepted @?= True
+            otherPolicyAccepted @?= True
+            samePolicyCompiledAccepted @?= True
+            otherPolicyCompiledAccepted @?= True
+        , testCase "rejects malformed proof/digest widths, list misalignment, and digest substitutions" $ do
             let verifierKeyHash = B.blake2b_256 destinationVk
                 actualDigest = ownershipDestinationPublicInputDigest goldenPaymentKeyHash destinationAddressBytes
                 wrongDigest = flipFirstBit actualDigest
                 context proofs digests =
                   reclaimGlobalStatementV2ContextWithOutputs proofs digests 0 [reclaimBaseInput] [paramInput] [singleDestinationOutput]
-            v1 <- safeBool $ runReclaimGlobalStatementV2 destinationVk verifierKeyHash (reclaimGlobalContext destinationProof 0 [reclaimBaseInput] [paramInput])
-            marker <- safeBool $ runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context [reclaimSameAsPreviousProof] [actualDigest])
             shortProof <- safeBool $ runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context [B.sliceByteString 0 335 destinationProof] [actualDigest])
             longProof <- safeBool $ runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context [destinationProof <> B.consByteString 0 B.emptyByteString] [actualDigest])
             shortDigest <- safeBool $ runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context [destinationProof] [B.sliceByteString 0 31 actualDigest])
@@ -2475,8 +1070,6 @@ main = do
             substitutedDigest <- safeBool $ runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context [destinationProof] [wrongDigest])
             missingDigest <- safeBool $ runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context [destinationProof] [])
             extraDigest <- safeBool $ runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context [destinationProof] [actualDigest, actualDigest])
-            v1 @?= False
-            marker @?= False
             shortProof @?= False
             longProof @?= False
             shortDigest @?= False
@@ -2506,8 +1099,6 @@ main = do
             forM_
               [ ("671-byte verifier key", B.sliceByteString 0 671 destinationVk, B.blake2b_256 (B.sliceByteString 0 671 destinationVk))
               , ("673-byte verifier key", destinationVk <> B.consByteString 0 B.emptyByteString, B.blake2b_256 (destinationVk <> B.consByteString 0 B.emptyByteString))
-              , ("31-byte verifier-key hash", destinationVk, B.sliceByteString 0 31 verifierKeyHash)
-              , ("33-byte verifier-key hash", destinationVk, verifierKeyHash <> B.consByteString 0 B.emptyByteString)
               ]
               $ \(label, malformedVk, malformedHash) -> do
                 accepted <- safeBool $ runReclaimGlobalStatementV2 malformedVk malformedHash (one [destinationProof] [digest])
@@ -2603,7 +1194,7 @@ main = do
             status @?= ExitFailure 1
             stdout @?= ""
             stderr @?= "verifier key hash does not match canonical verifier key bytes\n"
-        , testCase "compiled V2 script rejects malformed verifier-key and hash widths" $ do
+        , testCase "compiled V2 script rejects malformed verifier-key widths" $ do
             let digest = ownershipDestinationPublicInputDigest goldenPaymentKeyHash destinationAddressBytes
                 ctx =
                   reclaimGlobalStatementV2ContextWithOutputs
@@ -2613,12 +1204,9 @@ main = do
                     [reclaimBaseInput]
                     [paramInput]
                     [singleDestinationOutput]
-                verifierKeyHash = B.blake2b_256 destinationVk
             forM_
               [ ("671-byte verifier key", B.sliceByteString 0 671 destinationVk, B.blake2b_256 (B.sliceByteString 0 671 destinationVk))
               , ("673-byte verifier key", destinationVk <> B.consByteString 0 B.emptyByteString, B.blake2b_256 (destinationVk <> B.consByteString 0 B.emptyByteString))
-              , ("31-byte verifier-key hash", destinationVk, B.sliceByteString 0 31 verifierKeyHash)
-              , ("33-byte verifier-key hash", destinationVk, verifierKeyHash <> B.consByteString 0 B.emptyByteString)
               ]
               $ \(label, malformedVk, malformedHash) ->
                 assertCompiledReclaimGlobalStatementV2Rejects label malformedVk malformedHash ctx
@@ -3030,6 +1618,21 @@ data ReclaimBaseDifferentialCase = ReclaimBaseDifferentialCase
 reclaimBaseCertificate :: V3.TxCert
 reclaimBaseCertificate = V3.TxCertRegStaking globalCredential Nothing
 
+reclaimGlobalDeregistrationCertificate :: V3.TxCert
+reclaimGlobalDeregistrationCertificate =
+  V3.TxCertUnRegStaking globalCredential Nothing
+
+withReclaimGlobalDeregistrationPurpose :: V3.ScriptContext -> V3.ScriptContext
+withReclaimGlobalDeregistrationPurpose ctx =
+  ctx
+    { V3.scriptContextTxInfo =
+        (V3.scriptContextTxInfo ctx)
+          { V3.txInfoTxCerts = [reclaimGlobalDeregistrationCertificate]
+          }
+    , V3.scriptContextScriptInfo =
+        V3.CertifyingScript 0 reclaimGlobalDeregistrationCertificate
+    }
+
 reclaimBaseVoter :: V3.Voter
 reclaimBaseVoter = V3.StakePoolVoter (V3.PubKeyHash "property-voter")
 
@@ -3234,123 +1837,6 @@ reclaimBaseDifferentialProperty differentialCase =
     isMalformedInlineDatum DatumInlineNonBytesField = True
     isMalformedInlineDatum _ = False
 
--- These test fixtures deliberately model only ledger-normalized UTxO values:
--- policy and token lists are in lexicographic order, unique, and every
--- represented amount is positive. `unsafeFromList` is safe under those local
--- construction rules and gives the on-chain comparator the exact raw Value
--- field it receives from a ledger-built TxOut.
-type LedgerValue = [(V3.CurrencySymbol, [(V3.TokenName, Integer)])]
-
-data LedgerValueCoverageCase = LedgerValueCoverageCase
-  { coverageRequired :: LedgerValue
-  , coveragePaid :: LedgerValue
-  }
-  deriving (Show)
-
-genLedgerValueCoverageCase :: QC.Gen LedgerValueCoverageCase
-genLedgerValueCoverageCase =
-  LedgerValueCoverageCase <$> genLedgerValue <*> genLedgerValue
-
-genLedgerValue :: QC.Gen LedgerValue
-genLedgerValue = do
-  adaQuantity <- QC.chooseInteger (10000000, 20000000)
-  nativePolicies <- concat <$> mapM genOptionalPolicy nativeValueCoveragePolicyUniverse
-  pure ((V3.adaSymbol, [(V3.adaToken, adaQuantity)]) : nativePolicies)
-  where
-    genOptionalPolicy (policyId, tokenNames) = do
-      selectedTokens <- QC.sublistOf tokenNames
-      tokens <-
-        mapM
-          (\tokenName' -> do
-              quantity <- QC.chooseInteger (1, 10)
-              pure (tokenName', quantity)
-          )
-          selectedTokens
-      pure $ case tokens of
-        [] -> []
-        _ -> [(policyId, tokens)]
-
--- This excludes ADA because every generated output carries its positive ADA
--- entry first. The outer and inner lists are sorted in ledger order.
-nativeValueCoveragePolicyUniverse :: [(V3.CurrencySymbol, [V3.TokenName])]
-nativeValueCoveragePolicyUniverse =
-  [ (policyA, [V3.TokenName "", tokenA, V3.TokenName "z"])
-  , (policyB, [V3.TokenName "", tokenA, V3.TokenName "y"])
-  , (policyC, [V3.TokenName "", V3.TokenName "c"])
-  ]
-
-valueCoverageDifferentialProperty :: LedgerValueCoverageCase -> QC.Property
-valueCoverageDifferentialProperty coverageCase =
-  QC.checkCoverage $
-    QC.cover 15 (hasEmptyNativeToken required || hasEmptyNativeToken paid) "empty native token" $
-      QC.cover 15 (hasNativeAsset required || hasNativeAsset paid) "native asset" $
-        QC.cover 15 (hasMultiplePolicies required || hasMultiplePolicies paid) "multiple policies" $
-          QC.counterexample (show coverageCase) $
-            QC.conjoin
-              [ oracleDecision QC.=== v1Decision
-              , oracleDecision QC.=== v2Decision
-              ]
-  where
-    required = coverageRequired coverageCase
-    paid = coveragePaid coverageCase
-    requiredValue = ledgerValue required
-    paidValue = ledgerValue paid
-    oracleDecision = requiredValue `Value.leq` paidValue
-    v1Decision = ledgerValueCoverage requiredValue paidValue
-    v2Decision = ledgerValueCoverageV2 requiredValue paidValue
-
-    hasEmptyNativeToken =
-      any
-        (\(currencySymbol, tokens) ->
-            currencySymbol /= V3.adaSymbol
-              && any ((== V3.adaToken) . fst) tokens
-        )
-    hasNativeAsset = any ((/= V3.adaSymbol) . fst)
-    hasMultiplePolicies value = length value >= 2
-
-ledgerValue :: LedgerValue -> V3.Value
-ledgerValue policies =
-  Value.Value $
-    Map.unsafeFromList
-      [ (currencySymbol, Map.unsafeFromList tokens)
-      | (currencySymbol, tokens) <- policies
-      ]
-
-ledgerTxOutValueData :: V3.Value -> BuiltinData
-ledgerTxOutValueData value =
-  BI.head $ BI.tail fields
-  where
-    encodedTxOut = V3.toBuiltinData (mkTxOut (withTxOutValue value))
-    fields = BI.snd (BI.unsafeDataAsConstr encodedTxOut)
-
-ledgerValueCoverage :: V3.Value -> V3.Value -> Bool
-ledgerValueCoverage required paid =
-  builtinBoolToBool $
-    valueCoversData (ledgerTxOutValueData required) (ledgerTxOutValueData paid)
-
-ledgerValueCoverageV2 :: V3.Value -> V3.Value -> Bool
-ledgerValueCoverageV2 required paid =
-  builtinBoolToBool $
-    V2Global.valueCoversData (ledgerTxOutValueData required) (ledgerTxOutValueData paid)
-
-assertLedgerValueCoverage :: Bool -> V3.Value -> V3.Value -> IO ()
-assertLedgerValueCoverage expected required paid = do
-  (required `Value.leq` paid) @?= expected
-  ledgerValueCoverage required paid @?= expected
-  ledgerValueCoverageV2 required paid @?= expected
-
-policyA :: V3.CurrencySymbol
-policyA = V3.CurrencySymbol "1111111111111111111111111111"
-
-policyB :: V3.CurrencySymbol
-policyB = V3.CurrencySymbol "2222222222222222222222222222"
-
-policyC :: V3.CurrencySymbol
-policyC = V3.CurrencySymbol "3333333333333333333333333333"
-
-tokenA :: V3.TokenName
-tokenA = V3.TokenName "a"
-
 baseScriptHash :: V3.ScriptHash
 baseScriptHash = V3.ScriptHash "reclaim-base"
 
@@ -3411,81 +1897,6 @@ reclaimBaseContext datum withdrawals =
             <> maybe mempty (withInlineDatum . V3.toBuiltinData) datum
         )
 
-reclaimGlobalContext ::
-  BuiltinByteString ->
-  Integer ->
-  [V3.TxInInfo] ->
-  [V3.TxInInfo] ->
-  V3.ScriptContext
-reclaimGlobalContext proof paramsIdx inputs refs =
-  reclaimGlobalContextWithProofs [proof] paramsIdx inputs refs
-
-reclaimGlobalContextWithProofs ::
-  [BuiltinByteString] ->
-  Integer ->
-  [V3.TxInInfo] ->
-  [V3.TxInInfo] ->
-  V3.ScriptContext
-reclaimGlobalContextWithProofs proofs paramsIdx inputs refs =
-  reclaimGlobalContextWithOutputs proofs paramsIdx inputs refs (replicate (length proofs) singleDestinationOutput)
-
-reclaimGlobalContextWithOutputs ::
-  [BuiltinByteString] ->
-  Integer ->
-  [V3.TxInInfo] ->
-  [V3.TxInInfo] ->
-  [V3.TxOut] ->
-  V3.ScriptContext
-reclaimGlobalContextWithOutputs proofs paramsIdx inputs refs outputs =
-  reclaimGlobalContextWithOutputsAt proofs paramsIdx 0 inputs refs outputs
-
-reclaimGlobalContextWithOutputsAt ::
-  [BuiltinByteString] ->
-  Integer ->
-  Integer ->
-  [V3.TxInInfo] ->
-  [V3.TxInInfo] ->
-  [V3.TxOut] ->
-  V3.ScriptContext
-reclaimGlobalContextWithOutputsAt proofs paramsIdx destinationOutStartIdx inputs refs outputs =
-  buildScriptContext $
-    foldMap withTxIn inputs
-      <> foldMap withReferenceTxIn refs
-      <> foldMap withTxOut outputs
-      <> withRewardingScript
-        (reclaimGlobalRedeemerData paramsIdx destinationOutStartIdx proofs)
-        globalCredential
-        0
-
-reclaimGlobalContextWithRawProofs ::
-  [BuiltinData] ->
-  Integer ->
-  [V3.TxInInfo] ->
-  [V3.TxInInfo] ->
-  [V3.TxOut] ->
-  V3.ScriptContext
-reclaimGlobalContextWithRawProofs proofs paramsIdx inputs refs outputs =
-  buildScriptContext $
-    foldMap withTxIn inputs
-      <> foldMap withReferenceTxIn refs
-      <> foldMap withTxOut outputs
-      <> withRewardingScript
-        ( BI.mkConstr
-            0
-            ( BI.mkCons
-                (BI.mkI paramsIdx)
-                ( BI.mkCons
-                    (BI.mkI 0)
-                    ( BI.mkCons
-                        (BI.mkList (rawBuiltinDataList proofs))
-                        (BI.mkNilData BI.unitval)
-                    )
-                )
-            )
-        )
-        globalCredential
-        0
-
 reclaimGlobalStatementV2ContextWithOutputs ::
   [BuiltinByteString] ->
   [BuiltinByteString] ->
@@ -3495,14 +1906,39 @@ reclaimGlobalStatementV2ContextWithOutputs ::
   [V3.TxOut] ->
   V3.ScriptContext
 reclaimGlobalStatementV2ContextWithOutputs proofs publicInputDigests paramsIdx inputs refs outputs =
+  reclaimGlobalStatementV2ContextWithRedeemerData
+    (StatementV2.reclaimGlobalRedeemerDataV2 paramsIdx 0 proofs publicInputDigests)
+    inputs
+    refs
+    outputs
+
+reclaimGlobalStatementV2ContextWithRedeemerData ::
+  BuiltinData ->
+  [V3.TxInInfo] ->
+  [V3.TxInInfo] ->
+  [V3.TxOut] ->
+  V3.ScriptContext
+reclaimGlobalStatementV2ContextWithRedeemerData redeemer inputs refs outputs =
   buildScriptContext $
     foldMap withTxIn inputs
       <> foldMap withReferenceTxIn refs
       <> foldMap withTxOut outputs
-      <> withRewardingScript
-        (StatementV2.reclaimGlobalRedeemerDataV2 paramsIdx 0 proofs publicInputDigests)
-        globalCredential
-        0
+      <> withRewardingScript redeemer globalCredential 0
+
+reclaimGlobalStatementV2RedeemerDataWithEnvelope ::
+  Integer ->
+  [BuiltinData] ->
+  [BuiltinByteString] ->
+  [BuiltinByteString] ->
+  BuiltinData
+reclaimGlobalStatementV2RedeemerDataWithEnvelope constructorTag trailingFields proofs publicInputDigests =
+  BI.mkConstr constructorTag $
+    rawBuiltinDataList $
+      [ BI.mkI 0
+      , BI.mkI 0
+      , BI.mkList (proofSlotData proofs)
+      , BI.mkList (proofSlotData publicInputDigests)
+      ] <> trailingFields
 
 proofSlotData :: [BuiltinByteString] -> BI.BuiltinList BuiltinData
 proofSlotData =
@@ -3511,40 +1947,6 @@ proofSlotData =
 rawBuiltinDataList :: [BuiltinData] -> BI.BuiltinList BuiltinData
 rawBuiltinDataList =
   foldr BI.mkCons (BI.mkNilData BI.unitval)
-
-reclaimGlobalSpendingContext ::
-  BuiltinByteString ->
-  Integer ->
-  [V3.TxInInfo] ->
-  [V3.TxInInfo] ->
-  V3.ScriptContext
-reclaimGlobalSpendingContext proof paramsIdx inputs refs =
-  buildScriptContext $
-    foldMap withTxIn inputs
-      <> foldMap withReferenceTxIn refs
-      <> withTxOut singleDestinationOutput
-      <> withSpendingScript
-        (reclaimGlobalRedeemerData paramsIdx 0 [proof])
-        ( withOutRef otherRef
-            <> withAddress (scriptAddress globalScriptHash)
-            <> withValue reclaimValue
-            <> withInlineDatum (V3.toBuiltinData ())
-        )
-
-reclaimGlobalMintingContext ::
-  BuiltinByteString ->
-  Integer ->
-  [V3.TxInInfo] ->
-  [V3.TxInInfo] ->
-  V3.ScriptContext
-reclaimGlobalMintingContext proof paramsIdx inputs refs =
-  buildScriptContext $
-    foldMap withTxIn inputs
-      <> foldMap withReferenceTxIn refs
-      <> withTxOut singleDestinationOutput
-      <> withMintingScript
-        (V3.singleton ownSymbol tokenName 1)
-        (reclaimGlobalRedeemerData paramsIdx 0 [proof])
 
 reclaimGlobalMultiContext ::
   BuiltinByteString ->
@@ -3594,10 +1996,6 @@ multiAssetReclaimBaseInput :: V3.TxInInfo
 multiAssetReclaimBaseInput =
   reclaimBaseInputAtWithValueAndDatum "base-token" 0 multiAssetReclaimValue validBaseDatum
 
-reclaimBaseInputWithDatum :: ReclaimBaseDatum -> V3.TxInInfo
-reclaimBaseInputWithDatum datum =
-  reclaimBaseInputAtWithDatum "base-invalid" 0 datum
-
 reclaimBaseInputAt :: BuiltinByteString -> Integer -> V3.TxInInfo
 reclaimBaseInputAt txId idx =
   reclaimBaseInputAtWithDatum txId idx validBaseDatum
@@ -3638,17 +2036,7 @@ paramInputWithValueAt txId idx value =
     paramInputBuilderAt txId idx
       <> withValue (paramAdaValue <> value)
       <> withInlineDatum
-        (reclaimGlobalParamsData baseScriptHash)
-
-paramInputWithoutDatum :: V3.TxInInfo
-paramInputWithoutDatum =
-  mkInput $
-    paramInputBuilder
-      <> withValue (paramAdaValue <> V3.singleton paramCurrencySymbol paramTokenName 1)
-
-paramInputBuilder :: InputBuilder
-paramInputBuilder =
-  paramInputBuilderAt "params" 0
+        (StatementV2.reclaimGlobalParamsData baseScriptHash)
 
 paramInputBuilderAt :: BuiltinByteString -> Integer -> InputBuilder
 paramInputBuilderAt txId idx =
@@ -3712,14 +2100,6 @@ twoCredentialBytes =
 singleDestinationOutput :: V3.TxOut
 singleDestinationOutput =
   pubKeyOutput destinationPaymentKeyHash reclaimValue
-
-underpaidSingleDestinationOutput :: V3.TxOut
-underpaidSingleDestinationOutput =
-  pubKeyOutput destinationPaymentKeyHash (V3.singleton V3.adaSymbol V3.adaToken 1999999)
-
-changedSingleDestinationOutput :: V3.TxOut
-changedSingleDestinationOutput =
-  pubKeyOutput thirdPaymentKeyHash reclaimValue
 
 exactDestinationOutput :: V3.TxOut
 exactDestinationOutput =

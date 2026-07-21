@@ -77,7 +77,10 @@ export function writePreprodLiveConfigArtifact(config, outputDir, options = {}) 
 
 function validateAdaAmount(field, value) {
   if (!/^(?:[1-9][0-9]*|0)(?:\.[0-9]{1,6})?$/u.test(value) || Number(value) <= 0) {
-    throw new PreprodLiveConfigError("ada_amount_invalid", `${field} must be a positive ADA amount with at most 6 decimals.`);
+    throw new PreprodLiveConfigError(
+      "ada_amount_invalid",
+      `${field} must be a positive ADA amount with at most 6 decimals.`,
+    );
   }
 }
 

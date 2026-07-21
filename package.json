@@ -1,0 +1,20 @@
+{
+  "name": "@proof-zk-recovery/repo-tooling",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Repo-level developer tooling: linting, formatting, git hooks, and the aggregate test runner.",
+  "type": "module",
+  "scripts": {
+    "prepare": "lefthook install",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "hooks:install": "lefthook install",
+    "test:all": "bash scripts/test-all.sh",
+    "test:fast": "bash scripts/test-all.sh --fast"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4",
+    "lefthook": "1.13.6"
+  }
+}

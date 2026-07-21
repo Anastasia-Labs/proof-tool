@@ -67,9 +67,17 @@ describe("statement-bound batch transcript v2", () => {
     expect(batchTranscriptChallengeV2(buildBatchTranscriptV2(vkHash, proofs, changedDigests))).not.toBe(baseline);
 
     expect(batchTranscriptChallengeV2(buildBatchTranscriptV2(vkHash, [proofs[0]], [digests[0]]))).not.toBe(baseline);
-    expect(batchTranscriptChallengeV2(buildBatchTranscriptV2(vkHash, [proofs[1], proofs[0]], [digests[1], digests[0]])).toString()).not.toBe(baseline.toString());
-    expect(batchTranscriptChallengeV2(buildBatchTranscriptV2(vkHash, proofs, [digests[1], digests[0]])).toString()).not.toBe(baseline.toString());
-    expect(batchTranscriptChallengeV2(buildBatchTranscriptV2(vkHash, [proofs[1], proofs[0]], digests)).toString()).not.toBe(baseline.toString());
+    expect(
+      batchTranscriptChallengeV2(
+        buildBatchTranscriptV2(vkHash, [proofs[1], proofs[0]], [digests[1], digests[0]]),
+      ).toString(),
+    ).not.toBe(baseline.toString());
+    expect(
+      batchTranscriptChallengeV2(buildBatchTranscriptV2(vkHash, proofs, [digests[1], digests[0]])).toString(),
+    ).not.toBe(baseline.toString());
+    expect(
+      batchTranscriptChallengeV2(buildBatchTranscriptV2(vkHash, [proofs[1], proofs[0]], digests)).toString(),
+    ).not.toBe(baseline.toString());
   });
 
   it("rejects malformed parallel lists before framing", () => {

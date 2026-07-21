@@ -120,7 +120,9 @@ export async function runPreprodE2E(options = {}) {
     stages: configuredStages.map((name) => ({
       name,
       status: approved ? "pending" : "blocked",
-      reason: approved ? null : `${TRANSACTION_APPROVAL_ENV}=1 is required before browser signing or provider submission.`,
+      reason: approved
+        ? null
+        : `${TRANSACTION_APPROVAL_ENV}=1 is required before browser signing or provider submission.`,
     })),
     context: redactSensitiveValue(preflight.context),
   };
@@ -426,7 +428,8 @@ export async function runPreprodE2E(options = {}) {
 export function formatRunnerReport(result) {
   const lines = [formatPreflightReport(result.preflight)];
   const stageNames =
-    result.configuredStages ?? (result.walletMode === WALLET_MODE_LACE ? PREPROD_E2E_LACE_SMOKE_STAGES : PREPROD_E2E_STAGES);
+    result.configuredStages ??
+    (result.walletMode === WALLET_MODE_LACE ? PREPROD_E2E_LACE_SMOKE_STAGES : PREPROD_E2E_STAGES);
   if (result.outputDir) {
     lines.push(`- artifact directory: ${result.outputDir}`);
   }
@@ -435,14 +438,23 @@ export function formatRunnerReport(result) {
   }
   if (result.code === "live_transaction_gate_missing") {
     lines.push(`Live browser signing and provider submission are blocked until ${TRANSACTION_APPROVAL_ENV}=1 is set.`);
-    lines.push("No browser automation, wallet signing, provider submission, proof bytes, witness sets, or CBOR artifacts were produced.");
+    lines.push(
+      "No browser automation, wallet signing, provider submission, proof bytes, witness sets, or CBOR artifacts were produced.",
+    );
   } else if (result.ok === true) {
     lines.push("Live preprod E2E completed all configured gated stages.");
     lines.push(`- wallet mode: ${result.walletMode ?? WALLET_MODE_HARNESS}`);
     lines.push(`Completed stages: ${stageNames.join(", ")}.`);
-  } else if (result.code === "live_browser_flow_not_implemented" || result.code === "live_product_flow_not_implemented") {
-    lines.push("Live preprod E2E execution is not complete yet; remaining browser UI acceptance work is still pending.");
-    lines.push("Implemented diagnostic stages run through funding, discovery, proof generation, and negative guardrails when the configured deployment supports them.");
+  } else if (
+    result.code === "live_browser_flow_not_implemented" ||
+    result.code === "live_product_flow_not_implemented"
+  ) {
+    lines.push(
+      "Live preprod E2E execution is not complete yet; remaining browser UI acceptance work is still pending.",
+    );
+    lines.push(
+      "Implemented diagnostic stages run through funding, discovery, proof generation, and negative guardrails when the configured deployment supports them.",
+    );
     lines.push("Pending stage: claim-ui-acceptance.");
   } else if (result.code === "cip30_harness_failed") {
     lines.push("CIP-30 preprod wallet harness failed closed before browser automation.");
@@ -558,7 +570,7 @@ function envWithManifestSnapshot(env, manifestSnapshotPath) {
   return next;
 }
 
-function assertNoPreprodArtifactSecretLeakage({ artifacts, env, cwd, repoRoot }) {
+export function assertNoPreprodArtifactSecretLeakage({ artifacts, env, cwd, repoRoot }) {
   const secrets = collectArtifactLeakageSecrets({ env, cwd, repoRoot });
   if (secrets.length === 0) {
     return;
@@ -581,7 +593,10 @@ function assertNoPreprodArtifactSecretLeakage({ artifacts, env, cwd, repoRoot })
   }
 
   if (findings.length > 0) {
-    const details = findings.slice(0, 8).map((finding) => `${finding.artifact}:${finding.secret}`).join(", ");
+    const details = findings
+      .slice(0, 8)
+      .map((finding) => `${finding.artifact}:${finding.secret}`)
+      .join(", ");
     const error = new Error(`Preprod E2E artifact secret leakage detected: ${details}.`);
     error.code = "artifact_secret_leakage";
     throw error;
@@ -606,7 +621,9 @@ function collectArtifactLeakageSecrets({ env, cwd, repoRoot }) {
         const { rolesRoot } = normalizePreprodWalletRoles(walletFile);
         for (const role of REQUIRED_WALLET_ROLES) {
           const roleValue = rolesRoot[role];
-          const mnemonic = normalizeMnemonic(roleValue?.mnemonic ?? roleValue?.seed_phrase ?? roleValue?.recovery_phrase ?? roleValue?.mnemonic_words);
+          const mnemonic = normalizeMnemonic(
+            roleValue?.mnemonic ?? roleValue?.seed_phrase ?? roleValue?.recovery_phrase ?? roleValue?.mnemonic_words,
+          );
           if (mnemonic) {
             secrets.push({ label: `PREPROD_TEST_WALLETS_FILE.${role}.mnemonic`, value: mnemonic });
           }
@@ -622,9 +639,14 @@ function collectArtifactLeakageSecrets({ env, cwd, repoRoot }) {
 
 function normalizeMnemonic(value) {
   if (Array.isArray(value)) {
-    return value.map((word) => String(word).trim()).filter(Boolean).join(" ");
+    return value
+      .map((word) => String(word).trim())
+      .filter(Boolean)
+      .join(" ");
   }
-  return String(value ?? "").trim().replace(/\s+/gu, " ");
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/gu, " ");
 }
 
 function dedupeSecrets(secrets) {

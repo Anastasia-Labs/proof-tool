@@ -1,0 +1,45 @@
+{
+  "schema": "proof-tool-reclaim-global-v2-candidate-evidence-v1",
+  "recorded_at": "2026-07-20",
+  "deployment_status": "candidate only; no manifest, parameter datum, reference script, or chain deployment changed",
+  "contract_baseline_commit": "7c7ea7fbb7b0ae9d9c777d4e2c5b97a3e6c2db0e",
+  "applied_parameters": {
+    "params_policy_id": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
+    "params_token_name": "5245434c41494d504152414d53",
+    "verifier_key_blake2b256": "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4"
+  },
+  "artifact_file": "formal/artifacts/candidate/reclaim-global-v2.cbor.hex",
+  "artifact_json_file": "formal/artifacts/candidate/reclaim-global-v2.plutus.json",
+  "script_cbor_bytes": 3356,
+  "script_cbor_sha256": "5979568d5689ee65c5be038bface43807865e3aed88cb56d58d53758bf436489",
+  "script_hash": "f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582",
+  "active_preprod_script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
+  "active_preprod_script_cbor_sha256": "ca80b672a1e9fb00818497a0a494633c9344ff59cf09d4d4f5747029a5259e7c",
+  "concrete_replays": [
+    {
+      "fixture": "candidate-reclaim-global-v2-success",
+      "expected": "successfulHalt",
+      "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_real_proof_succeeds"
+    },
+    {
+      "fixture": "candidate-reclaim-global-v2-substituted-digest",
+      "expected": "validatorError",
+      "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_substituted_digest_rejects_within_fuel"
+    },
+    {
+      "fixture": "candidate-reclaim-global-v2-noncanonical-param-datum-tag",
+      "expected": "successfulHalt",
+      "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_noncanonical_param_datum_tag_succeeds"
+    },
+    {
+      "fixture": "candidate-reclaim-global-v2-noncanonical-base-datum-tag",
+      "expected": "successfulHalt",
+      "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_noncanonical_base_datum_tag_succeeds"
+    },
+    {
+      "fixture": "candidate-reclaim-global-v2-malformed-redeemer",
+      "expected": "validatorError",
+      "lean_theorem": "ProofToolFormal.ReclaimGlobalV2Candidate.exact_candidate_unit_redeemer_rejects_within_fuel"
+    }
+  ]
+}

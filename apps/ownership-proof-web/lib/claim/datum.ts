@@ -20,7 +20,10 @@ export function parseReclaimBaseDatum(datumCbor: unknown): ParsedReclaimBaseDatu
 
   const [paymentCredential] = datum.fields;
   if (paymentCredential instanceof Constr) {
-    throw new ClaimValidationError("unsupported_datum", "ReclaimBaseDatum must contain a payment key hash, not a credential constructor.");
+    throw new ClaimValidationError(
+      "unsupported_datum",
+      "ReclaimBaseDatum must contain a payment key hash, not a credential constructor.",
+    );
   }
 
   if (typeof paymentCredential !== "string") {

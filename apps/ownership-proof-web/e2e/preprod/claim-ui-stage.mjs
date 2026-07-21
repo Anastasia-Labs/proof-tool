@@ -37,7 +37,10 @@ export async function runClaimUiAcceptanceStage(options = {}) {
     pair: helperTarget.token,
   }).toString();
 
-  await page.addInitScript((storageKey) => globalThis.localStorage.removeItem(storageKey), CLAIM_FLOW_RESUME_STORAGE_KEY);
+  await page.addInitScript(
+    (storageKey) => globalThis.localStorage.removeItem(storageKey),
+    CLAIM_FLOW_RESUME_STORAGE_KEY,
+  );
   await page.goto(claimUrl.toString(), { waitUntil: "domcontentloaded" });
   await clickByRole(page, "button", "Continue");
   await selectClaimRole(page, walletHarness, COMPROMISED_WALLET_ROLE);
@@ -121,7 +124,10 @@ export async function runClaimUiAcceptanceStage(options = {}) {
 async function pairHelperThroughCourier(page, pairingUrl) {
   const context = page.context?.();
   if (!context || typeof context.newPage !== "function") {
-    throw new PreprodClaimUiStageError("claim_ui_pairing_context_missing", "Claim UI helper pairing requires a browser context.");
+    throw new PreprodClaimUiStageError(
+      "claim_ui_pairing_context_missing",
+      "Claim UI helper pairing requires a browser context.",
+    );
   }
   const courierPage = await context.newPage();
   try {

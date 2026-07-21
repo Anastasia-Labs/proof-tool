@@ -33,7 +33,10 @@ export async function preparePreprodAppTarget(options = {}) {
 export async function startPreprodAppServer(options = {}) {
   const env = options.env ?? process.env;
   if ((env.NODE_ENV ?? "").trim() === "production") {
-    throw new PreprodAppServerError("production_node_env", "The preprod E2E app server must not start with NODE_ENV=production.");
+    throw new PreprodAppServerError(
+      "production_node_env",
+      "The preprod E2E app server must not start with NODE_ENV=production.",
+    );
   }
 
   const host = options.host ?? DEFAULT_APP_HOST;

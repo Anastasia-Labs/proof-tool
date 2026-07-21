@@ -10,7 +10,6 @@ import {
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import React from "react";
 
 const ICON = { sm: 16, md: 20, lg: 24, xl: 32 } as const;
 
@@ -77,8 +76,7 @@ export function HomeLanding() {
               <h1 id="landing-title">Recover funds from a compromised Cardano wallet</h1>
               <p>
                 If your wallet was compromised, your funds may have been rescued and locked for you. Prove you&rsquo;re
-                the original owner — on your own device — and claim them. Your recovery phrase never leaves your
-                device.
+                the original owner — on your own device — and claim them. Your recovery phrase never leaves your device.
               </p>
             </div>
 

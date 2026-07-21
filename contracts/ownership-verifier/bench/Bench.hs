@@ -11,7 +11,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SBS
 import Data.Char (digitToInt, isHexDigit)
-import Data.List (find, isPrefixOf, nub)
+import Data.List (find, nub)
 import Data.Maybe (fromMaybe)
 import Text.Printf (printf)
 
@@ -41,16 +41,11 @@ import qualified UntypedPlutusCore as UPLC
 import qualified UntypedPlutusCore.Evaluation.Machine.Cek as Cek
 
 import Ownership.ReclaimBase (ReclaimBaseDatum (..), reclaimBaseValidatorCode)
-import Ownership.ReclaimGlobal
-  ( reclaimGlobalParamsData
-  , reclaimGlobalRedeemerData
-  , reclaimSameAsPreviousProof
-  , reclaimGlobalValidatorCode
-  )
 import qualified Ownership.ReclaimGlobalV2 as StatementV2
--- Historical comparison rows retained below.  New reconciliation rows use
--- only the production-facing StatementV2 module above.
-import qualified Ownership.ReclaimGlobalV2Bench as V2Global
+  ( reclaimGlobalParamsData
+  , reclaimGlobalRedeemerDataV2
+  , reclaimGlobalValidatorV2Code
+  )
 import Ownership.ReclaimGlobalMulti
   ( reclaimGlobalMultiRedeemerData
   , reclaimGlobalMultiValidatorCode
@@ -94,8 +89,7 @@ data Evaluator = Evaluator
   }
 
 data ClaimProfile
-  = CurrentBaseline
-  | StatementBoundV2
+  = CanonicalV2
   deriving (Eq, Show)
 
 data OwnershipFixture = OwnershipFixture
@@ -175,34 +169,9 @@ main = do
       preprodV11Evaluator = Evaluator "Preprod V11 snapshot" (snapshotMachineParameters snapshot)
       repeatedFixture = OwnershipFixture goldenPaymentKeyHash destinationProof
       baseScript = compiledToProgram (baseValidatorCode globalCredential)
-      repeatedGlobalScript = compiledToProgram (globalValidatorCode paramCurrencySymbol destinationVk)
       statementV2GlobalScript = compiledToProgram (statementV2GlobalValidatorCode paramCurrencySymbol destinationVk (B.blake2b_256 destinationVk))
-      historicalV2GlobalScript = compiledToProgram (v2GlobalValidatorCode paramCurrencySymbol destinationVk)
-      repeatedCases =
-        [ benchmarkCase "repeated proof" baseScript repeatedGlobalScript (replicate inputCount repeatedFixture)
-        | inputCount <- repeatedBenchmarkInputCounts
-        ]
-      distinctCases =
-        [ benchmarkCase "distinct same-master proofs" baseScript repeatedGlobalScript (take inputCount distinctFixtures)
-        | inputCount <- distinctBenchmarkInputCounts
-        ]
       multiCases =
         fmap (multiBenchmarkCase baseScript) multiFixtures
-      historicalV2RepeatedCases =
-        [ benchmarkCase "historical V2 repeated proof" baseScript historicalV2GlobalScript (replicate inputCount repeatedFixture)
-        | inputCount <- [1, 2, 5, 35]
-        ]
-      historicalV2DistinctCases =
-        [ benchmarkCase "historical V2 distinct same-master" baseScript historicalV2GlobalScript (take inputCount distinctFixtures)
-        | inputCount <- [1 .. 8]
-        ]
-      historicalV2MixedCases =
-        case distinctFixtures of
-          firstFixture : secondFixture : _ ->
-            [ benchmarkCase "historical V2 mixed cache/distinct" baseScript historicalV2GlobalScript
-                [firstFixture, firstFixture, secondFixture, secondFixture]
-            ]
-          _ -> error "historical V2 mixed benchmark needs two distinct fixtures"
       historicalV2MultiCases =
         fmap (multiBenchmarkCaseWith "historical V2 multi distinct same-master" v2MultiGlobalValidatorCode baseScript) multiFixtures
       statementV2DistinctCases =
@@ -217,7 +186,7 @@ main = do
         [ reconciliationBenchmarkCase evaluator profile contextShape globalCredential14 destinationVk (take 7 distinctFixtures)
         | evaluator <- [testingEvaluator, preprodV11Evaluator]
         , contextShape <- [OldLocalContext, LedgerShapedContext]
-        , profile <- [CurrentBaseline, StatementBoundV2]
+        , profile <- [CanonicalV2]
         ]
       ledgerPreprodCapacityCases =
         [ reconciliationBenchmarkCase
@@ -227,13 +196,13 @@ main = do
             globalCredential14
             destinationVk
             (take inputCount distinctFixtures)
-        | profile <- [CurrentBaseline, StatementBoundV2]
+        | profile <- [CanonicalV2]
         , inputCount <- [1 .. 9]
         ]
       defaultSix =
         reconciliationBenchmarkCase
           preprodV11Evaluator
-          StatementBoundV2
+          CanonicalV2
           LedgerShapedContext
           globalCredential14
           destinationVk
@@ -242,7 +211,7 @@ main = do
         reconciliationBenchmarkCaseNamed
           "V2 N=7 same credential normal flow / ledger-shaped context / Preprod V11 snapshot"
           preprodV11Evaluator
-          StatementBoundV2
+          CanonicalV2
           LedgerShapedContext
           globalCredential14
           destinationVk
@@ -251,7 +220,7 @@ main = do
         reconciliationBenchmarkCaseNamed
           "V2 ablation: no non-ReclaimBase wallet input / Preprod V11"
           preprodV11Evaluator
-          StatementBoundV2
+          CanonicalV2
           OldLocalContext
           globalCredential14
           destinationVk
@@ -260,7 +229,7 @@ main = do
         reconciliationBenchmarkCaseNamed
           "V2 ablation: one non-ReclaimBase wallet input / Preprod V11"
           preprodV11Evaluator
-          StatementBoundV2
+          CanonicalV2
           LedgerShapedContext
           globalCredential14
           destinationVk
@@ -269,7 +238,7 @@ main = do
         reconciliationBenchmarkCaseNamed
           "V2 ablation: 14-byte global credential parameter / Preprod V11"
           preprodV11Evaluator
-          StatementBoundV2
+          CanonicalV2
           LedgerShapedContext
           globalCredential14
           destinationVk
@@ -278,7 +247,7 @@ main = do
         reconciliationBenchmarkCaseNamed
           "V2 ablation: 28-byte global credential parameter / Preprod V11"
           preprodV11Evaluator
-          StatementBoundV2
+          CanonicalV2
           LedgerShapedContext
           globalCredential28
           destinationVk
@@ -287,17 +256,7 @@ main = do
         reconciliationBenchmarkCaseNamedWithParams
           "V2 production-width ablation: 28-byte policy CurrencySymbol + 28-byte global credential / Preprod V11"
           preprodV11Evaluator
-          StatementBoundV2
-          LedgerShapedContext
-          globalCredential28
-          paramCurrencySymbol28
-          destinationVk
-          (take 7 distinctFixtures)
-      baselineProductionWidth =
-        reconciliationBenchmarkCaseNamedWithParams
-          "Current baseline production-width ablation: 28-byte policy CurrencySymbol + 28-byte global credential / Preprod V11"
-          preprodV11Evaluator
-          CurrentBaseline
+          CanonicalV2
           LedgerShapedContext
           globalCredential28
           paramCurrencySymbol28
@@ -315,11 +274,8 @@ main = do
         , shortGlobalCredential
         , fullGlobalCredential
         , v2ProductionWidth
-        , baselineProductionWidth
         ]
 
-  assertPerRunBaseFlat repeatedCases
-  assertV8DistinctCapacity distinctCases
   printV2ReleasePolicy defaultSix namedV2N7 duplicateCredentials
   printRawCapacityBoundary ledgerPreprodCapacityCases
 
@@ -334,7 +290,7 @@ main = do
   printf "max tx CPU:    %d\n" maxTxCpu
   putStrLn ""
   putStrLn "Each base validator budget is evaluated against the full claim transaction context, varying the spending purpose, and summed into the transaction total."
-  putStrLn "The reconciliation rows compare current ReclaimBase+ReclaimGlobal with production ReclaimGlobalV2 code, preserving one output and one full proof/digest per reclaim-base input."
+  putStrLn "The reconciliation rows measure canonical ReclaimBase+ReclaimGlobalV2 code, preserving one output and one full proof/digest per reclaim-base input."
   putStrLn "They are evaluator-context reconciliation fixtures, not deployment artifacts; the generic 28-byte credential appears only in its named width ablation."
   putStrLn "Ledger-shaped rows add a non-ReclaimBase wallet input before all reclaim-base inputs; the candidate must skip that input while covering every ReclaimBase input."
   putStrLn "The distinct single rows use credentials for m/1852'/1815'/0'/0/0..19 from the same master key, with one proof per credential."
@@ -375,19 +331,14 @@ main = do
       (headerLabels !! 12)
       (headerLabels !! 13)
   putStrLn (replicate 177 '-')
-  mapM_ printCase (repeatedCases <> distinctCases <> multiCases <> historicalV2RepeatedCases <> historicalV2DistinctCases <> historicalV2MixedCases <> historicalV2MultiCases <> statementV2DistinctCases <> statementV2RepeatedCases <> reconciliationCases <> ledgerPreprodCapacityCases <> releaseCases)
+  mapM_ printCase (multiCases <> historicalV2MultiCases <> statementV2DistinctCases <> statementV2RepeatedCases <> reconciliationCases <> ledgerPreprodCapacityCases <> releaseCases)
   putStrLn ""
-  putStrLn "V5 repeated encoding sizes (exact Plutus Data CBOR; context size is not full transaction CBOR)"
-  forM_ [35, 100] $ \inputCount ->
-    printRepeatedEncodingSize inputCount (replicate inputCount repeatedFixture)
   putStrLn "ZK-02 all-distinct redeemer sizes (exact Plutus Data CBOR; not transaction CBOR)"
   forM_ [1 .. 9] $ \inputCount ->
     printStatementV2DistinctEncodingSize inputCount (take inputCount distinctFixtures)
   putStrLn ""
-  printf "benchmark-applied script sizes (test parameters): base=%d bytes; current global=%d bytes; historical V2 global=%d bytes; production statement-bound V2 global=%d bytes\n"
+  printf "benchmark-applied script sizes (test parameters): base=%d bytes; canonical statement-bound V2 global=%d bytes\n"
     (compiledCodeSize (baseValidatorCode globalCredential))
-    (compiledCodeSize (globalValidatorCode paramCurrencySymbol destinationVk))
-    (compiledCodeSize (v2GlobalValidatorCode paramCurrencySymbol destinationVk))
     (compiledCodeSize (statementV2GlobalValidatorCode paramCurrencySymbol destinationVk (B.blake2b_256 destinationVk)))
   forM_ multiFixtures $ \fixture ->
     printf "  Multi count-%d: production=%d bytes; historical V2=%d bytes\n"
@@ -395,71 +346,24 @@ main = do
       (compiledCodeSize (multiGlobalValidatorCode paramCurrencySymbol (multiFixtureVerifierKey fixture)))
       (compiledCodeSize (v2MultiGlobalValidatorCode paramCurrencySymbol (multiFixtureVerifierKey fixture)))
   let productionParamCurrencySymbol = V3.CurrencySymbol (bytesToBuiltin (replicate 28 0))
-      productionGlobalCode = globalValidatorCode productionParamCurrencySymbol destinationVk
-      productionV2GlobalCode = v2GlobalValidatorCode productionParamCurrencySymbol destinationVk
       productionStatementV2GlobalCode = statementV2GlobalValidatorCode productionParamCurrencySymbol destinationVk (B.blake2b_256 destinationVk)
-      productionCurrentGlobalCredential =
-        V3.ScriptCredential
-          (V3.ScriptHash (bytesToBuiltin (decodeHex (compiledCodePlutusV3ScriptHash productionGlobalCode))))
       productionStatementV2GlobalCredential =
         V3.ScriptCredential
           (V3.ScriptHash (bytesToBuiltin (decodeHex (compiledCodePlutusV3ScriptHash productionStatementV2GlobalCode))))
-      productionCurrentBaseCode = baseValidatorCode productionCurrentGlobalCredential
       productionStatementV2BaseCode = baseValidatorCode productionStatementV2GlobalCredential
-  printf "28-byte parameter-width paired shape sizes: current base=%d bytes; current global=%d bytes; historical V2 global=%d bytes; statement-bound base=%d bytes; statement-bound global=%d bytes\n"
-    (compiledCodeSize productionCurrentBaseCode)
-    (compiledCodeSize productionGlobalCode)
-    (compiledCodeSize productionV2GlobalCode)
+  printf "28-byte parameter-width paired shape sizes: statement-bound base=%d bytes; statement-bound global=%d bytes\n"
     (compiledCodeSize productionStatementV2BaseCode)
     (compiledCodeSize productionStatementV2GlobalCode)
-  printf "28-byte parameter-width paired PlutusV3 script hashes: current base=%s; current global=%s; statement-bound base=%s; statement-bound global=%s\n"
-    (compiledCodePlutusV3ScriptHash productionCurrentBaseCode)
-    (compiledCodePlutusV3ScriptHash productionGlobalCode)
+  printf "28-byte parameter-width paired PlutusV3 script hashes: statement-bound base=%s; statement-bound global=%s\n"
     (compiledCodePlutusV3ScriptHash productionStatementV2BaseCode)
     (compiledCodePlutusV3ScriptHash productionStatementV2GlobalCode)
-  printf "production global serialized blake2b256 snapshot: %s\n"
-    (compiledCodeDigest productionGlobalCode)
-
-repeatedBenchmarkInputCounts :: [Int]
-repeatedBenchmarkInputCounts = [1, 2, 5, 10, 15, 20, 35, 100]
-
-distinctBenchmarkInputCounts :: [Int]
-distinctBenchmarkInputCounts = [1 .. 8] <> [10, 15, 20]
+  printf "canonical V2 global serialized blake2b256 snapshot: %s\n"
+    (compiledCodeDigest productionStatementV2GlobalCode)
 
 multiBenchmarkInputCounts :: [Int]
 multiBenchmarkInputCounts = [1, 5]
 
-benchmarkCase ::
-  String ->
-  Script ->
-  Script ->
-  [OwnershipFixture] ->
-  BenchmarkCase
-benchmarkCase name baseScript globalScript fixtures =
-  BenchmarkCase
-    { benchCaseName = name
-    , benchInputCount = inputCount
-    , benchBaseRuns = baseRuns
-    , benchBase = baseTotal
-    , benchGlobal = globalBudget
-    , benchTotal = addBudget baseTotal globalBudget
-    }
-  where
-    inputCount = length fixtures
-    indexedFixtures = zip [0 ..] fixtures
-    claimContext = reclaimGlobalContext fixtures
-    baseRuns =
-      [ evaluateBudget baseScript $
-          reclaimBaseContext claimContext index (ReclaimBaseDatum paymentKeyHash)
-      | (index, OwnershipFixture paymentKeyHash _) <- indexedFixtures
-      ]
-    baseTotal = sumBudgets baseRuns
-    globalBudget =
-      evaluateBudget globalScript $
-        claimContext
-
--- | Retained historical production-candidate rows.  The reconciliation rows
--- below add evaluator/context comparisons without changing this time series.
+-- | Canonical statement-bound V2 benchmark rows.
 statementV2BenchmarkCase ::
   String ->
   Script ->
@@ -556,8 +460,7 @@ reconciliationBenchmarkCaseNamedWithParams name evaluator profile contextShape c
     globalScript =
       compiledToProgram $
         case profile of
-          CurrentBaseline -> globalValidatorCode paramsCurrencySymbol verifierKey
-          StatementBoundV2 -> statementV2GlobalValidatorCode paramsCurrencySymbol verifierKey (B.blake2b_256 verifierKey)
+          CanonicalV2 -> statementV2GlobalValidatorCode paramsCurrencySymbol verifierKey (B.blake2b_256 verifierKey)
     claimContext = reclaimClaimContext profile contextShape credential paramsCurrencySymbol fixtures
     baseRuns =
       [ evaluateBudgetWith evaluator baseScript $
@@ -579,8 +482,7 @@ reconciliationCaseName profile inputCount contextShape evaluator =
   where
     profileLabel =
       case profile of
-        CurrentBaseline -> "Current ReclaimGlobal"
-        StatementBoundV2 -> "V2"
+        CanonicalV2 -> "V2"
     contextLabel =
       case contextShape of
         OldLocalContext -> "old local"
@@ -626,77 +528,6 @@ multiBenchmarkCaseWith name validatorCode baseScript fixture =
       evaluateBudget globalScript $
         claimContext
 
-assertPerRunBaseFlat :: [BenchmarkCase] -> IO ()
-assertPerRunBaseFlat cases = do
-  unless (all matchesReference cases) $
-    error
-      ( "V1 ReclaimBase per-run ex-units are not flat across full transaction contexts: "
-          <> show (fmap caseRange cases)
-      )
-  case filter ((== 20) . benchInputCount) cases of
-    [repeated20] ->
-      unless (budgetMemory (benchTotal repeated20) < maxTxMemory) $
-        error
-          ( "V1 repeated-20 total memory exceeds the 14M transaction budget: "
-              <> show (budgetMemory (benchTotal repeated20))
-          )
-    _ -> error "V1 benchmark must contain exactly one repeated-20 case"
-  forM_ [35] $ \inputCount ->
-    case find ((== inputCount) . benchInputCount) cases of
-      Nothing -> error ("V5 benchmark is missing repeated-" <> show inputCount)
-      Just capacityCase -> do
-        unless (budgetMemory (benchTotal capacityCase) < maxTxMemory) $
-          error
-            ( "V5 repeated-"
-                <> show inputCount
-                <> " total memory exceeds the 14M transaction budget: "
-                <> show (budgetMemory (benchTotal capacityCase))
-            )
-        unless (budgetCpu (benchTotal capacityCase) < maxTxCpu) $
-          error
-            ( "V5 repeated-"
-                <> show inputCount
-                <> " total CPU exceeds the 10B transaction budget: "
-                <> show (budgetCpu (benchTotal capacityCase))
-            )
-  putStrLn "V1 corrected ReclaimBase per-run flatness and repeated-20 memory assertions: PASS"
-  putStrLn "V5 repeated-35 raw ex-unit assertion: PASS (repeated-100 remains a measured stretch case)"
-  where
-    reference = head cases
-    matchesReference current =
-      minimumBudget budgetMemory current == minimumBudget budgetMemory reference
-        && maximumBudget budgetMemory current == maximumBudget budgetMemory reference
-        && minimumBudget budgetCpu current == minimumBudget budgetCpu reference
-        && maximumBudget budgetCpu current == maximumBudget budgetCpu reference
-
-    minimumBudget select benchCase = minimum (fmap select (benchBaseRuns benchCase))
-    maximumBudget select benchCase = maximum (fmap select (benchBaseRuns benchCase))
-
-    caseRange benchCase =
-      ( benchInputCount benchCase
-      , minimumBudget budgetMemory benchCase
-      , maximumBudget budgetMemory benchCase
-      , minimumBudget budgetCpu benchCase
-      , maximumBudget budgetCpu benchCase
-      )
-
-assertV8DistinctCapacity :: [BenchmarkCase] -> IO ()
-assertV8DistinctCapacity cases =
-  case find ((== 7) . benchInputCount) cases of
-    Nothing -> error "V8 benchmark is missing distinct N=7"
-    Just distinct7 -> do
-      unless (budgetMemory (benchTotal distinct7) < maxTxMemory) $
-        error
-          ( "V8 distinct N=7 total memory exceeds the 14M transaction budget: "
-              <> show (budgetMemory (benchTotal distinct7))
-          )
-      unless (budgetCpu (benchTotal distinct7) <= 9_500_000_000) $
-        error
-          ( "V8 distinct N=7 lacks the required 5% raw CPU margin: "
-              <> show (budgetCpu (benchTotal distinct7))
-          )
-      putStrLn "V8 distinct N=7 raw ex-unit assertion with >=5% CPU margin: PASS"
-
 -- | This local harness reports both the raw limit and the release policy.  It
 -- must not promote its CEK approximation into the provider gate: Stage 2g
 -- evaluation remains authoritative for the release decision.
@@ -725,31 +556,18 @@ printV2ReleasePolicy defaultSix distinctSeven duplicateCredentials = do
 -- the provider remains the release authority.
 printRawCapacityBoundary :: [BenchmarkCase] -> IO ()
 printRawCapacityBoundary cases =
-  forM_ [CurrentBaseline, StatementBoundV2] $ \profile -> do
-    let profileCases = filter (matchesProfile profile) cases
-        passing = filter (withinRawLimit . benchTotal) profileCases
-        firstFailing = find (not . withinRawLimit . benchTotal) profileCases
-        profileLabel =
-          case profile of
-            CurrentBaseline -> "Current ReclaimGlobal"
-            StatementBoundV2 -> "V2 production candidate"
-    case passing of
-      [] -> putStrLn (profileLabel <> " ledger-shaped Preprod V11 raw-exunit capacity: no passing rows")
-      _ -> do
-        let largestPassing = last passing
-        putStrLn $
-          profileLabel
-            <> " ledger-shaped Preprod V11 raw-exunit capacity: largest raw pass N="
-            <> show (benchInputCount largestPassing)
-            <> " ("
-            <> renderBudget (benchTotal largestPassing)
-            <> "); first raw failure="
-            <> maybe "none in sweep" (show . benchInputCount) firstFailing
-  where
-    matchesProfile profile currentCase =
-      case profile of
-        CurrentBaseline -> "Current ReclaimGlobal N=" `isPrefixOf` benchCaseName currentCase
-        StatementBoundV2 -> "V2 N=" `isPrefixOf` benchCaseName currentCase
+  case filter (withinRawLimit . benchTotal) cases of
+    [] -> putStrLn "Canonical V2 ledger-shaped Preprod V11 raw-exunit capacity: no passing rows"
+    passing -> do
+      let largestPassing = last passing
+          firstFailing = find (not . withinRawLimit . benchTotal) cases
+      putStrLn $
+        "Canonical V2 ledger-shaped Preprod V11 raw-exunit capacity: largest raw pass N="
+          <> show (benchInputCount largestPassing)
+          <> " ("
+          <> renderBudget (benchTotal largestPassing)
+          <> "); first raw failure="
+          <> maybe "none in sweep" (show . benchInputCount) firstFailing
 
 renderBudget :: Budget -> String
 renderBudget budget =
@@ -801,20 +619,6 @@ baseValidatorCode :: V3.Credential -> CompiledCode (BuiltinData -> BuiltinUnit)
 baseValidatorCode credential =
   reclaimBaseValidatorCode
     `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.toBuiltinData credential)
-
-globalValidatorCode :: V3.CurrencySymbol -> BuiltinByteString -> CompiledCode (BuiltinData -> BuiltinUnit)
-globalValidatorCode currencySymbol verifierKey =
-  reclaimGlobalValidatorCode
-    `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef currencySymbol
-    `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef paramTokenName
-    `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef verifierKey
-
-v2GlobalValidatorCode :: V3.CurrencySymbol -> BuiltinByteString -> CompiledCode (BuiltinData -> BuiltinUnit)
-v2GlobalValidatorCode currencySymbol verifierKey =
-  V2Global.reclaimGlobalValidatorCode
-    `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef currencySymbol
-    `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef paramTokenName
-    `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef verifierKey
 
 statementV2GlobalValidatorCode :: V3.CurrencySymbol -> BuiltinByteString -> BuiltinByteString -> CompiledCode (BuiltinData -> BuiltinUnit)
 statementV2GlobalValidatorCode currencySymbol verifierKey verifierKeyHash =
@@ -948,7 +752,7 @@ readDistinctFixtures path = do
   let fixtures = fmap parseFixtureLine (filter (not . null) (lines raw))
       credentials = fmap fixturePaymentKeyHash fixtures
       proofs = fmap fixtureProof fixtures
-  if length fixtures < maximum distinctBenchmarkInputCounts
+  if length fixtures < 9
     then error "distinct ownership fixture file has too few rows"
     else
       if length (nub credentials) /= length credentials
@@ -1060,27 +864,9 @@ reclaimBaseContext claimContext inputIndex datum =
           (Just (V3.Datum (V3.toBuiltinData datum)))
     }
 
-reclaimGlobalContext :: [OwnershipFixture] -> V3.ScriptContext
-reclaimGlobalContext fixtures =
-  buildScriptContext $
-    foldMap (withSpendingScript (V3.toBuiltinData ())) reclaimInputs
-      <> withReferenceTxIn paramInput
-      <> foldMap (const (withTxOut (destinationOutput 1))) fixtures
-      <> withRewardingScript
-        (reclaimGlobalRedeemerData 0 0 proofs)
-        globalCredential
-        0
-  where
-    indexedFixtures = zip [0 ..] fixtures
-    proofs = compressRepeatedProofs (fmap fixtureProof fixtures)
-    reclaimInputs =
-      [ reclaimBaseInput index paymentKeyHash
-      | (index, OwnershipFixture paymentKeyHash _) <- indexedFixtures
-      ]
-
 reclaimGlobalStatementV2Context :: [OwnershipFixture] -> V3.ScriptContext
 reclaimGlobalStatementV2Context =
-  reclaimClaimContext StatementBoundV2 OldLocalContext globalCredential paramCurrencySymbol
+  reclaimClaimContext CanonicalV2 OldLocalContext globalCredential paramCurrencySymbol
 
 reclaimClaimContext ::
   ClaimProfile ->
@@ -1113,8 +899,7 @@ reclaimClaimContext profile contextShape configuredGlobalCredential paramsCurren
       ]
     redeemer =
       case profile of
-        CurrentBaseline -> reclaimGlobalRedeemerData 0 0 (compressRepeatedProofs proofs)
-        StatementBoundV2 -> StatementV2.reclaimGlobalRedeemerDataV2 0 0 proofs publicInputDigests
+        CanonicalV2 -> StatementV2.reclaimGlobalRedeemerDataV2 0 0 proofs publicInputDigests
     contextPrefix =
       case contextShape of
         OldLocalContext -> mempty
@@ -1155,38 +940,10 @@ walletChangeOutput =
     withTxOutAddress (pubKeyAddress (V3.PubKeyHash "safe-wallet-change"))
       <> withTxOutValue (V3.singleton V3.adaSymbol V3.adaToken 9_500_000)
 
-compressRepeatedProofs :: [BuiltinByteString] -> [BuiltinByteString]
-compressRepeatedProofs [] = []
-compressRepeatedProofs (proof : moreProofs) =
-  proof : go proof moreProofs
-  where
-    go _ [] = []
-    go previousProof (nextProof : remainingProofs) =
-      ( if nextProof == previousProof
-          then reclaimSameAsPreviousProof
-          else nextProof
-      )
-        : go nextProof remainingProofs
-
-printRepeatedEncodingSize :: Int -> [OwnershipFixture] -> IO ()
-printRepeatedEncodingSize inputCount fixtures =
-  printf
-    "  repeated-%d: expanded redeemer=%d bytes; marker redeemer=%d bytes; marker ScriptContext=%d bytes\n"
-    inputCount
-    (serialisedDataSize expandedRedeemer)
-    (serialisedDataSize markerRedeemer)
-    (serialisedDataSize (V3.toBuiltinData (reclaimGlobalContext fixtures)))
-  where
-    expandedProofs = fmap fixtureProof fixtures
-    markerProofs = compressRepeatedProofs expandedProofs
-    expandedRedeemer = reclaimGlobalRedeemerData 0 0 expandedProofs
-    markerRedeemer = reclaimGlobalRedeemerData 0 0 markerProofs
-
 printStatementV2DistinctEncodingSize :: Int -> [OwnershipFixture] -> IO ()
 printStatementV2DistinctEncodingSize inputCount fixtures =
-  printf "  distinct-%d: baseline redeemer=%d bytes; statement-v2 redeemer=%d bytes\n"
+  printf "  distinct-%d: canonical V2 redeemer=%d bytes\n"
     inputCount
-    (serialisedDataSize baselineRedeemer)
     (serialisedDataSize statementV2Redeemer)
   where
     proofs = fmap fixtureProof fixtures
@@ -1194,7 +951,6 @@ printStatementV2DistinctEncodingSize inputCount fixtures =
       [ ownershipDestinationPublicInputDigest paymentKeyHash destinationAddressV1Bytes
       | OwnershipFixture paymentKeyHash _ <- fixtures
       ]
-    baselineRedeemer = reclaimGlobalRedeemerData 0 0 proofs
     statementV2Redeemer = StatementV2.reclaimGlobalRedeemerDataV2 0 0 proofs publicInputDigests
 
 serialisedDataSize :: BuiltinData -> Integer
@@ -1256,7 +1012,7 @@ paramInputWith paramsCurrencySymbol =
       <> withAddress (scriptAddress (V3.ScriptHash "always-fails"))
       <> withValue (reclaimValue <> V3.singleton paramsCurrencySymbol paramTokenName 1)
       <> withInlineDatum
-        (reclaimGlobalParamsData baseScriptHash)
+        (StatementV2.reclaimGlobalParamsData baseScriptHash)
 
 destinationOutput :: Int -> V3.TxOut
 destinationOutput inputCount =

@@ -39,41 +39,51 @@ describe("preprod helper target", () => {
   });
 
   it("rejects missing helper token", () => {
-    expectErrorCode(() =>
-      validatePreprodHelperTarget({
-        RECLAIM_E2E_HELPER_URL: "http://127.0.0.1:49152",
-      }),
-    "helper_token_missing");
+    expectErrorCode(
+      () =>
+        validatePreprodHelperTarget({
+          RECLAIM_E2E_HELPER_URL: "http://127.0.0.1:49152",
+        }),
+      "helper_token_missing",
+    );
   });
 
   it("rejects non-loopback helper targets", () => {
-    expectErrorCode(() =>
-      validatePreprodHelperTarget({
-        RECLAIM_E2E_HELPER_URL: "https://proof.example",
-        RECLAIM_E2E_HELPER_TOKEN: "pair-secret",
-      }),
-    "helper_url_scheme_invalid");
-    expectErrorCode(() =>
-      validatePreprodHelperTarget({
-        RECLAIM_E2E_HELPER_URL: "http://proof.example",
-        RECLAIM_E2E_HELPER_TOKEN: "pair-secret",
-      }),
-    "helper_url_not_loopback");
+    expectErrorCode(
+      () =>
+        validatePreprodHelperTarget({
+          RECLAIM_E2E_HELPER_URL: "https://proof.example",
+          RECLAIM_E2E_HELPER_TOKEN: "pair-secret",
+        }),
+      "helper_url_scheme_invalid",
+    );
+    expectErrorCode(
+      () =>
+        validatePreprodHelperTarget({
+          RECLAIM_E2E_HELPER_URL: "http://proof.example",
+          RECLAIM_E2E_HELPER_TOKEN: "pair-secret",
+        }),
+      "helper_url_not_loopback",
+    );
   });
 
   it("rejects helper URL credentials and endpoint paths", () => {
-    expectErrorCode(() =>
-      validatePreprodHelperTarget({
-        RECLAIM_E2E_HELPER_URL: "http://user:pass@127.0.0.1:49152",
-        RECLAIM_E2E_HELPER_TOKEN: "pair-secret",
-      }),
-    "helper_url_credentials_forbidden");
-    expectErrorCode(() =>
-      validatePreprodHelperTarget({
-        RECLAIM_E2E_HELPER_URL: "http://127.0.0.1:49152/prove-destination",
-        RECLAIM_E2E_HELPER_TOKEN: "pair-secret",
-      }),
-    "helper_url_path_invalid");
+    expectErrorCode(
+      () =>
+        validatePreprodHelperTarget({
+          RECLAIM_E2E_HELPER_URL: "http://user:pass@127.0.0.1:49152",
+          RECLAIM_E2E_HELPER_TOKEN: "pair-secret",
+        }),
+      "helper_url_credentials_forbidden",
+    );
+    expectErrorCode(
+      () =>
+        validatePreprodHelperTarget({
+          RECLAIM_E2E_HELPER_URL: "http://127.0.0.1:49152/prove-destination",
+          RECLAIM_E2E_HELPER_TOKEN: "pair-secret",
+        }),
+      "helper_url_path_invalid",
+    );
   });
 });
 

@@ -20,21 +20,26 @@ function descriptor(enabled = true): BrowserProvingDescriptor {
     pk_url: "https://assets.example.com/ownership.pk",
     pk_index_url: "/proof-assets/ownership.pk.idx.json",
     ccs_url: "https://assets.example.com/ownership.ccs",
-    ccs_blake2b256: "blake2b256:" + "cc".repeat(32),
+    ccs_blake2b256: `blake2b256:${"cc".repeat(32)}`,
     proof_wasm_url: "/proof-runtime/proof-destination.wasm",
     worker_js_url: "/proof-runtime/msm-worker.js",
     msm_worker_wasm_url: "/proof-runtime/msmworker.wasm",
   };
 }
 
-function stubCapable(overrides: { hardwareConcurrency?: number; deviceMemory?: number; nestedOk?: boolean } = {}): void {
+function stubCapable(
+  overrides: { hardwareConcurrency?: number; deviceMemory?: number; nestedOk?: boolean } = {},
+): void {
   const nestedOk = overrides.nestedOk ?? true;
   vi.stubGlobal("crossOriginIsolated", true);
   vi.stubGlobal("WebAssembly", { instantiateStreaming: () => Promise.resolve() } as unknown as typeof WebAssembly);
   vi.stubGlobal("fetch", () => Promise.resolve());
-  vi.stubGlobal("SharedArrayBuffer", class {
-    byteLength = 8;
-  });
+  vi.stubGlobal(
+    "SharedArrayBuffer",
+    class {
+      byteLength = 8;
+    },
+  );
   vi.stubGlobal("navigator", {
     hardwareConcurrency: overrides.hardwareConcurrency ?? 8,
     deviceMemory: overrides.deviceMemory ?? 16,

@@ -1,0 +1,36 @@
+# Git hooks, installed by `pnpm install` at the repo root (or `pnpm hooks:install`).
+# Pre-commit stays fast: format/lint only the staged files.
+# The full suites run in CI and via `pnpm test:all`.
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome (staged ts/js/json)
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json}"
+      run: pnpm exec biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+    - name: gofmt (staged go)
+      glob: "*.go"
+      exclude:
+        - vendor/*
+      run: gofmt -w {staged_files}
+      stage_fixed: true
+    # ./... (not per-staged-dir paths) so js/wasm-only packages under build
+    # constraints don't fail explicit-path vet; warm-cache runs take seconds.
+    - name: go vet
+      glob: "*.go"
+      exclude:
+        - vendor/*
+      run: go vet ./...
+
+pre-push:
+  jobs:
+    - name: biome (repo)
+      run: pnpm exec biome check .
+    - name: golangci-lint
+      run: |
+        if command -v golangci-lint >/dev/null 2>&1; then
+          golangci-lint run ./...
+        else
+          echo "golangci-lint not installed; skipping (CI enforces it)." >&2
+        fi

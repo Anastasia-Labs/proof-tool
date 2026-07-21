@@ -61,13 +61,7 @@ export async function masterXprvFromSeedPhrase(
   const entropy = mnemonicToEntropy(phrase, wordlist);
   const salt = new Uint8Array(entropy.length);
   salt.set(entropy);
-  const key = await cryptoProvider.subtle.importKey(
-    "raw",
-    new Uint8Array(),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
+  const key = await cryptoProvider.subtle.importKey("raw", new Uint8Array(), "PBKDF2", false, ["deriveBits"]);
   const bits = await cryptoProvider.subtle.deriveBits(
     {
       name: "PBKDF2",
@@ -85,10 +79,7 @@ export async function masterXprvFromSeedPhrase(
   return out;
 }
 
-export async function masterXprvHexFromSeedPhrase(
-  seedPhrase: string,
-  cryptoProvider?: Crypto,
-): Promise<string> {
+export async function masterXprvHexFromSeedPhrase(seedPhrase: string, cryptoProvider?: Crypto): Promise<string> {
   return bytesToHex(await masterXprvFromSeedPhrase(seedPhrase, cryptoProvider));
 }
 

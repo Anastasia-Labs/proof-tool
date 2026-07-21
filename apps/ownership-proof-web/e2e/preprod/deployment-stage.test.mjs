@@ -21,7 +21,8 @@ describe("deploy-or-verify preprod manifest stage", () => {
     );
 
     expect(result).toMatchObject({
-      deploymentId: "preprod:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:1234567890abcdef1234567890abcdef12345678",
+      deploymentId:
+        "preprod:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:1234567890abcdef1234567890abcdef12345678",
       network: "Preprod",
       networkId: 0,
       sourceCommit: "1234567890abcdef1234567890abcdef12345678",
@@ -50,13 +51,16 @@ describe("deploy-or-verify preprod manifest stage", () => {
     const claim = validClaimDeploymentResponse();
     claim.deployment.verifierVkHash = "c".repeat(64);
 
-    expect(() => verifyDeploymentPair(validDeploymentResponse(), claim, preflight())).toThrow(/verifier_vk_hash mismatch/u);
+    expect(() => verifyDeploymentPair(validDeploymentResponse(), claim, preflight())).toThrow(
+      /verifier_vk_hash mismatch/u,
+    );
   });
 
   it("rejects app endpoints for a stale deployment with the current source commit", () => {
     const reclaim = validDeploymentResponse();
     const claim = validClaimDeploymentResponse();
-    reclaim.deployment.id = "preprod:ffffffffffffffffffffffffffffffffffffffffffffffffffffffff:1234567890abcdef1234567890abcdef12345678";
+    reclaim.deployment.id =
+      "preprod:ffffffffffffffffffffffffffffffffffffffffffffffffffffffff:1234567890abcdef1234567890abcdef12345678";
     claim.deployment.id = reclaim.deployment.id;
 
     expect(() => verifyDeploymentPair(reclaim, claim, preflight())).toThrow(/Deployment endpoint id does not match/u);
@@ -79,7 +83,9 @@ describe("deploy-or-verify preprod manifest stage", () => {
     claim.capabilities.transactionBuild.referenceScriptsConfigured = false;
     claim.capabilities.transactionBuild.missing = ["reference_scripts.reclaim_base"];
 
-    expect(() => verifyDeploymentPair(validDeploymentResponse(), claim, preflight())).toThrow(/Reference scripts are required/u);
+    expect(() => verifyDeploymentPair(validDeploymentResponse(), claim, preflight())).toThrow(
+      /Reference scripts are required/u,
+    );
   });
 
   it("fetches both app endpoints and writes a redacted stage artifact", async () => {
@@ -87,7 +93,9 @@ describe("deploy-or-verify preprod manifest stage", () => {
     const fetch = vi.fn(async (url) => ({
       status: 200,
       async json() {
-        return String(url).endsWith("/claim-api/deployment") ? validClaimDeploymentResponse() : validDeploymentResponse();
+        return String(url).endsWith("/claim-api/deployment")
+          ? validClaimDeploymentResponse()
+          : validDeploymentResponse();
       },
     }));
 

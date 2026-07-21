@@ -337,13 +337,13 @@ func buildStage2gMaterial(ccs constraint.ConstraintSystem, bundle *prover.Owners
 			return stage2gMaterial{}, err
 		}
 		if _, exists := credentials[entry.Credential]; exists {
-			return stage2gMaterial{}, errors.New("Stage 2g derived duplicate payment credentials")
+			return stage2gMaterial{}, errors.New("stage 2g derived duplicate payment credentials")
 		}
 		if _, exists := proofs[entry.ProofHex]; exists {
-			return stage2gMaterial{}, errors.New("Stage 2g generated duplicate proof bytes")
+			return stage2gMaterial{}, errors.New("stage 2g generated duplicate proof bytes")
 		}
 		if _, exists := digests[entry.PublicInputDigestHex]; exists {
-			return stage2gMaterial{}, errors.New("Stage 2g generated duplicate public-input digests")
+			return stage2gMaterial{}, errors.New("stage 2g generated duplicate public-input digests")
 		}
 		credentials[entry.Credential] = struct{}{}
 		proofs[entry.ProofHex] = struct{}{}
@@ -377,14 +377,14 @@ func buildStage2gMaterial(ccs constraint.ConstraintSystem, bundle *prover.Owners
 
 func validateStage2gCardanoVK(cardanoVK []byte, format string) error {
 	if format != "groth16-bls12-381-bsb22" || len(cardanoVK) != prover.CardanoVKCommitmentLen {
-		return errors.New("Stage 2g destination verification key is not the exact 672-byte Cardano commitment format")
+		return errors.New("stage 2g destination verification key is not the exact 672-byte Cardano commitment format")
 	}
 	return nil
 }
 
 func validateStage2gCardanoProofArtifact(format, proofHex, publicInputDigestHex string) error {
 	if format != "groth16-bls12-381-bsb22" || len(proofHex) != prover.CardanoProofCommitmentLen*2 || len(publicInputDigestHex) != 64 {
-		return errors.New("Stage 2g proof serialization is not the exact 336-byte Cardano commitment wire format")
+		return errors.New("stage 2g proof serialization is not the exact 336-byte Cardano commitment wire format")
 	}
 	return nil
 }
@@ -466,7 +466,7 @@ func stage2gBlake2b256(data []byte) (string, error) {
 
 func writeStage2gMaterial(outPath string, material stage2gMaterial) error {
 	if strings.TrimSpace(outPath) == "" {
-		return errors.New("Stage 2g material output path is required")
+		return errors.New("stage 2g material output path is required")
 	}
 	if err := assertStage2gMaterialOutputPath(outPath); err != nil {
 		return err
@@ -483,13 +483,13 @@ func writeStage2gMaterial(outPath string, material stage2gMaterial) error {
 
 func assertStage2gMaterialOutputPath(outPath string) error {
 	if filepath.IsAbs(outPath) {
-		return errors.New("Stage 2g material output must be a relative path under output/preprod-e2e/stage2g-v2")
+		return errors.New("stage 2g material output must be a relative path under output/preprod-e2e/stage2g-v2")
 	}
 	target := filepath.Clean(outPath)
 	root := filepath.Join("output", "preprod-e2e", "stage2g-v2")
 	relative, err := filepath.Rel(root, target)
 	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) || filepath.IsAbs(relative) {
-		return errors.New("Stage 2g material output must be under output/preprod-e2e/stage2g-v2")
+		return errors.New("stage 2g material output must be under output/preprod-e2e/stage2g-v2")
 	}
 	current := "."
 	for _, part := range strings.Split(target, string(os.PathSeparator)) {
@@ -505,7 +505,7 @@ func assertStage2gMaterialOutputPath(outPath string) error {
 			return errors.New("inspect Stage 2g material output path")
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return errors.New("Stage 2g material output path traverses a symbolic link")
+			return errors.New("stage 2g material output path traverses a symbolic link")
 		}
 	}
 	return nil

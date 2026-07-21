@@ -1,0 +1,65 @@
+{
+  "schema": "proof-tool-reclaim-base-formal-evidence-v2",
+  "recorded_at": "2026-07-20",
+  "deployed_preprod": {
+    "deployment_status": "active historical artifact; unchanged",
+    "artifact_file": "formal/artifacts/active-preprod/reclaim-base.cbor.hex",
+    "script_hash": "a4cd2a3208a0788aedd1aeea087f8902c58052dc2fcfa2c228ea34dd",
+    "script_cbor_sha256": "ac84e7cfad8e3b6972b2232aa003bb5fab6b3439c13ebf6f44f386d1650470af",
+    "semantics": "Historical deployed Base checks spending purpose, inline datum shape and credential width, ScriptCredential parameter shape, and configured withdrawal membership.",
+    "lean_module": "ProofToolFormal.ReclaimBase",
+    "exact_theorems": [
+      "ProofToolFormal.ReclaimBase.exact_success_iff_authorized_within_fuel",
+      "ProofToolFormal.ReclaimBase.exact_wrong_purpose_is_unsuccessful",
+      "ProofToolFormal.ReclaimBase.exact_invalid_or_missing_datum_is_unsuccessful",
+      "ProofToolFormal.ReclaimBase.exact_missing_active_withdrawal_is_unsuccessful",
+      "ProofToolFormal.ReclaimBase.exact_trailing_fields_do_not_change_success"
+    ],
+    "warning": "These theorems remain evidence about the deployed Preprod bytes and are not claims about current source."
+  },
+  "current_source_candidate": {
+    "deployment_status": "candidate only; no manifest, parameter datum, reference script, or chain deployment changed",
+    "artifact_file": "formal/artifacts/candidate/reclaim-base.cbor.hex",
+    "export_json": "formal/artifacts/candidate/reclaim-base.plutus.json",
+    "script_hash": "c234ceda7ee98fbc61ab7c3d5c1748411718353b636010a4df60da45",
+    "script_cbor_bytes": 132,
+    "script_cbor_sha256": "c6877d5c9180826d92a8e9c6463f8a693ae797d704810e20751b8c9a026b31d3",
+    "flat_roundtrip_theorem": "ProofToolFormal.FlatRoundTrip.reclaimBaseCandidate_import_roundtrips_to_exporter_bytes",
+    "semantics": "Success is exactly configured withdrawal-key membership. Purpose, datum presence and shape, credential width, and configured credential constructor are ignored locally.",
+    "lean_modules": [
+      "ProofToolFormal.ReclaimBaseCandidate",
+      "ProofToolFormal.ReclaimBaseParameterized"
+    ],
+    "generalized_typed_lemmas": [
+      "ProofToolFormal.ReclaimBaseParameterized.authorization_is_exact_withdrawal_membership",
+      "ProofToolFormal.ReclaimBaseParameterized.authorization_ignores_script_info"
+    ],
+    "exact_candidate_replays": [
+      "ProofToolFormal.ReclaimBaseCandidate.exact_candidate_golden_succeeds",
+      "ProofToolFormal.ReclaimBaseCandidate.exact_candidate_missing_withdrawal_rejects_within_fuel",
+      "ProofToolFormal.ReclaimBaseCandidate.exact_candidate_short_datum_succeeds",
+      "ProofToolFormal.ReclaimBaseCandidate.exact_candidate_noncanonical_datum_succeeds"
+    ],
+    "exact_universal_compiled_bridge": {
+      "status": "Pending",
+      "reason": "Symbolically preprocessing the recursively encoded arbitrary withdrawal list expands the CEK term instead of supplying induction; finite expansion is not accepted as a universal proof."
+    },
+    "applied_global_credential": "f93ed0e35e7f497f7ccd432efe8f7dca6f86a2072964f8f27bd70582",
+    "contract_baseline_commit": "7c7ea7fbb7b0ae9d9c777d4e2c5b97a3e6c2db0e"
+  },
+  "haskell_test": {
+    "command": "cd contracts/ownership-verifier && cabal test ownership-verifier-test",
+    "result": "Pass",
+    "total_tests": 243,
+    "reclaim_base_named_tests": 29,
+    "quickcheck_cases_executed": 51200,
+    "raw_withdrawal_oracle_differential": "Pass",
+    "covered_irrelevant_inputs": [
+      "all six V3 ScriptInfo constructors",
+      "missing, datum-hash, malformed, short, noncanonical, and trailing-field datums",
+      "key-shaped and script-shaped configured credentials"
+    ]
+  },
+  "axiom_boundary": "The generalized typed candidate lemmas use no project axiom. Exact closed candidate replays use Lean native compiler trust. No universal exact compiled candidate claim is made yet.",
+  "deployed_cross_evaluator": "formal/assurance/cross-evaluator-decisions.json"
+}

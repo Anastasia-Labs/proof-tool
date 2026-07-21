@@ -71,7 +71,7 @@ func TestProveStreamCommitmentSectionsVerifyWithIndexedKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 
 	typedPK := pk.(*groth16_bls12381.ProvingKey)
 	basis, err := source.G1("Basis", nil)
@@ -159,7 +159,7 @@ func TestProveStreamWithoutDomainPrecomputeVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 	domain := source.Domain()
 	if _, err := domain.Twiddles(); err == nil {
 		t.Fatal("no-precompute source unexpectedly retained domain twiddles")
@@ -299,7 +299,7 @@ func TestIntermediateDigestsFixedWitnessMatchAcrossW2AndBindWitness(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer source.Close()
+		defer func() { _ = source.Close() }()
 		source.SetPKSectionPlan(testSectionPlan(t, pkPath))
 		recorder := msmengine.NewDigestRecorder()
 		engine := msmengine.WrapWithDigestRecorder(&sourceSectionEngine{source: source}, recorder)

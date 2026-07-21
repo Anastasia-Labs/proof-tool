@@ -767,10 +767,6 @@ func ownershipDestinationKeyConfig() keyConfig {
 	}
 }
 
-func ownershipMultiKeyConfig() keyConfig {
-	return ownershipMultiKeyConfigForCount(ownershipmulti.DefaultCredentialCount)
-}
-
 func ownershipMultiKeyConfigForCount(count int) keyConfig {
 	return keyConfig{
 		KeyVersion: DefaultMultiKeyVersionForCount(count),
@@ -786,14 +782,6 @@ func filesExist(paths ...string) bool {
 		}
 	}
 	return true
-}
-
-func hashFile(path string) (string, error) {
-	digest, err := digestFile(path)
-	if err != nil {
-		return "", err
-	}
-	return digest.Blake2b256, nil
 }
 
 func DigestFile(path string) (FileDigest, error) {

@@ -1,0 +1,37 @@
+{
+  "schema": "proof-tool-one-shot-formal-evidence-v1",
+  "recorded_at": "2026-07-15",
+  "lean_target": "ProofToolFormal.OneShotNFT",
+  "lean_result": "Pass",
+  "scope": {
+    "active_artifact": "formal/artifacts/active-preprod/one-shot-params-nft.cbor.hex",
+    "parameterized_helper": "formal/artifacts/helpers/one-shot-parameterized.cbor.hex",
+    "symbolic_fuel": 500,
+    "concrete_replay_fuel": 2000000,
+    "fuel_semantics": "The biconditionals require withinFuel; concrete replay independently proves a successful halt rather than treating exhaustion as rejection."
+  },
+  "independent_predicate": "ProofToolFormal.OneShotNFT.authorizedFor requires minting purpose, consumption of the selected seed, and exactly one token entry of quantity one under the policy's own currency symbol; entries under other policies are ignored.",
+  "active_exact_theorems": [
+    "ProofToolFormal.OneShotNFT.exact_active_success_iff_authorized_within_fuel"
+  ],
+  "parameterized_exact_theorems": [
+    "ProofToolFormal.OneShotNFT.exact_parameterized_success_iff_authorized_within_fuel",
+    "ProofToolFormal.OneShotNFT.exact_success_requires_minting_purpose"
+  ],
+  "expected_counterexample": {
+    "catalog_id": "NFT-CEX-1",
+    "theorem": "ProofToolFormal.OneShotNFT.golden_falsifies_unsafe_success_without_authorization",
+    "context": "ProofToolFormal.ContextGoldens.oneShotContext",
+    "ledger_validity": "ProofToolFormal.ContextGoldens.oneShot_ledger_valid",
+    "artifact_binding": "ProofToolFormal.ContextGoldens.oneShot_bound_to_active_artifact",
+    "lean_compiled_replay": "ProofToolFormal.ConcreteReplay.exact_oneShot_golden_succeeds",
+    "haskell_compiled_replay": "active-one-shot-success in formal/assurance/cross-evaluator-decisions.json",
+    "result": "Falsified"
+  },
+  "axiom_boundary": {
+    "symbolic_theorems": "#print axioms reports Blaster.Tactic.blasterProven plus propext, Classical.choice, and Quot.sound.",
+    "counterexample_replay": "#print axioms reports native reduction/compiler trust axioms plus standard quotient/classical axioms; it does not depend on blasterProven or sorryAx."
+  },
+  "build_command": "cd formal && lake build ProofToolFormal.OneShotNFT",
+  "build_result": "Pass"
+}

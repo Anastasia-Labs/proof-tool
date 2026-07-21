@@ -65,7 +65,10 @@ export async function runBrowserWasmDestinationProofStage(options = {}) {
   const appTarget = requireOption(options.appTarget, "appTarget");
   const fetchFn = options.fetch ?? globalThis.fetch;
   if (typeof fetchFn !== "function") {
-    throw new PreprodDestinationProofStageError("fetch_unavailable", "fetch is required for destination proof generation.");
+    throw new PreprodDestinationProofStageError(
+      "fetch_unavailable",
+      "fetch is required for destination proof generation.",
+    );
   }
 
   const claimDeployment = await fetchAppJson(fetchFn, appTarget.baseUrl, "/claim-api/deployment");
@@ -106,7 +109,10 @@ export async function runDestinationProofStage(options = {}) {
   const mkdir = options.mkdir ?? mkdirSync;
   const writeFile = options.writeFile ?? writeFileSync;
   if (typeof fetchFn !== "function") {
-    throw new PreprodDestinationProofStageError("fetch_unavailable", "fetch is required for destination proof generation.");
+    throw new PreprodDestinationProofStageError(
+      "fetch_unavailable",
+      "fetch is required for destination proof generation.",
+    );
   }
 
   const compromisedRole = env[COMPROMISED_WALLET_ROLE_ENV]?.trim() || DEFAULT_COMPROMISED_WALLET_ROLE;
@@ -125,12 +131,18 @@ export async function runDestinationProofStage(options = {}) {
     );
   }
   if (safeState.canSign !== true) {
-    throw new PreprodDestinationProofStageError("safe_wallet_read_only", `${SAFE_WALLET_ROLE} must be able to sign later claim transactions.`);
+    throw new PreprodDestinationProofStageError(
+      "safe_wallet_read_only",
+      `${SAFE_WALLET_ROLE} must be able to sign later claim transactions.`,
+    );
   }
 
   const networkId = await walletHarness.call?.(SAFE_WALLET_ROLE, "getNetworkId", []);
   if (networkId !== 0) {
-    throw new PreprodDestinationProofStageError("safe_wallet_network_mismatch", `${SAFE_WALLET_ROLE} must be connected to preprod network id 0.`);
+    throw new PreprodDestinationProofStageError(
+      "safe_wallet_network_mismatch",
+      `${SAFE_WALLET_ROLE} must be connected to preprod network id 0.`,
+    );
   }
   const masterXPrvBase64 = await loadMasterXPrvBase64(walletHarness, compromisedRole);
   const claimDeployment = await fetchAppJson(fetchFn, appTarget.baseUrl, "/claim-api/deployment");
@@ -264,15 +276,19 @@ async function loadMatchingReclaimUtxos(fetchFn, baseUrl, impactedCredential) {
     }
     const response = await fetchJson(fetchFn, endpoint);
     if (response?.available !== true) {
-      throw new PreprodDestinationProofStageError("claim_index_unavailable", "Claim index is not available for destination proof generation.");
+      throw new PreprodDestinationProofStageError(
+        "claim_index_unavailable",
+        "Claim index is not available for destination proof generation.",
+      );
     }
     const pageUtxos = Array.isArray(response.utxos) ? response.utxos : [];
     matching.push(
-      ...pageUtxos.filter((utxo) =>
-        utxo?.state === "unspent" &&
-        utxo?.datum?.status === "valid" &&
-        utxo.datum.paymentCredential === impactedCredential &&
-        typeof utxo.outRefId === "string",
+      ...pageUtxos.filter(
+        (utxo) =>
+          utxo?.state === "unspent" &&
+          utxo?.datum?.status === "valid" &&
+          utxo.datum.paymentCredential === impactedCredential &&
+          typeof utxo.outRefId === "string",
       ),
     );
     cursor = response.page?.nextCursor ?? null;
@@ -304,10 +320,16 @@ async function fetchJson(fetchFn, url, init) {
   try {
     response = await fetchFn(url, init);
   } catch (error) {
-    throw new PreprodDestinationProofStageError("fetch_failed", `Destination proof stage request failed: ${error?.message ?? "request failed"}`);
+    throw new PreprodDestinationProofStageError(
+      "fetch_failed",
+      `Destination proof stage request failed: ${error?.message ?? "request failed"}`,
+    );
   }
   if (!response || response.status < 200 || response.status >= 300) {
-    throw new PreprodDestinationProofStageError("http_error", `${url.pathname} returned HTTP ${response?.status ?? "unknown"}.`);
+    throw new PreprodDestinationProofStageError(
+      "http_error",
+      `${url.pathname} returned HTTP ${response?.status ?? "unknown"}.`,
+    );
   }
   try {
     return await response.json();
@@ -319,19 +341,34 @@ async function fetchJson(fetchFn, url, init) {
 function assertClaimDeployment(response) {
   const deployment = response?.deployment;
   if (response?.available !== true || !deployment) {
-    throw new PreprodDestinationProofStageError("claim_deployment_unavailable", "Claim deployment endpoint is unavailable.");
+    throw new PreprodDestinationProofStageError(
+      "claim_deployment_unavailable",
+      "Claim deployment endpoint is unavailable.",
+    );
   }
   if (deployment.network !== "Preprod" || deployment.networkId !== 0) {
-    throw new PreprodDestinationProofStageError("claim_deployment_not_preprod", "Destination proof stage requires a Preprod claim deployment.");
+    throw new PreprodDestinationProofStageError(
+      "claim_deployment_not_preprod",
+      "Destination proof stage requires a Preprod claim deployment.",
+    );
   }
   if (response.capabilities?.proofProfile !== DESTINATION_PROFILE) {
-    throw new PreprodDestinationProofStageError("claim_proof_profile_unsupported", "Claim deployment must use single-destination proofs.");
+    throw new PreprodDestinationProofStageError(
+      "claim_proof_profile_unsupported",
+      "Claim deployment must use single-destination proofs.",
+    );
   }
   if (response.capabilities?.destinationAddressEncoding !== DESTINATION_ADDRESS_ENCODING) {
-    throw new PreprodDestinationProofStageError("destination_encoding_unsupported", "Claim deployment must use destination-address-v1.");
+    throw new PreprodDestinationProofStageError(
+      "destination_encoding_unsupported",
+      "Claim deployment must use destination-address-v1.",
+    );
   }
   if (typeof deployment.id !== "string" || typeof deployment.verifierVkHash !== "string") {
-    throw new PreprodDestinationProofStageError("claim_deployment_malformed", "Claim deployment is missing id or verifier hash.");
+    throw new PreprodDestinationProofStageError(
+      "claim_deployment_malformed",
+      "Claim deployment is missing id or verifier hash.",
+    );
   }
   return deployment;
 }
@@ -339,95 +376,167 @@ function assertClaimDeployment(response) {
 function assertHelperDestinationProfile(status, expectedVkHash) {
   const profile = status?.destination_profile;
   if (!profile) {
-    throw new PreprodDestinationProofStageError("helper_destination_profile_missing", "Proof Helper did not report a destination profile.");
+    throw new PreprodDestinationProofStageError(
+      "helper_destination_profile_missing",
+      "Proof Helper did not report a destination profile.",
+    );
   }
   if (profile.profile !== DESTINATION_PROFILE) {
-    throw new PreprodDestinationProofStageError("helper_destination_profile_unsupported", "Proof Helper destination profile must be single-destination.");
+    throw new PreprodDestinationProofStageError(
+      "helper_destination_profile_unsupported",
+      "Proof Helper destination profile must be single-destination.",
+    );
   }
   if (profile.key_ready !== true || profile.compatibility !== "ready") {
-    throw new PreprodDestinationProofStageError("helper_destination_key_not_ready", "Proof Helper destination key is not ready.");
+    throw new PreprodDestinationProofStageError(
+      "helper_destination_key_not_ready",
+      "Proof Helper destination key is not ready.",
+    );
   }
   if (profile.key_hash !== expectedVkHash) {
-    throw new PreprodDestinationProofStageError("helper_destination_key_mismatch", "Proof Helper destination key hash does not match the claim deployment.");
+    throw new PreprodDestinationProofStageError(
+      "helper_destination_key_mismatch",
+      "Proof Helper destination key hash does not match the claim deployment.",
+    );
   }
   return profile;
 }
 
 function assertDraft(draft, deployment, selectedOutrefs, batchSize) {
   if (draft?.deploymentId !== deployment.id || draft.networkId !== deployment.networkId) {
-    throw new PreprodDestinationProofStageError("draft_deployment_mismatch", "Claim draft does not match the selected deployment.");
+    throw new PreprodDestinationProofStageError(
+      "draft_deployment_mismatch",
+      "Claim draft does not match the selected deployment.",
+    );
   }
   if (draft.proofProfile !== DESTINATION_PROFILE) {
-    throw new PreprodDestinationProofStageError("draft_profile_unsupported", "Claim draft must use single-destination proofs.");
+    throw new PreprodDestinationProofStageError(
+      "draft_profile_unsupported",
+      "Claim draft must use single-destination proofs.",
+    );
   }
   if (!Array.isArray(draft.orderedInputs) || !Array.isArray(draft.proofRequests)) {
-    throw new PreprodDestinationProofStageError("draft_malformed", "Claim draft is missing ordered inputs or proof requests.");
+    throw new PreprodDestinationProofStageError(
+      "draft_malformed",
+      "Claim draft is missing ordered inputs or proof requests.",
+    );
   }
   if (
     draft.orderedInputs.length !== selectedOutrefs.length ||
     draft.proofRequests.length !== draft.orderedInputs.length ||
     draft.orderedInputs.length > batchSize
   ) {
-    throw new PreprodDestinationProofStageError("draft_batch_mismatch", "Claim draft batch does not match selected reclaim inputs.");
+    throw new PreprodDestinationProofStageError(
+      "draft_batch_mismatch",
+      "Claim draft batch does not match selected reclaim inputs.",
+    );
   }
   const draftOutrefs = draft.orderedInputs.map((input) => input.outRefId);
   for (const outRef of selectedOutrefs) {
     if (!draftOutrefs.includes(outRef)) {
-      throw new PreprodDestinationProofStageError("draft_outref_mismatch", "Claim draft omitted a selected reclaim outref.");
+      throw new PreprodDestinationProofStageError(
+        "draft_outref_mismatch",
+        "Claim draft omitted a selected reclaim outref.",
+      );
     }
   }
   for (const [index, request] of draft.proofRequests.entries()) {
     const input = draft.orderedInputs[index];
     if (!input || request.out_ref !== input.outRefId) {
-      throw new PreprodDestinationProofStageError("draft_proof_order_mismatch", "Draft proof requests must follow backend input order.");
+      throw new PreprodDestinationProofStageError(
+        "draft_proof_order_mismatch",
+        "Draft proof requests must follow backend input order.",
+      );
     }
     if (request.destination_address_encoding !== DESTINATION_ADDRESS_ENCODING) {
-      throw new PreprodDestinationProofStageError("draft_destination_encoding_mismatch", "Draft proof request used the wrong destination encoding.");
+      throw new PreprodDestinationProofStageError(
+        "draft_destination_encoding_mismatch",
+        "Draft proof request used the wrong destination encoding.",
+      );
     }
   }
 }
 
 function assertProofArtifacts(response, draft, expectedVkHash) {
   if (response?.profile !== draft.proofProfile || !Array.isArray(response.artifacts)) {
-    throw new PreprodDestinationProofStageError("helper_response_malformed", "Proof Helper returned a malformed destination proof response.");
+    throw new PreprodDestinationProofStageError(
+      "helper_response_malformed",
+      "Proof Helper returned a malformed destination proof response.",
+    );
   }
   const pathLocation = findPathMetadata(response);
   if (pathLocation) {
-    throw new PreprodDestinationProofStageError("helper_path_metadata_leaked", `Proof Helper response included path metadata at ${pathLocation}.`);
+    throw new PreprodDestinationProofStageError(
+      "helper_path_metadata_leaked",
+      `Proof Helper response included path metadata at ${pathLocation}.`,
+    );
   }
   if (response.artifacts.length !== draft.proofRequests.length) {
-    throw new PreprodDestinationProofStageError("helper_artifact_count_mismatch", "Proof Helper artifact count does not match the draft.");
+    throw new PreprodDestinationProofStageError(
+      "helper_artifact_count_mismatch",
+      "Proof Helper artifact count does not match the draft.",
+    );
   }
   return response.artifacts.map((item, index) => {
     const request = draft.proofRequests[index];
     const artifact = item?.artifact;
     const cardano = artifact?.cardano;
     if (item?.out_ref !== request.out_ref) {
-      throw new PreprodDestinationProofStageError("helper_artifact_order_mismatch", "Proof Helper artifacts must preserve draft request order.");
+      throw new PreprodDestinationProofStageError(
+        "helper_artifact_order_mismatch",
+        "Proof Helper artifacts must preserve draft request order.",
+      );
     }
     if (artifact?.schema !== "root-ownership-proof-artifact-v1") {
-      throw new PreprodDestinationProofStageError("helper_artifact_schema_mismatch", "Proof Helper artifact schema is unsupported.");
+      throw new PreprodDestinationProofStageError(
+        "helper_artifact_schema_mismatch",
+        "Proof Helper artifact schema is unsupported.",
+      );
     }
     if (artifact.circuit_id !== DESTINATION_CIRCUIT_ID) {
-      throw new PreprodDestinationProofStageError("helper_artifact_circuit_mismatch", "Proof Helper artifact is not destination-bound.");
+      throw new PreprodDestinationProofStageError(
+        "helper_artifact_circuit_mismatch",
+        "Proof Helper artifact is not destination-bound.",
+      );
     }
     if (artifact.vk_hash !== expectedVkHash) {
-      throw new PreprodDestinationProofStageError("helper_artifact_vk_mismatch", "Proof Helper artifact verifier hash does not match deployment.");
+      throw new PreprodDestinationProofStageError(
+        "helper_artifact_vk_mismatch",
+        "Proof Helper artifact verifier hash does not match deployment.",
+      );
     }
     if (artifact.target_credential !== request.target_credential) {
-      throw new PreprodDestinationProofStageError("helper_artifact_credential_mismatch", "Proof Helper artifact target credential does not match draft.");
+      throw new PreprodDestinationProofStageError(
+        "helper_artifact_credential_mismatch",
+        "Proof Helper artifact target credential does not match draft.",
+      );
     }
-    if (artifact.destination_address_encoding !== request.destination_address_encoding || artifact.destination_address !== request.destination_address) {
-      throw new PreprodDestinationProofStageError("helper_artifact_destination_mismatch", "Proof Helper artifact destination does not match draft.");
+    if (
+      artifact.destination_address_encoding !== request.destination_address_encoding ||
+      artifact.destination_address !== request.destination_address
+    ) {
+      throw new PreprodDestinationProofStageError(
+        "helper_artifact_destination_mismatch",
+        "Proof Helper artifact destination does not match draft.",
+      );
     }
     if (artifact.public_input_encoding !== DESTINATION_PUBLIC_INPUT_ENCODING) {
-      throw new PreprodDestinationProofStageError("helper_artifact_public_input_encoding", "Proof Helper artifact public input encoding is unsupported.");
+      throw new PreprodDestinationProofStageError(
+        "helper_artifact_public_input_encoding",
+        "Proof Helper artifact public input encoding is unsupported.",
+      );
     }
     if (cardano?.format !== CARDANO_PROOF_FORMAT) {
-      throw new PreprodDestinationProofStageError("helper_artifact_cardano_format", "Proof Helper artifact Cardano proof format is unsupported.");
+      throw new PreprodDestinationProofStageError(
+        "helper_artifact_cardano_format",
+        "Proof Helper artifact Cardano proof format is unsupported.",
+      );
     }
     if (!isHex(cardano?.proof_hex) || !isHex(cardano?.public_input_digest_hex)) {
-      throw new PreprodDestinationProofStageError("helper_artifact_cardano_missing", "Proof Helper artifact is missing Cardano proof export fields.");
+      throw new PreprodDestinationProofStageError(
+        "helper_artifact_cardano_missing",
+        "Proof Helper artifact is missing Cardano proof export fields.",
+      );
     }
     const expectedDigest = destinationPublicInputDigest(request.target_credential, request.destination_address);
     if (cardano.public_input_digest_hex !== expectedDigest) {
@@ -481,7 +590,10 @@ async function loadMasterXPrvBase64(walletHarness, role) {
   }
   const value = await walletHarness.masterXPrvBase64ForHelper(role);
   if (typeof value !== "string" || Buffer.from(value, "base64").length !== 96) {
-    throw new PreprodDestinationProofStageError("master_xprv_invalid", "CIP-30 harness returned an invalid helper master XPrv.");
+    throw new PreprodDestinationProofStageError(
+      "master_xprv_invalid",
+      "CIP-30 harness returned an invalid helper master XPrv.",
+    );
   }
   return value;
 }
@@ -503,11 +615,17 @@ function assertCredential(value, code) {
 
 function parseBatchSize(value) {
   if (!/^[1-9][0-9]*$/u.test(value)) {
-    throw new PreprodDestinationProofStageError("claim_batch_size_invalid", `${CLAIM_BATCH_SIZE_ENV} must be a positive integer.`);
+    throw new PreprodDestinationProofStageError(
+      "claim_batch_size_invalid",
+      `${CLAIM_BATCH_SIZE_ENV} must be a positive integer.`,
+    );
   }
   const parsed = Number(value);
   if (parsed > HARD_CLAIM_BATCH_SIZE) {
-    throw new PreprodDestinationProofStageError("claim_batch_size_too_large", `${CLAIM_BATCH_SIZE_ENV} cannot exceed ${HARD_CLAIM_BATCH_SIZE}.`);
+    throw new PreprodDestinationProofStageError(
+      "claim_batch_size_too_large",
+      `${CLAIM_BATCH_SIZE_ENV} cannot exceed ${HARD_CLAIM_BATCH_SIZE}.`,
+    );
   }
   return parsed;
 }
@@ -528,7 +646,10 @@ function loopbackHelperOrigin(value) {
     throw new PreprodDestinationProofStageError("helper_url_invalid", "helperTarget.helperUrl must be a valid URL.");
   }
   if (url.protocol !== "http:" || !LOOPBACK_HOSTS.has(url.hostname)) {
-    throw new PreprodDestinationProofStageError("helper_url_not_loopback", "Destination proof generation requires an HTTP loopback Proof Helper URL.");
+    throw new PreprodDestinationProofStageError(
+      "helper_url_not_loopback",
+      "Destination proof generation requires an HTTP loopback Proof Helper URL.",
+    );
   }
   if (url.username || url.password || (url.pathname !== "/" && url.pathname !== "") || url.search || url.hash) {
     throw new PreprodDestinationProofStageError(
@@ -541,14 +662,20 @@ function loopbackHelperOrigin(value) {
 
 function requiredString(value, label) {
   if (typeof value !== "string" || value.trim() === "") {
-    throw new PreprodDestinationProofStageError("helper_token_missing", `${label} is required for destination proof generation.`);
+    throw new PreprodDestinationProofStageError(
+      "helper_token_missing",
+      `${label} is required for destination proof generation.`,
+    );
   }
   return value;
 }
 
 function requireOption(value, name) {
   if (!value) {
-    throw new PreprodDestinationProofStageError(`${name}_missing`, `${name} is required for destination proof generation.`);
+    throw new PreprodDestinationProofStageError(
+      `${name}_missing`,
+      `${name} is required for destination proof generation.`,
+    );
   }
   return value;
 }

@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  acknowledgePairing,
-  broadcastPairing,
-  createRelayId,
-  subscribeToPairing,
-} from "./helper-pairing-relay";
+import { acknowledgePairing, broadcastPairing, createRelayId, subscribeToPairing } from "./helper-pairing-relay";
 
 const cleanups: Array<() => void> = [];
 

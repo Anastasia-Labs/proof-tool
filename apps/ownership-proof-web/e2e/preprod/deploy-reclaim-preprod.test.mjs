@@ -46,7 +46,9 @@ describe("reclaim script exporter invocation", () => {
   });
 
   it("rejects unrelated exporter modes", () => {
-    expect(() => reclaimGlobalExportArgs("base", POLICY_ID, VERIFIER_KEY)).toThrow(/unsupported reclaim global export mode/u);
+    expect(() => reclaimGlobalExportArgs("base", POLICY_ID, VERIFIER_KEY)).toThrow(
+      /unsupported reclaim global export mode/u,
+    );
   });
 
   it.each([
@@ -54,23 +56,20 @@ describe("reclaim script exporter invocation", () => {
     ["ambiguous-marker-v0", "statement-bound-v2", `blake2b256:${"11".repeat(32)}`],
     ["full-proof-plus-public-input-digest-v2", "v1", `blake2b256:${"11".repeat(32)}`],
     ["full-proof-plus-public-input-digest-v2", "statement-bound-v2", `blake2b256:${"ff".repeat(32)}`],
-  ])(
-    "rejects missing or mismatched V2 export metadata",
-    (proofSlotEncoding, batchTranscript, exportedVerifierVkHash) => {
-      expect(() =>
-        assertReclaimGlobalProofSlotEncoding(
-          proofSlotEncoding,
-          batchTranscript,
-          exportedVerifierVkHash,
-          `blake2b256:${"11".repeat(32)}`,
-        ),
-      ).toThrowError(
-        expect.objectContaining({
-          code: "reclaim_global_proof_slot_encoding",
-        }),
-      );
-    },
-  );
+  ])("rejects missing or mismatched V2 export metadata", (proofSlotEncoding, batchTranscript, exportedVerifierVkHash) => {
+    expect(() =>
+      assertReclaimGlobalProofSlotEncoding(
+        proofSlotEncoding,
+        batchTranscript,
+        exportedVerifierVkHash,
+        `blake2b256:${"11".repeat(32)}`,
+      ),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "reclaim_global_proof_slot_encoding",
+      }),
+    );
+  });
 
   it("propagates statement-bound V2 key coherence and the explicit seven-slot capacity policy", () => {
     const manifest = buildManifest({
@@ -97,28 +96,14 @@ describe("reclaim script exporter invocation", () => {
       globalRewardAccountRegistered: false,
     });
 
-    expect(manifest.reclaim_global.proof_slot_encoding).toBe(
-      "full-proof-plus-public-input-digest-v2",
-    );
-    expect(manifest.reclaim_global.batch_transcript_vk_hash).toBe(
-      `blake2b256:${"22".repeat(32)}`,
-    );
-    expect(manifest.proof.circuit_id).toBe(
-      "root-ownership-destination-v2/bls12-381/groth16",
-    );
+    expect(manifest.reclaim_global.proof_slot_encoding).toBe("full-proof-plus-public-input-digest-v2");
+    expect(manifest.reclaim_global.batch_transcript_vk_hash).toBe(`blake2b256:${"22".repeat(32)}`);
+    expect(manifest.proof.circuit_id).toBe("root-ownership-destination-v2/bls12-381/groth16");
     expect(manifest.proof.key_version).toBe("ownership-destination-v2");
-    expect(manifest.proof.vk_hash).toBe(
-      `blake2b256:${"11".repeat(32)}`,
-    );
-    expect(manifest.reclaim_global.verifier_vk_hash).toBe(
-      manifest.proof.vk_hash,
-    );
-    expect(manifest.proof.cardano_vk_blake2b256).toBe(
-      `blake2b256:${"22".repeat(32)}`,
-    );
-    expect(manifest.proof.cardano_vk_blake2b256).not.toBe(
-      manifest.proof.vk_hash,
-    );
+    expect(manifest.proof.vk_hash).toBe(`blake2b256:${"11".repeat(32)}`);
+    expect(manifest.reclaim_global.verifier_vk_hash).toBe(manifest.proof.vk_hash);
+    expect(manifest.proof.cardano_vk_blake2b256).toBe(`blake2b256:${"22".repeat(32)}`);
+    expect(manifest.proof.cardano_vk_blake2b256).not.toBe(manifest.proof.vk_hash);
     expect(manifest.batching).toEqual({
       default_utxo_count: 6,
       optimization_utxo_count: 6,

@@ -204,7 +204,7 @@ func TestWriteStage2gMaterialIsPrivateAndExclusive(t *testing.T) {
 	if err := os.Chdir(repoRoot); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(workingDirectory)
+	defer func() { _ = os.Chdir(workingDirectory) }()
 	out := filepath.Join("output", "preprod-e2e", "stage2g-v2", "nested", "material.json")
 	material := stage2gMaterial{Schema: stage2gMaterialSchema, Network: stage2gNetwork, Policy: stage2gFixedPolicy()}
 	if err := writeStage2gMaterial(out, material); err != nil {
@@ -237,7 +237,7 @@ func TestWriteStage2gMaterialRejectsExistingIntermediateSymlink(t *testing.T) {
 	if err := os.Chdir(repoRoot); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(workingDirectory)
+	defer func() { _ = os.Chdir(workingDirectory) }()
 
 	stageRoot := filepath.Join("output", "preprod-e2e", "stage2g-v2")
 	if err := os.MkdirAll(stageRoot, 0o700); err != nil {

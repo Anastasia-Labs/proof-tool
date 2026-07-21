@@ -11,8 +11,7 @@ import {
 } from "./browser-wasm";
 import type { ProverWorkerLike, ProverWorkerResponse } from "./types";
 
-const EXPECTED_VK_HASH =
-  "blake2b256:6057da91b15dea8f8e93997f1b1944c35bc2c86faf9a9de17b814f6a172d430a";
+const EXPECTED_VK_HASH = "blake2b256:6057da91b15dea8f8e93997f1b1944c35bc2c86faf9a9de17b814f6a172d430a";
 
 // A scripted stand-in for public/proof-runtime/prover-worker.js. Each handler
 // receives the posted request and returns the responses to emit (progress
@@ -59,30 +58,18 @@ class FakeProverWorker implements ProverWorkerLike {
     this.terminated = true;
   }
 
-  addEventListener(
-    type: "message",
-    listener: (event: MessageEvent<ProverWorkerResponse>) => void,
-  ): void;
+  addEventListener(type: "message", listener: (event: MessageEvent<ProverWorkerResponse>) => void): void;
   addEventListener(type: "error", listener: (event: unknown) => void): void;
-  addEventListener(
-    type: "message" | "error",
-    listener: (event: never) => void,
-  ): void {
+  addEventListener(type: "message" | "error", listener: (event: never) => void): void {
     if (!this.listeners.has(type)) {
       this.listeners.set(type, new Set());
     }
     this.listeners.get(type)!.add(listener);
   }
 
-  removeEventListener(
-    type: "message",
-    listener: (event: MessageEvent<ProverWorkerResponse>) => void,
-  ): void;
+  removeEventListener(type: "message", listener: (event: MessageEvent<ProverWorkerResponse>) => void): void;
   removeEventListener(type: "error", listener: (event: unknown) => void): void;
-  removeEventListener(
-    type: "message" | "error",
-    listener: (event: never) => void,
-  ): void {
+  removeEventListener(type: "message" | "error", listener: (event: never) => void): void {
     this.listeners.get(type)?.delete(listener);
   }
 
@@ -95,9 +82,7 @@ class FakeProverWorker implements ProverWorkerLike {
   }
 }
 
-function descriptor(
-  overrides: Partial<BrowserProvingDescriptor> = {},
-): BrowserProvingDescriptor {
+function descriptor(overrides: Partial<BrowserProvingDescriptor> = {}): BrowserProvingDescriptor {
   return {
     enabled: true,
     runtime_base_url: "/proof-runtime",
@@ -115,7 +100,7 @@ function descriptor(
     pk_url: "https://assets.example.com/ownership.pk",
     pk_index_url: "/proof-assets/ownership.pk.idx.json",
     ccs_url: "https://assets.example.com/ownership.ccs",
-    ccs_blake2b256: "blake2b256:" + "cc".repeat(32),
+    ccs_blake2b256: `blake2b256:${"cc".repeat(32)}`,
     proof_wasm_url: "/proof-runtime/proof-destination.wasm",
     worker_js_url: "/proof-runtime/msm-worker.js",
     msm_worker_wasm_url: "/proof-runtime/msmworker.wasm",
@@ -162,9 +147,7 @@ function draftWith(requestCount: number): ClaimDraftResponse {
 }
 
 function readyPreflight(vkHash = EXPECTED_VK_HASH): ProverWorkerResponse[] {
-  return [
-    { id: "", type: "preflight-result", result: { ok: true, vk_hash: vkHash } },
-  ];
+  return [{ id: "", type: "preflight-result", result: { ok: true, vk_hash: vkHash } }];
 }
 
 function proveArtifact(): Record<string, unknown> {
@@ -187,17 +170,14 @@ describe("W5 host-gated worker count", () => {
     [10, 8, 8],
     [4, 8, 8],
     [32, 4, 8],
-  ])(
-    "maps hardwareConcurrency=%i deviceMemory=%i to %i workers",
-    (hardwareConcurrency, deviceMemoryGiB, expected) => {
-      expect(
-        resolveBrowserWorkerCount(adaptive, {
-          hardwareConcurrency,
-          deviceMemoryGiB,
-        }),
-      ).toBe(expected);
-    },
-  );
+  ])("maps hardwareConcurrency=%i deviceMemory=%i to %i workers", (hardwareConcurrency, deviceMemoryGiB, expected) => {
+    expect(
+      resolveBrowserWorkerCount(adaptive, {
+        hardwareConcurrency,
+        deviceMemoryGiB,
+      }),
+    ).toBe(expected);
+  });
 
   it("keeps the safe floor when either host signal is absent", () => {
     expect(
@@ -218,10 +198,10 @@ describe("W5 host-gated worker count", () => {
 
   it("preserves explicit tuning and legacy descriptors", () => {
     expect(
-      resolveBrowserWorkerCount(
-        descriptor({ tuning: { worker_count: 12, opt_w5: true } }),
-        { hardwareConcurrency: 32, deviceMemoryGiB: 8 },
-      ),
+      resolveBrowserWorkerCount(descriptor({ tuning: { worker_count: 12, opt_w5: true } }), {
+        hardwareConcurrency: 32,
+        deviceMemoryGiB: 8,
+      }),
     ).toBe(12);
     expect(
       resolveBrowserWorkerCount(descriptor({ tuning: { worker_count: 8 } }), {
@@ -239,18 +219,8 @@ describe("W5 host-gated worker count", () => {
 
   it("caps raw explicit tuning at the advertised 16-worker maximum", () => {
     const host = { hardwareConcurrency: 32, deviceMemoryGiB: 8 };
-    expect(
-      resolveBrowserWorkerCount(
-        descriptor({ tuning: { worker_count: 17, opt_w5: true } }),
-        host,
-      ),
-    ).toBe(16);
-    expect(
-      resolveBrowserWorkerCount(
-        descriptor({ tuning: { worker_count: 16, opt_w5: true } }),
-        host,
-      ),
-    ).toBe(16);
+    expect(resolveBrowserWorkerCount(descriptor({ tuning: { worker_count: 17, opt_w5: true } }), host)).toBe(16);
+    expect(resolveBrowserWorkerCount(descriptor({ tuning: { worker_count: 16, opt_w5: true } }), host)).toBe(16);
   });
 });
 
@@ -300,8 +270,7 @@ describe("proveDestinationInBrowser", () => {
         draft: draftWith(3),
         expectedVkHash: EXPECTED_VK_HASH,
         browserProving: descriptor(),
-        onProgress: (event) =>
-          progress.push(`${event.current}/${event.total}:${event.stage}`),
+        onProgress: (event) => progress.push(`${event.current}/${event.total}:${event.stage}`),
       },
       { createWorker: () => worker },
     );
@@ -373,11 +342,7 @@ describe("proveDestinationInBrowser", () => {
     );
 
     expect(proveCalls).toBe(1);
-    expect(response.artifacts?.map((item) => item.out_ref)).toEqual([
-      "txhash0#0",
-      "txhash1#1",
-      "txhash2#2",
-    ]);
+    expect(response.artifacts?.map((item) => item.out_ref)).toEqual(["txhash0#0", "txhash1#1", "txhash2#2"]);
     expect(response.artifacts?.[1]?.artifact).toEqual(response.artifacts?.[0]?.artifact);
     expect(progress).toContain("2/3:reuse-proof");
     expect(progress).toContain("3/3:reuse-proof");
@@ -442,12 +407,8 @@ describe("proveDestinationInBrowser", () => {
     // the serialized progress stream must not.
     const discoveryMessage = worker.seen.find((m) => m.type === "discover");
     const proveMessage = worker.seen.find((m) => m.type === "prove");
-    expect(
-      String((discoveryMessage as { requestJson: string }).requestJson),
-    ).toContain("master_xprv_hex");
-    expect(
-      String((proveMessage as { requestJson: string }).requestJson),
-    ).toContain("master_xprv_hex");
+    expect(String((discoveryMessage as { requestJson: string }).requestJson)).toContain("master_xprv_hex");
+    expect(String((proveMessage as { requestJson: string }).requestJson)).toContain("master_xprv_hex");
     const serializedProgress = JSON.stringify(progressEvents);
     expect(serializedProgress).not.toContain("master_xprv");
     expect(serializedProgress).not.toMatch(/[0-9a-f]{32,}/u);
@@ -457,11 +418,13 @@ describe("proveDestinationInBrowser", () => {
     const worker = new FakeProverWorker({
       init: (m) => [{ id: m.id as string, type: "ready" }],
       preflight: (m) => readyPreflight().map((response) => ({ ...response, id: m.id as string })),
-      prove: (m) => [{
-        id: m.id as string,
-        type: "prove-result",
-        result: { verified_locally: true, artifact: proveArtifact() },
-      }],
+      prove: (m) => [
+        {
+          id: m.id as string,
+          type: "prove-result",
+          result: { verified_locally: true, artifact: proveArtifact() },
+        },
+      ],
     });
     await proveDestinationInBrowser(
       {
@@ -478,6 +441,85 @@ describe("proveDestinationInBrowser", () => {
     const request = JSON.parse(String(discoveryMessages[0]?.requestJson));
     expect(request.target_credentials_hex).toHaveLength(3);
     expect(request).not.toHaveProperty("artifacts");
+  });
+
+  it("skips discovery when every proof request supplies an explicit path", async () => {
+    const draft = draftWith(2);
+    draft.proofRequests = draft.proofRequests.map((request, index) => ({
+      ...request,
+      path: { account: index, role: 0, index: 7 + index },
+    }));
+    const worker = new FakeProverWorker({
+      init: (m) => [{ id: m.id as string, type: "ready" }],
+      preflight: (m) => readyPreflight().map((response) => ({ ...response, id: m.id as string })),
+      prove: (m) => [
+        {
+          id: m.id as string,
+          type: "prove-result",
+          result: { verified_locally: true, artifact: proveArtifact() },
+        },
+      ],
+    });
+    await proveDestinationInBrowser(
+      {
+        masterXPrv,
+        draft,
+        expectedVkHash: EXPECTED_VK_HASH,
+        browserProving: descriptor(),
+      },
+      { createWorker: () => worker },
+    );
+
+    expect(worker.seen.filter((message) => message.type === "discover")).toHaveLength(0);
+    const proveMessages = worker.seen.filter((message) => message.type === "prove");
+    expect(proveMessages).toHaveLength(2);
+    for (const [index, message] of proveMessages.entries()) {
+      const request = JSON.parse(String(message.requestJson));
+      expect(request.path).toEqual({
+        account: index,
+        role: 0,
+        index: 7 + index,
+      });
+    }
+  });
+
+  it("discovers only requests that do not supply an explicit path", async () => {
+    const draft = draftWith(2);
+    draft.proofRequests[0] = {
+      ...draft.proofRequests[0],
+      path: { account: 0, role: 0, index: 5001 },
+    };
+    const worker = new FakeProverWorker({
+      init: (m) => [{ id: m.id as string, type: "ready" }],
+      preflight: (m) => readyPreflight().map((response) => ({ ...response, id: m.id as string })),
+      discover: (m) => [{ id: m.id as string, type: "discover-result", result: { ok: true } }],
+      prove: (m) => [
+        {
+          id: m.id as string,
+          type: "prove-result",
+          result: { verified_locally: true, artifact: proveArtifact() },
+        },
+      ],
+    });
+
+    await proveDestinationInBrowser(
+      {
+        masterXPrv,
+        draft,
+        expectedVkHash: EXPECTED_VK_HASH,
+        browserProving: descriptor(),
+      },
+      { createWorker: () => worker },
+    );
+
+    const discoveryMessages = worker.seen.filter((message) => message.type === "discover");
+    expect(discoveryMessages).toHaveLength(1);
+    expect(JSON.parse(String(discoveryMessages[0]?.requestJson)).target_credentials_hex).toEqual([
+      draft.proofRequests[1]?.target_credential,
+    ]);
+    const proveMessages = worker.seen.filter((message) => message.type === "prove");
+    expect(JSON.parse(String(proveMessages[0]?.requestJson)).path).toEqual({ account: 0, role: 0, index: 5001 });
+    expect(JSON.parse(String(proveMessages[1]?.requestJson))).not.toHaveProperty("path");
   });
 
   it("sends acknowledged W1/W2/W3/W5/W6/W7 options to both preflight and prove", async () => {
@@ -624,7 +666,7 @@ describe("proveDestinationInBrowser", () => {
         {
           id: m.id as string,
           type: "preflight-result",
-          result: { ok: true, vk_hash: "blake2b256:" + "00".repeat(32) },
+          result: { ok: true, vk_hash: `blake2b256:${"00".repeat(32)}` },
         },
       ],
     });
@@ -681,9 +723,7 @@ describe("proveDestinationInBrowser", () => {
     );
     // Once the worker has seen a prove request, preparation is over and the
     // abort listener is armed — this abort exercises the in-proof path.
-    await vi.waitFor(() =>
-      expect(worker.seen.some((m) => m.type === "prove")).toBe(true),
-    );
+    await vi.waitFor(() => expect(worker.seen.some((m) => m.type === "prove")).toBe(true));
     controller.abort();
     await expect(promise).rejects.toBeInstanceOf(ProvingCancelledError);
     expect(worker.terminated).toBe(true);
@@ -705,9 +745,7 @@ describe("proveDestinationInBrowser", () => {
       },
       { createWorker: () => worker },
     );
-    await vi.waitFor(() =>
-      expect(worker.seen.some((message) => message.type === "discover")).toBe(true),
-    );
+    await vi.waitFor(() => expect(worker.seen.some((message) => message.type === "discover")).toBe(true));
     controller.abort();
     await expect(promise).rejects.toBeInstanceOf(ProvingCancelledError);
     expect(worker.seen.some((message) => message.type === "preflight")).toBe(false);
@@ -801,18 +839,20 @@ describe("prepared browser prover session", () => {
       },
       prove: (message) => {
         proveCalls += 1;
-        return [{
-          id: message.id as string,
-          type: "prove-result",
-          result: { verified_locally: true, artifact: proveArtifact() },
-        }];
+        return [
+          {
+            id: message.id as string,
+            type: "prove-result",
+            result: { verified_locally: true, artifact: proveArtifact() },
+          },
+        ];
       },
     });
     const provingDescriptor = descriptor();
     const options = { createWorker: () => worker };
-    await expect(
-      checkBrowserProving(provingDescriptor, EXPECTED_VK_HASH, options),
-    ).resolves.toMatchObject({ status: "ready" });
+    await expect(checkBrowserProving(provingDescriptor, EXPECTED_VK_HASH, options)).resolves.toMatchObject({
+      status: "ready",
+    });
     expect(worker.terminated).toBe(false);
     await expect(
       proveDestinationInBrowser(
@@ -850,15 +890,16 @@ describe("discovery-before-assets sequencing", () => {
         {
           id: m.id as string,
           type: "preflight-result",
-          result: { ok: true, vk_hash: "blake2b256:" + "11".repeat(32) },
+          result: { ok: true, vk_hash: `blake2b256:${"11".repeat(32)}` },
         },
       ],
     });
     const provingDescriptor = descriptor();
     const options = { createWorker: () => worker };
-    await expect(
-      checkBrowserProving(provingDescriptor, EXPECTED_VK_HASH, options),
-    ).resolves.toMatchObject({ status: "ready", preflight: null });
+    await expect(checkBrowserProving(provingDescriptor, EXPECTED_VK_HASH, options)).resolves.toMatchObject({
+      status: "ready",
+      preflight: null,
+    });
     expect(worker.seen.map((message) => message.type)).toEqual(["init"]);
 
     await expect(
@@ -872,23 +913,17 @@ describe("discovery-before-assets sequencing", () => {
         options,
       ),
     ).rejects.toThrow("do not match this deployment");
-    expect(worker.seen.map((message) => message.type)).toEqual(
-      ["init", "discover", "preflight"],
-    );
+    expect(worker.seen.map((message) => message.type)).toEqual(["init", "discover", "preflight"]);
   });
 
   it("returns unsupported without touching the worker when the descriptor is disabled", async () => {
     let created = false;
-    const result = await checkBrowserProving(
-      descriptor({ enabled: false }),
-      EXPECTED_VK_HASH,
-      {
-        createWorker: () => {
-          created = true;
-          return new FakeProverWorker({});
-        },
+    const result = await checkBrowserProving(descriptor({ enabled: false }), EXPECTED_VK_HASH, {
+      createWorker: () => {
+        created = true;
+        return new FakeProverWorker({});
       },
-    );
+    });
     expect(result.status).toBe("unsupported");
     expect(created).toBe(false);
   });
@@ -896,9 +931,7 @@ describe("discovery-before-assets sequencing", () => {
 
 describe("sanitizeProverError", () => {
   it("redacts long hex runs and keeps short text", () => {
-    expect(sanitizeProverError(new Error(`fail ${"ff".repeat(40)}`))).toBe(
-      "fail [redacted]",
-    );
+    expect(sanitizeProverError(new Error(`fail ${"ff".repeat(40)}`))).toBe("fail [redacted]");
     expect(sanitizeProverError("short message")).toBe("short message");
     expect(sanitizeProverError(undefined)).toBe("Browser proving failed.");
   });
@@ -915,7 +948,6 @@ function stubCapableEnvironment(): void {
     "SharedArrayBuffer",
     class {
       byteLength = 8;
-      constructor() {}
     },
   );
   vi.stubGlobal("navigator", { hardwareConcurrency: 8, deviceMemory: 16 });
@@ -934,9 +966,7 @@ function stubCapableEnvironment(): void {
       onmessage: ((event: unknown) => void) | null = null;
       onerror: ((event: unknown) => void) | null = null;
       constructor() {
-        queueMicrotask(() =>
-          this.onmessage?.({ data: { ok: true, isolated: true } }),
-        );
+        queueMicrotask(() => this.onmessage?.({ data: { ok: true, isolated: true } }));
       }
       postMessage(): void {}
       terminate(): void {}

@@ -104,7 +104,9 @@ export async function runNativeAssetFundingStage(options = {}) {
   const adaAmount = env[NATIVE_ADA_AMOUNT_ENV]?.trim() || DEFAULT_NATIVE_ADA_AMOUNT;
   const nativeAssetUnit = env[NATIVE_ASSET_UNIT_ENV]?.trim();
   const nativeAssetQuantity = env[NATIVE_ASSET_QUANTITY_ENV]?.trim() || DEFAULT_NATIVE_ASSET_QUANTITY;
-  const nativeReclaimCount = parseNativeCount(env[NATIVE_RECLAIM_COUNT_ENV]?.trim() || String(DEFAULT_NATIVE_RECLAIM_COUNT));
+  const nativeReclaimCount = parseNativeCount(
+    env[NATIVE_RECLAIM_COUNT_ENV]?.trim() || String(DEFAULT_NATIVE_RECLAIM_COUNT),
+  );
   const settlementWaitMs = parseFundingSettlementMs(env);
   const seenTxHashes = new Set(normalizeTxHashList(options.previousFundingTxHashes));
   const startsAfterPriorFunding = seenTxHashes.size > 0;
@@ -203,9 +205,14 @@ async function buildSignSubmitFundingTransaction(
   await page.getByRole("button", { name: /build transaction/iu }).click();
   const buildResult = await waitForBuildResult(page);
   if (buildResult.status === "failed") {
-    throw new PreprodFundingStageError("funding_build_failed", buildResult.message || "Funding transaction build failed.");
+    throw new PreprodFundingStageError(
+      "funding_build_failed",
+      buildResult.message || "Funding transaction build failed.",
+    );
   }
-  const reviewedTxHash = sanitizeText(await page.locator(".claim-review-row").filter({ hasText: "Tx hash" }).locator("code").textContent());
+  const reviewedTxHash = sanitizeText(
+    await page.locator(".claim-review-row").filter({ hasText: "Tx hash" }).locator("code").textContent(),
+  );
   if (disallowedTxHashes.has(reviewedTxHash)) {
     throw new PreprodFundingStageError(
       "funding_review_tx_reused",
@@ -216,11 +223,19 @@ async function buildSignSubmitFundingTransaction(
   await approveWalletSigning(walletDriver, signingRole, "funding");
   const submitResult = await waitForSubmitResult(page);
   if (submitResult.status === "failed") {
-    throw new PreprodFundingStageError("funding_submit_failed", submitResult.message || "Funding transaction submission failed.");
+    throw new PreprodFundingStageError(
+      "funding_submit_failed",
+      submitResult.message || "Funding transaction submission failed.",
+    );
   }
-  const submittedTxHash = sanitizeText(await page.locator(".claim-review-row").filter({ hasText: "Tx hash" }).locator("code").textContent());
+  const submittedTxHash = sanitizeText(
+    await page.locator(".claim-review-row").filter({ hasText: "Tx hash" }).locator("code").textContent(),
+  );
   if (!submittedTxHash) {
-    throw new PreprodFundingStageError("submitted_tx_hash_missing", "Funding flow did not expose a submitted transaction hash.");
+    throw new PreprodFundingStageError(
+      "submitted_tx_hash_missing",
+      "Funding flow did not expose a submitted transaction hash.",
+    );
   }
   return {
     reviewedTxHash,
@@ -256,7 +271,10 @@ async function waitForWalletInventory(page, sleep = defaultSleep) {
 async function waitForBuildResult(page) {
   try {
     return await Promise.race([
-      page.getByText("Datum CBOR").waitFor({ timeout: BUILD_RESULT_TIMEOUT_MS }).then(() => ({ status: "built" })),
+      page
+        .getByText("Datum CBOR")
+        .waitFor({ timeout: BUILD_RESULT_TIMEOUT_MS })
+        .then(() => ({ status: "built" })),
       page
         .locator(".claim-notice.bad")
         .waitFor({ timeout: BUILD_RESULT_TIMEOUT_MS })
@@ -278,7 +296,10 @@ async function waitForBuildResult(page) {
 async function waitForSubmitResult(page) {
   try {
     return await Promise.race([
-      page.getByText("Transaction submitted").waitFor({ timeout: SUBMIT_RESULT_TIMEOUT_MS }).then(() => ({ status: "submitted" })),
+      page
+        .getByText("Transaction submitted")
+        .waitFor({ timeout: SUBMIT_RESULT_TIMEOUT_MS })
+        .then(() => ({ status: "submitted" })),
       page
         .locator(".claim-notice.bad")
         .waitFor({ timeout: SUBMIT_RESULT_TIMEOUT_MS })
@@ -301,35 +322,53 @@ function getCompromisedCredential(walletHarness, compromisedRole) {
   const compromisedState = walletHarness.roleState?.(compromisedRole);
   const compromisedCredential = compromisedState?.paymentCredential;
   if (typeof compromisedCredential !== "string" || !/^[0-9a-f]{56}$/u.test(compromisedCredential)) {
-    throw new PreprodFundingStageError("compromised_credential_missing", `${compromisedRole} must expose a 28-byte payment credential.`);
+    throw new PreprodFundingStageError(
+      "compromised_credential_missing",
+      `${compromisedRole} must expose a 28-byte payment credential.`,
+    );
   }
   return compromisedCredential;
 }
 
 function validateAdaAmount(field, value) {
   if (!/^(?:[1-9][0-9]*|0)(?:\.[0-9]{1,6})?$/u.test(value) || Number(value) <= 0) {
-    throw new PreprodFundingStageError("ada_amount_invalid", `${field} must be a positive ADA amount with at most 6 decimals.`);
+    throw new PreprodFundingStageError(
+      "ada_amount_invalid",
+      `${field} must be a positive ADA amount with at most 6 decimals.`,
+    );
   }
 }
 
 function validateNativeAssetUnit(value) {
   if (!value) {
-    throw new PreprodFundingStageError("native_asset_unit_missing", `${NATIVE_ASSET_UNIT_ENV} is required for native-asset funding.`);
+    throw new PreprodFundingStageError(
+      "native_asset_unit_missing",
+      `${NATIVE_ASSET_UNIT_ENV} is required for native-asset funding.`,
+    );
   }
   if (!/^[0-9a-f]{56}(?:[0-9a-f]{2})*$/u.test(value)) {
-    throw new PreprodFundingStageError("native_asset_unit_invalid", `${NATIVE_ASSET_UNIT_ENV} must be a lowercase hex policy id plus optional token-name hex.`);
+    throw new PreprodFundingStageError(
+      "native_asset_unit_invalid",
+      `${NATIVE_ASSET_UNIT_ENV} must be a lowercase hex policy id plus optional token-name hex.`,
+    );
   }
 }
 
 function validateNativeAssetQuantity(value) {
   if (!/^[1-9][0-9]*$/u.test(value)) {
-    throw new PreprodFundingStageError("native_asset_quantity_invalid", `${NATIVE_ASSET_QUANTITY_ENV} must be a positive integer.`);
+    throw new PreprodFundingStageError(
+      "native_asset_quantity_invalid",
+      `${NATIVE_ASSET_QUANTITY_ENV} must be a positive integer.`,
+    );
   }
 }
 
 function parseNativeCount(value) {
   if (!/^[1-9][0-9]*$/u.test(value)) {
-    throw new PreprodFundingStageError("native_reclaim_count_invalid", `${NATIVE_RECLAIM_COUNT_ENV} must be a positive integer.`);
+    throw new PreprodFundingStageError(
+      "native_reclaim_count_invalid",
+      `${NATIVE_RECLAIM_COUNT_ENV} must be a positive integer.`,
+    );
   }
   return Number(value);
 }
@@ -340,7 +379,10 @@ function parseFundingSettlementMs(env) {
     return (env.RECLAIM_E2E_LIVE_PREPROD ?? "").trim() === "1" ? DEFAULT_LIVE_FUNDING_SETTLEMENT_MS : 0;
   }
   if (!/^(?:0|[1-9][0-9]*)$/u.test(configured)) {
-    throw new PreprodFundingStageError("funding_settlement_ms_invalid", `${FUNDING_SETTLEMENT_MS_ENV} must be a non-negative integer.`);
+    throw new PreprodFundingStageError(
+      "funding_settlement_ms_invalid",
+      `${FUNDING_SETTLEMENT_MS_ENV} must be a non-negative integer.`,
+    );
   }
   return Number(configured);
 }

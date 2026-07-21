@@ -47,7 +47,11 @@ export async function generateStage2gV2Material(options = {}) {
 
   assertMaterialGenerationGate(env);
   const keysDir = resolveExistingLocalDirectory(env[KEYS_DIR_ENV], KEYS_DIR_ENV, repoRoot);
-  const manifestPublicKeyFile = resolveExistingLocalFile(env[MANIFEST_PUBLIC_KEY_FILE_ENV], MANIFEST_PUBLIC_KEY_FILE_ENV, repoRoot);
+  const manifestPublicKeyFile = resolveExistingLocalFile(
+    env[MANIFEST_PUBLIC_KEY_FILE_ENV],
+    MANIFEST_PUBLIC_KEY_FILE_ENV,
+    repoRoot,
+  );
   assertExternalManifestPublicKeyFile(manifestPublicKeyFile, keysDir);
   const signatureKeyID = resolveRequiredEnvValue(env[SIGNATURE_KEY_ID_ENV], SIGNATURE_KEY_ID_ENV);
   const materialPath = resolveMaterialOutputPath(env, repoRoot, options.materialPath);
@@ -185,24 +189,36 @@ export function loadSafeDestination(walletPath, readTextFile = (filePath) => rea
   try {
     walletFile = JSON.parse(readTextFile(walletPath));
   } catch {
-    throw new Stage2gV2MaterialError("wallet_file_unreadable", "The local Stage 2g wallet file could not be read as JSON.");
+    throw new Stage2gV2MaterialError(
+      "wallet_file_unreadable",
+      "The local Stage 2g wallet file could not be read as JSON.",
+    );
   }
   const validation = validatePreprodWalletFile(walletFile);
   if (!validation.ok) {
-    throw new Stage2gV2MaterialError("wallet_file_invalid", "The local Stage 2g wallet file is not a valid Preprod role file.");
+    throw new Stage2gV2MaterialError(
+      "wallet_file_invalid",
+      "The local Stage 2g wallet file is not a valid Preprod role file.",
+    );
   }
   const { rolesRoot, errors } = normalizePreprodWalletRoles(walletFile);
   const role = rolesRoot.safe_claim_destination;
   const mnemonicSource = role?.mnemonic ?? role?.seed_phrase ?? role?.recovery_phrase ?? role?.mnemonic_words;
   const mnemonic = typeof mnemonicSource === "string" ? mnemonicSource.trim().replace(/\s+/gu, " ") : "";
   if (errors.length > 0 || mnemonic === "") {
-    throw new Stage2gV2MaterialError("safe_wallet_missing", "The local safe_claim_destination wallet role is unavailable.");
+    throw new Stage2gV2MaterialError(
+      "safe_wallet_missing",
+      "The local safe_claim_destination wallet role is unavailable.",
+    );
   }
   let address;
   try {
     address = walletFromSeed(mnemonic, { network: NETWORK }).address;
   } catch {
-    throw new Stage2gV2MaterialError("safe_wallet_invalid", "The local safe_claim_destination wallet could not be derived.");
+    throw new Stage2gV2MaterialError(
+      "safe_wallet_invalid",
+      "The local safe_claim_destination wallet could not be derived.",
+    );
   }
   return { address, addressV1: destinationAddressV1(address) };
 }
@@ -221,7 +237,10 @@ function destinationAddressV1(address) {
     }
     return encoded;
   } catch {
-    throw new Stage2gV2MaterialError("safe_wallet_address_invalid", "The local safe wallet does not have a supported Preprod destination address.");
+    throw new Stage2gV2MaterialError(
+      "safe_wallet_address_invalid",
+      "The local safe wallet does not have a supported Preprod destination address.",
+    );
   }
 }
 
@@ -250,7 +269,10 @@ function resolveExistingLocalFile(value, envName, repoRoot) {
 function resolveExistingLocalDirectory(value, envName, repoRoot) {
   const resolved = resolvePath(value, envName, repoRoot);
   if (!existsSync(resolved) || !lstatSync(resolved).isDirectory() || lstatSync(resolved).isSymbolicLink()) {
-    throw new Stage2gV2MaterialError("local_directory_missing", `${envName} must name an existing non-symlink local directory.`);
+    throw new Stage2gV2MaterialError(
+      "local_directory_missing",
+      `${envName} must name an existing non-symlink local directory.`,
+    );
   }
   return resolved;
 }
@@ -266,7 +288,10 @@ function resolvePath(value, envName, repoRoot) {
 function resolveRequiredEnvValue(value, envName) {
   const resolved = typeof value === "string" ? value.trim() : "";
   if (!resolved) {
-    throw new Stage2gV2MaterialError("trusted_manifest_signer_missing", `${envName} is required for Stage 2g material generation.`);
+    throw new Stage2gV2MaterialError(
+      "trusted_manifest_signer_missing",
+      `${envName} is required for Stage 2g material generation.`,
+    );
   }
   return resolved;
 }
@@ -293,7 +318,10 @@ function assertExternalManifestPublicKeyFile(manifestPublicKeyFile, keysDir) {
 }
 
 function resolveMaterialOutputPath(env, repoRoot, explicitPath) {
-  const configured = explicitPath ?? env[MATERIAL_FILE_ENV]?.trim() ?? path.join(...MATERIAL_OUTPUT_RELATIVE_ROOT, "material.local.json");
+  const configured =
+    explicitPath ??
+    env[MATERIAL_FILE_ENV]?.trim() ??
+    path.join(...MATERIAL_OUTPUT_RELATIVE_ROOT, "material.local.json");
   const resolved = path.isAbsolute(configured) ? path.resolve(configured) : path.resolve(repoRoot, configured);
   const root = path.resolve(repoRoot, ...MATERIAL_OUTPUT_RELATIVE_ROOT);
   if (resolved === root || !resolved.startsWith(`${root}${path.sep}`)) {
@@ -338,19 +366,28 @@ function stage2gRelativeOutputPath(materialPath, repoRoot) {
 
 function redactError(error) {
   const message = error instanceof Error ? error.message : String(error ?? "generator error");
-  return message
-    .replace(/\b(addr(?:_test)?1[0-9a-z]{20,})\b/giu, "[address-redacted]")
-    .replace(/\b[0-9a-f]{56,}\b/giu, "[hex-redacted]")
-    .replace(/\b[A-Za-z0-9_-]{96,}\b/gu, "[token-redacted]")
-    .replace(/\s+/gu, " ")
-    .trim()
-    .slice(0, 360) || "generator error";
+  return (
+    message
+      .replace(/\b(addr(?:_test)?1[0-9a-z]{20,})\b/giu, "[address-redacted]")
+      .replace(/\b[0-9a-f]{56,}\b/giu, "[hex-redacted]")
+      .replace(/\b[A-Za-z0-9_-]{96,}\b/gu, "[token-redacted]")
+      .replace(/\s+/gu, " ")
+      .trim()
+      .slice(0, 360) || "generator error"
+  );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   generateStage2gV2Material().catch((error) => {
     const code = error instanceof Stage2gV2MaterialError ? error.code : "stage2g_material_unexpected_error";
-    console.error(JSON.stringify({ schema: "proof-tool-stage2g-v2-material-generation-summary-v1", outcome: "failed", code, message: redactError(error) }));
+    console.error(
+      JSON.stringify({
+        schema: "proof-tool-stage2g-v2-material-generation-summary-v1",
+        outcome: "failed",
+        code,
+        message: redactError(error),
+      }),
+    );
     process.exitCode = 1;
   });
 }

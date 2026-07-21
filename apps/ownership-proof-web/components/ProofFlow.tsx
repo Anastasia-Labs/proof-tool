@@ -1,9 +1,16 @@
 "use client";
 
 import { CheckCircle2, Copy, Download, ExternalLink, Loader2, Power, RefreshCw, ShieldCheck, X } from "lucide-react";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type HelperState = "checking" | "offline" | "ready" | "key_missing" | "key_downloading" | "update_required" | "not_ready";
+type HelperState =
+  | "checking"
+  | "offline"
+  | "ready"
+  | "key_missing"
+  | "key_downloading"
+  | "update_required"
+  | "not_ready";
 type FlowState =
   | "idle"
   | "invalid_mnemonic"
@@ -89,7 +96,6 @@ export function ProofFlow({ createWorker = defaultCreateWorker }: ProofFlowProps
   const [token, setToken] = useState("");
   const [targetCredential, setTargetCredential] = useState("");
   const [helperState, setHelperState] = useState<HelperState>("checking");
-  const [helperStatus, setHelperStatus] = useState<HelperStatusResponse | null>(null);
   const [flowState, setFlowState] = useState<FlowState>("idle");
   const [artifact, setArtifact] = useState<ProofArtifact | null>(null);
   const [verification, setVerification] = useState<VerifyResponse | null>(null);
@@ -103,7 +109,6 @@ export function ProofFlow({ createWorker = defaultCreateWorker }: ProofFlowProps
   const checkHelper = useCallback(async () => {
     if (helperUrl.trim() === "") {
       setHelperState("offline");
-      setHelperStatus(null);
       return;
     }
     setHelperState("checking");
@@ -111,15 +116,12 @@ export function ProofFlow({ createWorker = defaultCreateWorker }: ProofFlowProps
       const response = await fetch(`${trimSlash(helperUrl)}/status`, { method: "GET" });
       if (!response.ok) {
         setHelperState("offline");
-        setHelperStatus(null);
         return;
       }
       const status = (await response.json()) as HelperStatusResponse;
-      setHelperStatus(status);
       setHelperState(helperStateFromStatus(status));
     } catch {
       setHelperState("offline");
-      setHelperStatus(null);
     }
   }, [helperUrl]);
 
@@ -272,7 +274,7 @@ export function ProofFlow({ createWorker = defaultCreateWorker }: ProofFlowProps
     if (!artifact) {
       return;
     }
-    const blob = new Blob([JSON.stringify(artifact, null, 2) + "\n"], {
+    const blob = new Blob([`${JSON.stringify(artifact, null, 2)}\n`], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
@@ -393,8 +395,19 @@ export function ProofFlow({ createWorker = defaultCreateWorker }: ProofFlowProps
   );
 }
 
-function StatusRow({ label, state }: { label: string; state: HelperState | "ready" | "pending" | "verified" | "failed" }) {
-  const tone = state === "ready" || state === "verified" ? "ok" : state === "failed" || state === "offline" || state === "update_required" ? "bad" : "warn";
+function StatusRow({
+  label,
+  state,
+}: {
+  label: string;
+  state: HelperState | "ready" | "pending" | "verified" | "failed";
+}) {
+  const tone =
+    state === "ready" || state === "verified"
+      ? "ok"
+      : state === "failed" || state === "offline" || state === "update_required"
+        ? "bad"
+        : "warn";
   return (
     <div className="status-row">
       <i className={`status-dot ${tone}`} aria-hidden="true" />
@@ -423,10 +436,22 @@ function StateBand({
     return <ResultBand tone="ok" title="Helper stopped" body={helperNotice} />;
   }
   if (flowState === "invalid_mnemonic") {
-    return <ResultBand tone="bad" title="Check the recovery phrase" body="The phrase is not a valid BIP-39 recovery phrase." />;
+    return (
+      <ResultBand
+        tone="bad"
+        title="Check the recovery phrase"
+        body="The phrase is not a valid BIP-39 recovery phrase."
+      />
+    );
   }
   if (flowState === "invalid_target") {
-    return <ResultBand tone="bad" title="Check the credential format" body="Paste a 28-byte payment key credential as 56 hex characters." />;
+    return (
+      <ResultBand
+        tone="bad"
+        title="Check the credential format"
+        body="Paste a 28-byte payment key credential as 56 hex characters."
+      />
+    );
   }
   if (flowState === "path_not_found") {
     return <ResultBand tone="warn" title="Credential not found" body={failure} />;
@@ -435,7 +460,13 @@ function StateBand({
     return <ResultBand tone="bad" title="Action needed" body={failure} />;
   }
   if (helperState === "offline") {
-    return <ResultBand tone="warn" title="Install Proof Helper" body="Open the desktop helper to pair this browser automatically." />;
+    return (
+      <ResultBand
+        tone="warn"
+        title="Install Proof Helper"
+        body="Open the desktop helper to pair this browser automatically."
+      />
+    );
   }
   if (helperState === "key_missing") {
     return <ResultBand tone="warn" title="Proof assets needed" body="Open Proof Helper to install proof assets." />;
@@ -454,7 +485,11 @@ function StateBand({
       <ResultBand
         tone="ok"
         title="Helper connected"
-        body={autoPaired ? "Proof Helper paired automatically. No code needed." : "The local helper is ready for a credential proof request."}
+        body={
+          autoPaired
+            ? "Proof Helper paired automatically. No code needed."
+            : "The local helper is ready for a credential proof request."
+        }
       />
     );
   }
@@ -500,7 +535,14 @@ function InstallDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div className="platform-list">
           {downloadChoices.map((choice) => (
-            <a className="platform-choice" key={choice.platform} href={choice.href} target="_blank" rel="noreferrer" onClick={onClose}>
+            <a
+              className="platform-choice"
+              key={choice.platform}
+              href={choice.href}
+              target="_blank"
+              rel="noreferrer"
+              onClick={onClose}
+            >
               <span>
                 <strong>{choice.label}</strong>
                 <small>{choice.description}</small>
@@ -521,7 +563,13 @@ function VerificationBand({ verification }: { verification: VerifyResponse }) {
   if (verification.verified) {
     return <ResultBand tone="ok" title="Verified" body="This proof matches the payment key credential." />;
   }
-  return <ResultBand tone="bad" title="Not verified" body={verification.reason ?? "The proof did not match the credential."} />;
+  return (
+    <ResultBand
+      tone="bad"
+      title="Not verified"
+      body={verification.reason ?? "The proof did not match the credential."}
+    />
+  );
 }
 
 function ResultBand({ tone, title, body }: { tone: "ok" | "warn" | "bad"; title: string; body: string }) {
@@ -573,7 +621,6 @@ function statusText(state: HelperState | "ready" | "pending" | "verified" | "fai
       return "Verified";
     case "failed":
       return "Needs attention";
-    case "pending":
     default:
       return "Pending";
   }

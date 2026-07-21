@@ -23,9 +23,16 @@ export function assembleTransactionWithWitnessSet(unsignedTxCbor: string, witnes
       }
     }
 
-    const signedTx = CML.Transaction.new(unsignedTx.body(), witnessBuilder.build(), unsignedTx.is_valid(), unsignedTx.auxiliary_data());
+    const signedTx = CML.Transaction.new(
+      unsignedTx.body(),
+      witnessBuilder.build(),
+      unsignedTx.is_valid(),
+      unsignedTx.auxiliary_data(),
+    );
     return signedTx.to_canonical_cbor_hex();
   } catch (error) {
-    throw new CardanoTransactionAssemblyError(error instanceof Error ? error.message : "Unable to assemble transaction witnesses.");
+    throw new CardanoTransactionAssemblyError(
+      error instanceof Error ? error.message : "Unable to assemble transaction witnesses.",
+    );
   }
 }

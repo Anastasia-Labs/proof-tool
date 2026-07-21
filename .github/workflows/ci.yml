@@ -1,0 +1,266 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Never cancel main-branch runs: every main commit keeps a completed CI
+  # signal even when merges land back-to-back.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  lint:
+    name: Lint (biome + golangci-lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install repo tooling
+        run: pnpm install --frozen-lockfile
+
+      - name: Biome (lint + format check)
+        run: pnpm exec biome ci .
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Bootstrap vendor tree (patched gnark)
+        run: bash scripts/bootstrap-vendor.sh
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.12.2
+
+  go-test:
+    name: Go engine tests + WASM builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Bootstrap vendor tree (patched gnark)
+        run: bash scripts/bootstrap-vendor.sh
+
+      # Absorbed from the former vendor-drift.yml workflow: the vendored
+      # gnark tree is hand-patched (ProveStream); fail if it drifts from
+      # what bootstrap-vendor.sh reproduces.
+      - name: Verify no vendor drift
+        run: bash scripts/check-vendor-drift.sh
+
+      - name: Build and vet
+        run: |
+          go build ./...
+          go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: WASM prover builds
+        run: |
+          GOOS=js GOARCH=wasm go build -o /dev/null ./cmd/wasm-prover
+          GOOS=js GOARCH=wasm go build -o /dev/null ./cmd/msmworker
+
+  go-full-proof:
+    name: Real Groth16 ownership round-trips
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Bootstrap vendor tree (patched gnark)
+        run: bash scripts/bootstrap-vendor.sh
+
+      # Compile the real ownership/multi/destination circuits, run a fresh
+      # Groth16 setup, prove, verify, and exercise the tamper/negative cases.
+      # This is the strongest CI evidence that users can actually build
+      # proofs with the shipped engine (~9 min locally). No -run filter, so
+      # any future PROOF_TOOL_RUN_FULL_PROOF-gated test in this package is
+      # picked up automatically (matching scripts/test-all.sh).
+      - name: Ownership proof round-trip integration tests
+        env:
+          PROOF_TOOL_RUN_FULL_PROOF: "1"
+        run: go test -v -timeout 55m ./internal/prover/
+
+  web:
+    name: Web app (typecheck, tests, proof-release coherence)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/ownership-proof-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/ownership-proof-web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Proof-release coherence (signed asset set)
+        run: pnpm verify:proof-release
+
+  node-packages:
+    name: client-ts + desktop app
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: client-ts build + test
+        working-directory: packages/client-ts
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm test
+
+      - name: desktop typecheck + test
+        working-directory: apps/proof-helper-desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm test
+
+  rust:
+    name: Desktop native (cargo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/proof-helper-desktop/src-tauri/target
+            apps/proof-helper-desktop/src-tauri/key-bundle-core/target
+            apps/proof-helper-desktop/src-tauri/sidecar-core/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('apps/proof-helper-desktop/src-tauri/**/Cargo.lock') }}
+
+      - name: key-bundle-core tests
+        run: cargo test --manifest-path apps/proof-helper-desktop/src-tauri/key-bundle-core/Cargo.toml
+
+      - name: sidecar-core tests
+        run: cargo test --manifest-path apps/proof-helper-desktop/src-tauri/sidecar-core/Cargo.toml
+
+      # The Tauri app crate needs the webkit system libraries and the Go
+      # sidecar binary (its build script bundles it as an external resource) —
+      # mirrors the release-proof-helper.yml checks job.
+      - name: Linux Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Bootstrap vendor tree (patched gnark)
+        run: bash scripts/bootstrap-vendor.sh
+
+      - name: Build Linux sidecar (Tauri build-script resource)
+        run: |
+          mkdir -p apps/proof-helper-desktop/src-tauri/binaries
+          go build -trimpath -ldflags="-s -w" \
+            -o apps/proof-helper-desktop/src-tauri/binaries/proof-tool-x86_64-unknown-linux-gnu \
+            ./cmd/proof-tool
+
+      - name: app crate tests
+        run: cargo test --manifest-path apps/proof-helper-desktop/src-tauri/Cargo.toml
+
+  contracts:
+    name: Plutus validators (real proof fixtures)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # cardano-crypto-class needs libsodium, libsecp256k1 (with schnorrsig),
+      # and libblst via pkg-config — the standard cardano-node prerequisites.
+      - name: Cardano crypto system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libsodium-dev pkg-config autoconf automake libtool
+          git clone --depth 1 --branch v0.3.2 https://github.com/bitcoin-core/secp256k1
+          cd secp256k1
+          ./autogen.sh
+          ./configure --enable-module-schnorrsig --enable-experimental
+          make -j"$(nproc)"
+          sudo make install
+          cd ..
+          git clone --depth 1 --branch v0.3.14 https://github.com/supranational/blst
+          cd blst
+          ./build.sh
+          sudo install -m644 libblst.a /usr/local/lib/
+          sudo install -m644 bindings/blst.h bindings/blst_aux.h /usr/local/include/
+          sudo mkdir -p /usr/local/lib/pkgconfig
+          printf 'prefix=/usr/local\nexec_prefix=${prefix}\nlibdir=${exec_prefix}/lib\nincludedir=${prefix}/include\n\nName: libblst\nDescription: Multilingual BLS12-381 signature library\nVersion: 0.3.14\nLibs: -L${libdir} -lblst\nCflags: -I${includedir}\n' | sudo tee /usr/local/lib/pkgconfig/libblst.pc >/dev/null
+          sudo ldconfig
+
+      - uses: haskell-actions/setup@v2
+        id: haskell
+        with:
+          ghc-version: "9.6.6"
+          cabal-version: "3.12.1.0"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.haskell.outputs.cabal-store }}
+            contracts/ownership-verifier/dist-newstyle
+          key: cabal-${{ runner.os }}-ghc966-${{ hashFiles('contracts/ownership-verifier/cabal.project', 'contracts/ownership-verifier/*.cabal') }}
+          restore-keys: |
+            cabal-${{ runner.os }}-ghc966-
+
+      - name: cabal update
+        working-directory: contracts/ownership-verifier
+        run: cabal update
+
+      - name: Run validator test suite
+        working-directory: contracts/ownership-verifier
+        run: cabal test ownership-verifier-test

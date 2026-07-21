@@ -1,0 +1,26 @@
+cabal-version: 3.0
+name:          proof-tool-formal-fixtures
+version:       0.1.0.0
+synopsis:      Cross-language golden fixtures for reclaim formal assurance
+license:       Apache-2.0
+
+executable generate-context-goldens
+  main-is:          Main.hs
+  hs-source-dirs:
+    src
+    ../../contracts/ownership-verifier/test-support
+  other-modules:
+    FormalHelpers
+    ReclaimBaseOracle
+    ScriptContextBuilder
+  default-language: Haskell2010
+  ghc-options:      -Wall
+  build-depends:
+    , aeson               >= 2.0
+    , base                >= 4.17 && < 5
+    , bytestring          >= 0.11
+    , ownership-verifier
+    , plutus-core         >= 1.30 && < 2
+    , plutus-ledger-api   >= 1.30 && < 2
+    , plutus-tx           >= 1.30 && < 2
+    , plutus-tx-plugin    >= 1.30 && < 2

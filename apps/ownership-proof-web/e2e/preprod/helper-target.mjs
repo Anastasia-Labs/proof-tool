@@ -18,10 +18,16 @@ export function validatePreprodHelperTarget(env = process.env) {
   const rawUrl = env[HELPER_URL_ENV]?.trim();
   const token = env[HELPER_TOKEN_ENV]?.trim();
   if (!rawUrl) {
-    throw new PreprodHelperTargetError("helper_url_missing", `${HELPER_URL_ENV} is required before approved live preprod proof work.`);
+    throw new PreprodHelperTargetError(
+      "helper_url_missing",
+      `${HELPER_URL_ENV} is required before approved live preprod proof work.`,
+    );
   }
   if (!token) {
-    throw new PreprodHelperTargetError("helper_token_missing", `${HELPER_TOKEN_ENV} is required before approved live preprod proof work.`);
+    throw new PreprodHelperTargetError(
+      "helper_token_missing",
+      `${HELPER_TOKEN_ENV} is required before approved live preprod proof work.`,
+    );
   }
 
   let url;
@@ -34,16 +40,25 @@ export function validatePreprodHelperTarget(env = process.env) {
     throw new PreprodHelperTargetError("helper_url_scheme_invalid", `${HELPER_URL_ENV} must use http on loopback.`);
   }
   if (url.username || url.password) {
-    throw new PreprodHelperTargetError("helper_url_credentials_forbidden", `${HELPER_URL_ENV} must not contain embedded credentials.`);
+    throw new PreprodHelperTargetError(
+      "helper_url_credentials_forbidden",
+      `${HELPER_URL_ENV} must not contain embedded credentials.`,
+    );
   }
   if (!LOOPBACK_HOSTS.has(url.hostname)) {
     throw new PreprodHelperTargetError("helper_url_not_loopback", `${HELPER_URL_ENV} must point to a loopback host.`);
   }
   if (url.pathname !== "/" && url.pathname !== "") {
-    throw new PreprodHelperTargetError("helper_url_path_invalid", `${HELPER_URL_ENV} must be the helper origin without an endpoint path.`);
+    throw new PreprodHelperTargetError(
+      "helper_url_path_invalid",
+      `${HELPER_URL_ENV} must be the helper origin without an endpoint path.`,
+    );
   }
   if (url.search || url.hash) {
-    throw new PreprodHelperTargetError("helper_url_params_forbidden", `${HELPER_URL_ENV} must not contain query or fragment parameters.`);
+    throw new PreprodHelperTargetError(
+      "helper_url_params_forbidden",
+      `${HELPER_URL_ENV} must not contain query or fragment parameters.`,
+    );
   }
 
   const origin = url.origin;

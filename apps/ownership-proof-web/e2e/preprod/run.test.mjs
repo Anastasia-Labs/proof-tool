@@ -221,7 +221,9 @@ describe("Phase 9A preprod E2E runner", () => {
     const manifest = JSON.parse(readFileSync(result.artifacts[0], "utf8"));
     expect(manifest.walletMode).toBe("lace");
     expect(manifest.stages.map((stage) => stage.name)).toEqual([...PREPROD_E2E_LACE_SMOKE_STAGES]);
-    expect(result.report).toContain("Completed stages: deploy-or-verify-preprod-manifest, fund-ada-only-reclaim, discover-matching-claims, generate-destination-bound-proofs, claim-ui-acceptance.");
+    expect(result.report).toContain(
+      "Completed stages: deploy-or-verify-preprod-manifest, fund-ada-only-reclaim, discover-matching-claims, generate-destination-bound-proofs, claim-ui-acceptance.",
+    );
     expect(result.report).not.toContain("negative-guardrails");
     expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
       "run-manifest.json",
@@ -282,7 +284,9 @@ describe("Phase 9A preprod E2E runner", () => {
 
     expect(result.ok).toBe(true);
     expect(path.basename(appEnv.RECLAIM_DEPLOYMENT_MANIFEST_PATH)).toBe("deployment-manifest.snapshot.json");
-    const snapshotPath = result.artifacts.find((artifact) => path.basename(artifact) === "deployment-manifest.snapshot.json");
+    const snapshotPath = result.artifacts.find(
+      (artifact) => path.basename(artifact) === "deployment-manifest.snapshot.json",
+    );
     const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8"));
     expect(snapshot.source_commit).toBe(commit);
   });
@@ -344,7 +348,10 @@ describe("Phase 9A preprod E2E runner", () => {
 
     expect(result.ok).toBe(false);
     expect(result.code).toBe("helper_target_failed");
-    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "live-config.json"]);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
+      "run-manifest.json",
+      "live-config.json",
+    ]);
     expect(result.report).toContain("RECLAIM_E2E_HELPER_URL");
   });
 
@@ -378,7 +385,11 @@ describe("Phase 9A preprod E2E runner", () => {
 
     expect(result.ok).toBe(false);
     expect(result.code).toBe("cip30_harness_failed");
-    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "live-config.json", "helper-target.json"]);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
+      "run-manifest.json",
+      "live-config.json",
+      "helper-target.json",
+    ]);
     expect(result.report).toContain("wallet_harness_test_failure");
   });
 
@@ -413,7 +424,11 @@ describe("Phase 9A preprod E2E runner", () => {
 
     expect(result.ok).toBe(false);
     expect(result.code).toBe("lace_wallet_driver_failed");
-    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual(["run-manifest.json", "live-config.json", "helper-target.json"]);
+    expect(result.artifacts.map((artifact) => path.basename(artifact))).toEqual([
+      "run-manifest.json",
+      "live-config.json",
+      "helper-target.json",
+    ]);
     expect(result.report).toContain("Real Lace wallet driver failed closed");
     expect(result.report).toContain("lace_extension_missing");
   });
@@ -653,7 +668,10 @@ function words(prefix, count) {
     "orange",
     "paddle",
   ];
-  return suffixes.slice(0, count).map((suffix) => `${prefix}${suffix}`).join(" ");
+  return suffixes
+    .slice(0, count)
+    .map((suffix) => `${prefix}${suffix}`)
+    .join(" ");
 }
 
 function tempDir() {

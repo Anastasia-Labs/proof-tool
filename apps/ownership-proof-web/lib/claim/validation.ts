@@ -54,7 +54,12 @@ export function assertOutRef(value: unknown, field = "outref"): ClaimOutRef {
   const raw = value as Record<string, unknown>;
   const txHash = assertByteHex(raw.txHash, `${field}.txHash`, 32);
   const outputIndex = raw.outputIndex;
-  if (typeof outputIndex !== "number" || !Number.isInteger(outputIndex) || outputIndex < 0 || !Number.isSafeInteger(outputIndex)) {
+  if (
+    typeof outputIndex !== "number" ||
+    !Number.isInteger(outputIndex) ||
+    outputIndex < 0 ||
+    !Number.isSafeInteger(outputIndex)
+  ) {
     throw new ClaimValidationError(`${field}_invalid`, `${field}.outputIndex must be a non-negative safe integer.`);
   }
   return { txHash, outputIndex };

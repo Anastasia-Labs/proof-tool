@@ -22,7 +22,8 @@ export const PROVIDER_HEALTH_PATH_ENV = "RECLAIM_E2E_PROVIDER_HEALTH_FILE";
 
 const DEFAULT_REPO_ROOT = defaultRepoRoot();
 const MNEMONIC_WORD_COUNTS = new Set([12, 15, 18, 21, 24]);
-const SECRET_KEY_PATTERN = /(mnemonic|seed|phrase|xprv|private|secret|signing|skey|root_key|witness|proof|cbor|password|token)/iu;
+const SECRET_KEY_PATTERN =
+  /(mnemonic|seed|phrase|xprv|private|secret|signing|skey|root_key|witness|proof|cbor|password|token)/iu;
 
 export async function runPreprodPreflight(options = {}) {
   const env = options.env ?? process.env;
@@ -151,7 +152,9 @@ export function validatePreprodWalletFile(raw) {
       continue;
     }
 
-    const mnemonic = normalizeMnemonic(roleValue.mnemonic ?? roleValue.seed_phrase ?? roleValue.recovery_phrase ?? roleValue.mnemonic_words);
+    const mnemonic = normalizeMnemonic(
+      roleValue.mnemonic ?? roleValue.seed_phrase ?? roleValue.recovery_phrase ?? roleValue.mnemonic_words,
+    );
     if (!mnemonic.ok) {
       errors.push({
         code: "wallet_mnemonic_malformed",
@@ -282,7 +285,8 @@ export function validateDeploymentSourceCommit(sourceCommit, currentCommit, ance
       {
         code: "manifest_source_commit_ancestry_unavailable",
         field: "manifest.source_commit",
-        message: "Could not verify that the deployment source commit is in the current Git history; fetch the commit history and retry.",
+        message:
+          "Could not verify that the deployment source commit is in the current Git history; fetch the commit history and retry.",
       },
     ];
   }
@@ -413,7 +417,13 @@ export function validateProviderHealth(health) {
     return errors;
   }
 
-  const network = firstString(root.network, root.network_name, root.networkName, root.cardano_network, root.cardanoNetwork);
+  const network = firstString(
+    root.network,
+    root.network_name,
+    root.networkName,
+    root.cardano_network,
+    root.cardanoNetwork,
+  );
   if (!network || !/\bpreprod\b/iu.test(network)) {
     errors.push({
       code: "provider_health_not_preprod",
@@ -471,7 +481,9 @@ export function redactSensitiveValue(value) {
     if (SECRET_KEY_PATTERN.test(key)) {
       redacted[key] = redactSensitiveValue(child);
     } else if (Array.isArray(child)) {
-      redacted[key] = child.map((entry) => (typeof entry === "object" && entry !== null ? redactSensitiveValue(entry) : entry));
+      redacted[key] = child.map((entry) =>
+        typeof entry === "object" && entry !== null ? redactSensitiveValue(entry) : entry,
+      );
     } else if (typeof child === "object" && child !== null) {
       redacted[key] = redactSensitiveValue(child);
     } else {
@@ -497,7 +509,9 @@ export function redactWalletRoleSummary(rolesRoot) {
       summary[role] = { configured: false };
       continue;
     }
-    const mnemonic = normalizeMnemonic(roleValue.mnemonic ?? roleValue.seed_phrase ?? roleValue.recovery_phrase ?? roleValue.mnemonic_words);
+    const mnemonic = normalizeMnemonic(
+      roleValue.mnemonic ?? roleValue.seed_phrase ?? roleValue.recovery_phrase ?? roleValue.mnemonic_words,
+    );
     summary[role] = {
       configured: true,
       mnemonicWordCount: mnemonic.ok ? mnemonic.wordCount : null,
@@ -556,7 +570,11 @@ export function parseJsonConfig(text, field) {
 }
 
 export function manifestFromFlatEnv(env) {
-  if (!envValue(env, "RECLAIM_NETWORK") && !envValue(env, "RECLAIM_SOURCE_COMMIT") && !envValue(env, "RECLAIM_DEPLOYMENT_ID")) {
+  if (
+    !envValue(env, "RECLAIM_NETWORK") &&
+    !envValue(env, "RECLAIM_SOURCE_COMMIT") &&
+    !envValue(env, "RECLAIM_DEPLOYMENT_ID")
+  ) {
     return null;
   }
   return {
@@ -580,7 +598,14 @@ export function redactedManifestSummary(manifest) {
 
 export function redactedProviderHealthSummary(health) {
   return {
-    network: firstString(health?.network, health?.network_name, health?.networkName, health?.cardano_network, health?.cardanoNetwork) ?? "[unknown]",
+    network:
+      firstString(
+        health?.network,
+        health?.network_name,
+        health?.networkName,
+        health?.cardano_network,
+        health?.cardanoNetwork,
+      ) ?? "[unknown]",
     network_id: health?.network_id,
   };
 }
@@ -674,7 +699,8 @@ function loadManifestFromEnv(env, options) {
       {
         code: "manifest_missing",
         field: "deployment_manifest",
-        message: "Configure RECLAIM_DEPLOYMENT_MANIFEST_PATH, RECLAIM_DEPLOYMENT_MANIFEST_JSON, or RECLAIM_* deployment env values.",
+        message:
+          "Configure RECLAIM_DEPLOYMENT_MANIFEST_PATH, RECLAIM_DEPLOYMENT_MANIFEST_JSON, or RECLAIM_* deployment env values.",
       },
     ],
     manifest: null,
@@ -777,10 +803,7 @@ function resolveExistingPath(inputPath, { cwd, repoRoot, fileExists }) {
     return fileExists(inputPath) ? inputPath : null;
   }
 
-  const candidates = [
-    path.resolve(cwd, inputPath),
-    path.resolve(repoRoot, inputPath),
-  ];
+  const candidates = [path.resolve(cwd, inputPath), path.resolve(repoRoot, inputPath)];
   for (const candidate of candidates) {
     if (fileExists(candidate)) {
       return candidate;

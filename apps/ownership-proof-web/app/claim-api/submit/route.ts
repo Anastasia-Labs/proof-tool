@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import type { ClaimSubmitRequest } from "../../../lib/claim/types";
 import { ClaimValidationError } from "../../../lib/claim/validation";
 import { getProvider, getReclaimDeployment } from "../../../lib/reclaim-server/config";

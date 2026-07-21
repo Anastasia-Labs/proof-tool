@@ -5,15 +5,6 @@ import (
 	"github.com/consensys/gnark/std/math/uints"
 )
 
-// le32Const serializes i as 4 little-endian bytes (out of circuit), used to
-// build the constant uints.U8 suffix le32(i) appended to every HMAC pre-image in
-// the step gadget. It delegates to the reference le32 (ref.go) so there is one
-// encoder; the convention is the Cardano ed25519-bip32 V2 little-endian index
-// encoding (REQ-CKD; see RELATION.md "Endianness of le32(i)").
-func le32Const(i uint32) []byte {
-	return le32(i)
-}
-
 // le32Var serializes a WITNESSED index to the 4-byte little-endian le32 suffix,
 // range-checking it in-circuit (REQ-CKD-S-07). api.ToBinary(idx, 31) proves
 // idx < 2^31 (the low 31 bits are the witnessed magnitude). Bit 31 of the

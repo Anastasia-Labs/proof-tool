@@ -133,7 +133,15 @@ export type ProverDiscoverResult = {
 // JSON crossing this boundary contains master_xprv_hex; nothing that carries it
 // may be logged, thrown, or surfaced outside the provider modules.
 export type ProverWorkerRequest =
-  | { id: string; type: "init"; wasmUrl: string; wasmExecUrl: string; msmWorkerWasmUrl: string; gogc: number; gomemlimit: string }
+  | {
+      id: string;
+      type: "init";
+      wasmUrl: string;
+      wasmExecUrl: string;
+      msmWorkerWasmUrl: string;
+      gogc: number;
+      gomemlimit: string;
+    }
   | { id: string; type: "preflight"; requestJson: string }
   | { id: string; type: "discover"; requestJson: string }
   | { id: string; type: "prove"; requestJson: string };

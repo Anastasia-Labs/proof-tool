@@ -59,10 +59,12 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
 
     expect(result.ok).toBe(true);
     expect(exporter).toHaveBeenCalledTimes(1);
-    expect(bootstrapBuilder).toHaveBeenCalledWith(expect.objectContaining({
-      material: expect.objectContaining({ entries: expect.any(Array) }),
-      scripts,
-    }));
+    expect(bootstrapBuilder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        material: expect.objectContaining({ entries: expect.any(Array) }),
+        scripts,
+      }),
+    );
     expect(provider.evaluateTx).toHaveBeenCalledTimes(1);
     expect(provider.evaluateTx).toHaveBeenCalledWith("a100", expect.any(Array));
     expect(provider.submitTx).not.toHaveBeenCalled();
@@ -164,7 +166,10 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
         exporter: async () => scripts,
         bootstrapBuilder: async () => ({
           txCbor: "a100",
-          additionalUtxos: Array.from({ length: 10 }, (_, index) => ({ txHash: `${index}`.repeat(64), outputIndex: 0 })),
+          additionalUtxos: Array.from({ length: 10 }, (_, index) => ({
+            txHash: `${index}`.repeat(64),
+            outputIndex: 0,
+          })),
           attachment: "direct",
         }),
         protocolParameters,
@@ -204,7 +209,10 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
         exporter: async () => scripts,
         bootstrapBuilder: async () => ({
           txCbor: "a100",
-          additionalUtxos: Array.from({ length: 10 }, (_, index) => ({ txHash: `${index}`.repeat(64), outputIndex: 0 })),
+          additionalUtxos: Array.from({ length: 10 }, (_, index) => ({
+            txHash: `${index}`.repeat(64),
+            outputIndex: 0,
+          })),
           attachment: "direct",
         }),
         protocolParameters,
@@ -283,7 +291,10 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
         exporter: async () => scripts,
         bootstrapBuilder: async () => ({
           txCbor: "a100",
-          additionalUtxos: Array.from({ length: 10 }, (_, index) => ({ txHash: `${index}`.repeat(64), outputIndex: 0 })),
+          additionalUtxos: Array.from({ length: 10 }, (_, index) => ({
+            txHash: `${index}`.repeat(64),
+            outputIndex: 0,
+          })),
           attachment: "direct",
         }),
         protocolParameters,
@@ -310,7 +321,10 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
         exporter: async () => scripts,
         bootstrapBuilder: async () => ({
           txCbor: "a100",
-          additionalUtxos: Array.from({ length: 10 }, (_, index) => ({ txHash: `${index}`.repeat(64), outputIndex: 0 })),
+          additionalUtxos: Array.from({ length: 10 }, (_, index) => ({
+            txHash: `${index}`.repeat(64),
+            outputIndex: 0,
+          })),
           attachment: "direct",
         }),
         protocolParameters,

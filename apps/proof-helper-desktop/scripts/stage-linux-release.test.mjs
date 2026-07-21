@@ -33,24 +33,26 @@ test("stages a versioned executable AppImage with matching checksum and provenan
 
   execFileSync(process.execPath, [
     path.resolve("scripts/stage-linux-release.mjs"),
-    "--repo-root", root,
-    "--tag", "proof-helper-desktop-v0.2.2",
-    "--appimage", appImage,
-    "--sidecar", sidecar,
-    "--out-dir", out,
-    "--source-commit", "a".repeat(40),
+    "--repo-root",
+    root,
+    "--tag",
+    "proof-helper-desktop-v0.2.2",
+    "--appimage",
+    appImage,
+    "--sidecar",
+    sidecar,
+    "--out-dir",
+    out,
+    "--source-commit",
+    "a".repeat(40),
   ]);
 
   const artifact = "proof-helper_0.2.2_linux_x86_64.AppImage";
   const bytes = await fsp.readFile(path.join(out, artifact));
   const digest = createHash("sha256").update(bytes).digest("hex");
-  expect(
-    await fsp.readFile(path.join(out, `${artifact}.sha256`), "utf8"),
-  ).toBe(`${digest}  ${artifact}\n`);
+  expect(await fsp.readFile(path.join(out, `${artifact}.sha256`), "utf8")).toBe(`${digest}  ${artifact}\n`);
   expect((await fsp.stat(path.join(out, artifact))).mode & 0o111).toBe(0o111);
-  const manifest = JSON.parse(
-    await fsp.readFile(path.join(out, "proof-helper-linux-release-manifest.json"), "utf8"),
-  );
+  const manifest = JSON.parse(await fsp.readFile(path.join(out, "proof-helper-linux-release-manifest.json"), "utf8"));
   expect(manifest.source_commit).toBe("a".repeat(40));
   expect(manifest.artifact.sha256).toBe(`sha256:${digest}`);
   expect(manifest.proof_assets_descriptor.expected_key_version).toBe("ownership-destination-v2");

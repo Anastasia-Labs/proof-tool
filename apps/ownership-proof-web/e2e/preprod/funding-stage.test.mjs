@@ -345,8 +345,8 @@ function fakeLocator(selector, calls, options, state) {
             const reviewed = state.txHashReads % 2 === 0;
             state.txHashReads += 1;
             return reviewed
-              ? state.reviewedTxHashes.shift() ?? "reviewed-body-hash"
-              : state.submittedTxHashes.shift() ?? "submitted-funding-hash";
+              ? (state.reviewedTxHashes.shift() ?? "reviewed-body-hash")
+              : (state.submittedTxHashes.shift() ?? "submitted-funding-hash");
           },
         }),
       }),
@@ -357,7 +357,10 @@ function fakeLocator(selector, calls, options, state) {
 
 function regexName(value) {
   if (value instanceof RegExp) {
-    return value.source.replaceAll("\\s+", " ").replaceAll(/[^a-z ]/giu, "").trim();
+    return value.source
+      .replaceAll("\\s+", " ")
+      .replaceAll(/[^a-z ]/giu, "")
+      .trim();
   }
   return String(value);
 }

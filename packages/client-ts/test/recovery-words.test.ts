@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  isValidRecoveryWord,
-  recoveryWordlistEnglish,
-  validateRecoveryPhrase,
-} from "../src/index.js";
+import { isValidRecoveryWord, recoveryWordlistEnglish, validateRecoveryPhrase } from "../src/index.js";
 
-const validPhrase =
-  "eight country switch draw meat scout mystery blade tip drift useless good keep usage title";
+const validPhrase = "eight country switch draw meat scout mystery blade tip drift useless good keep usage title";
 
 describe("recoveryWordlistEnglish", () => {
   it("re-exports the full BIP-39 English wordlist", () => {
@@ -36,9 +31,7 @@ describe("validateRecoveryPhrase", () => {
   });
 
   it("normalizes case and whitespace before validating", () => {
-    const words = validPhrase
-      .split(" ")
-      .map((word, index) => (index === 0 ? ` ${word.toUpperCase()} ` : word));
+    const words = validPhrase.split(" ").map((word, index) => (index === 0 ? ` ${word.toUpperCase()} ` : word));
     expect(validateRecoveryPhrase(words)).toEqual({ ok: true });
   });
 

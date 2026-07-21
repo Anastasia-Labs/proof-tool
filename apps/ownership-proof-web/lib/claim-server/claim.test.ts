@@ -23,7 +23,9 @@ describe("claim datum parsing", () => {
   it("classifies malformed, short, and credential-constructor datums", () => {
     expect(tryParseReclaimBaseDatum("not-cbor").status).toBe("malformed_datum");
     expect(tryParseReclaimBaseDatum(Data.to(new Constr(0, ["aa"]))).status).toBe("invalid_payment_credential");
-    expect(tryParseReclaimBaseDatum(Data.to(new Constr(0, [new Constr(1, [credentialA])]))).status).toBe("unsupported_datum");
+    expect(tryParseReclaimBaseDatum(Data.to(new Constr(0, [new Constr(1, [credentialA])]))).status).toBe(
+      "unsupported_datum",
+    );
   });
 });
 
@@ -31,10 +33,7 @@ describe("claim drafts", () => {
   it("orders public reclaim UTxOs by confirmation then outref and returns destination-bound proof requests", async () => {
     const provider = fakeProvider({
       safe: [utxo("f".repeat(64), 0, safeAddress, { lovelace: 5_000_000n })],
-      reclaim: [
-        reclaimUtxo("b".repeat(64), 1, credentialB, 200),
-        reclaimUtxo("a".repeat(64), 0, credentialA, 100),
-      ],
+      reclaim: [reclaimUtxo("b".repeat(64), 1, credentialB, 200), reclaimUtxo("a".repeat(64), 0, credentialA, 100)],
     });
 
     const draft = await createClaimDraft(provider, deployment(), {
@@ -46,18 +45,20 @@ describe("claim drafts", () => {
     });
 
     expect(draft.orderedPaymentCredentials).toEqual([credentialA, credentialB]);
-    expect(draft.proofRequests.map((request) => request.out_ref)).toEqual([`${"a".repeat(64)}#0`, `${"b".repeat(64)}#1`]);
-    expect(draft.proofRequests.every((request) => request.destination_address_encoding === "destination-address-v1")).toBe(true);
+    expect(draft.proofRequests.map((request) => request.out_ref)).toEqual([
+      `${"a".repeat(64)}#0`,
+      `${"b".repeat(64)}#1`,
+    ]);
+    expect(
+      draft.proofRequests.every((request) => request.destination_address_encoding === "destination-address-v1"),
+    ).toBe(true);
     expect(draft.proofRequests.every((request) => request.destination_address.length === 116)).toBe(true);
   });
 
   it("excludes pending outrefs and enforces the hard batch cap", async () => {
     const provider = fakeProvider({
       safe: [utxo("f".repeat(64), 0, safeAddress, { lovelace: 5_000_000n })],
-      reclaim: [
-        reclaimUtxo("a".repeat(64), 0, credentialA, 100),
-        reclaimUtxo("b".repeat(64), 0, credentialB, 101),
-      ],
+      reclaim: [reclaimUtxo("a".repeat(64), 0, credentialA, 100), reclaimUtxo("b".repeat(64), 0, credentialB, 101)],
     });
 
     const draft = await createClaimDraft(provider, deployment(), {
@@ -152,8 +153,23 @@ function deployment(): ReclaimDeployment {
     paramsCurrencySymbol: "d".repeat(56),
     paramsTokenName: "5245434c41494d",
     verifierVkHash: "blake2b256:" + "e".repeat(64),
+    reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
+    reclaimGlobalBatchTranscriptVkHash: "blake2b256:" + "e".repeat(64),
     contractVersion: "v1",
     sourceCommit: "commit",
+    batching: {
+      default_utxo_count: 6,
+      optimization_utxo_count: 6,
+      hard_max_utxo_count: 7,
+      max_tx_cpu_percent: 90,
+      max_tx_mem_percent: 80,
+      distinct_7_opt_in: {
+        request_parameter: "maxUtxos",
+        request_value: 7,
+        require_explicit_request: true,
+        require_measured_execution_units: true,
+      },
+    },
   };
 }
 
@@ -161,7 +177,9 @@ function fakeProvider(groups: { safe: UTxO[]; reclaim: UTxO[] }): Provider {
   return {
     getUtxos: async (address: string) => (address === deployment().reclaimBaseAddress ? groups.reclaim : groups.safe),
     getUtxosByOutRef: async (outrefs: Array<{ txHash: string; outputIndex: number }>) => {
-      const byOutref = new Map([...groups.safe, ...groups.reclaim].map((item) => [`${item.txHash}#${item.outputIndex}`, item]));
+      const byOutref = new Map(
+        [...groups.safe, ...groups.reclaim].map((item) => [`${item.txHash}#${item.outputIndex}`, item]),
+      );
       return outrefs.flatMap((outref) => {
         const item = byOutref.get(`${outref.txHash}#${outref.outputIndex}`);
         return item ? [item] : [];
@@ -171,7 +189,14 @@ function fakeProvider(groups: { safe: UTxO[]; reclaim: UTxO[] }): Provider {
 }
 
 function reclaimUtxo(txHash: string, outputIndex: number, credential: string, slot: number): UTxO {
-  return utxo(txHash, outputIndex, deployment().reclaimBaseAddress, { lovelace: 2_000_000n }, makeCompromisedCredentialDatum(credential), slot);
+  return utxo(
+    txHash,
+    outputIndex,
+    deployment().reclaimBaseAddress,
+    { lovelace: 2_000_000n },
+    makeCompromisedCredentialDatum(credential),
+    slot,
+  );
 }
 
 function utxo(

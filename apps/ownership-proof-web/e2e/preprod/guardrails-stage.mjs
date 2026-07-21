@@ -44,14 +44,21 @@ export async function runNegativeGuardrailsStage(options = {}) {
   checks.push(await assertWrongNetworkBlocksReclaimPage(page, appTarget.baseUrl, fundingRole));
   checks.push(await assertWrongNetworkBlocksClaimPage(page, appTarget.baseUrl, compromisedRole));
   checks.push(await assertImpactedWalletCannotSign(walletHarness, compromisedRole));
-  checks.push(await assertSafeImpactedOverlapBlocked(destinationProofStageRunner, options, walletHarness, compromisedRole));
+  checks.push(
+    await assertSafeImpactedOverlapBlocked(destinationProofStageRunner, options, walletHarness, compromisedRole),
+  );
   checks.push(await assertTamperedClaimSubmitRejected(fetchFn, appTarget.baseUrl, walletHarness, proofBundle));
   checks.push(await assertWrongDestinationProofRejected(fetchFn, appTarget.baseUrl, proofBundle));
-  checks.push(await assertInsufficientSafeWalletAdaRejected(fetchFn, appTarget.baseUrl, proofBundle, insufficientSafeWalletAddress));
+  checks.push(
+    await assertInsufficientSafeWalletAdaRejected(
+      fetchFn,
+      appTarget.baseUrl,
+      proofBundle,
+      insufficientSafeWalletAddress,
+    ),
+  );
 
-  const screenshotPath = options.page
-    ? path.join(outputDir, "screenshots", "negative-guardrails.png")
-    : null;
+  const screenshotPath = options.page ? path.join(outputDir, "screenshots", "negative-guardrails.png") : null;
   if (screenshotPath) {
     mkdir(path.dirname(screenshotPath), { recursive: true });
     await options.page.screenshot({
@@ -185,7 +192,10 @@ async function assertTamperedClaimSubmitRejected(fetchFn, baseUrl, walletHarness
   assertClaimBuild(build);
   const witnessSetCbor = await walletHarness.call?.(SAFE_WALLET_ROLE, "signTx", [build.txCbor, true]);
   if (!isHex(witnessSetCbor)) {
-    throw new PreprodNegativeGuardrailsStageError("safe_wallet_witness_invalid", "Safe wallet did not return witness set CBOR.");
+    throw new PreprodNegativeGuardrailsStageError(
+      "safe_wallet_witness_invalid",
+      "Safe wallet did not return witness set CBOR.",
+    );
   }
   const tamperedUnsignedTxCbor = tamperHex(build.txCbor);
   const failure = await postAppFailure(fetchFn, baseUrl, "/claim-api/submit", {
@@ -218,7 +228,10 @@ async function assertWrongDestinationProofRejected(fetchFn, baseUrl, proofBundle
   const tampered = cloneJson(request);
   const firstProof = tampered.proofArtifacts?.[0]?.artifact ?? tampered.proofArtifacts?.[0];
   if (!firstProof || typeof firstProof !== "object") {
-    throw new PreprodNegativeGuardrailsStageError("proof_bundle_invalid", "Proof bundle did not include a proof artifact to tamper.");
+    throw new PreprodNegativeGuardrailsStageError(
+      "proof_bundle_invalid",
+      "Proof bundle did not include a proof artifact to tamper.",
+    );
   }
   firstProof.destination_address = tamperHex(firstProof.destination_address);
   const failure = await postAppFailure(fetchFn, baseUrl, "/claim-api/build", tampered);
@@ -266,8 +279,15 @@ async function assertInsufficientSafeWalletAdaRejected(fetchFn, baseUrl, proofBu
 function claimBuildRequest(proofBundle) {
   const draft = proofBundle?.draft;
   const selectedOutrefs = selectedOutrefsFromProofBundle(proofBundle);
-  if (!draft || !Array.isArray(proofBundle.proofArtifacts) || proofBundle.proofArtifacts.length !== selectedOutrefs.length) {
-    throw new PreprodNegativeGuardrailsStageError("proof_bundle_invalid", "Destination proof bundle is missing buildable proof artifacts.");
+  if (
+    !draft ||
+    !Array.isArray(proofBundle.proofArtifacts) ||
+    proofBundle.proofArtifacts.length !== selectedOutrefs.length
+  ) {
+    throw new PreprodNegativeGuardrailsStageError(
+      "proof_bundle_invalid",
+      "Destination proof bundle is missing buildable proof artifacts.",
+    );
   }
   return {
     deploymentId: proofBundle.deploymentId,
@@ -282,20 +302,32 @@ function claimBuildRequest(proofBundle) {
 
 function selectedOutrefsFromProofBundle(proofBundle) {
   if (!Array.isArray(proofBundle?.selectedOutrefs) || proofBundle.selectedOutrefs.length === 0) {
-    throw new PreprodNegativeGuardrailsStageError("proof_bundle_invalid", "Destination proof bundle is missing selected outrefs.");
+    throw new PreprodNegativeGuardrailsStageError(
+      "proof_bundle_invalid",
+      "Destination proof bundle is missing selected outrefs.",
+    );
   }
   return proofBundle.selectedOutrefs;
 }
 
 function assertClaimBuild(build) {
   if (!isHex(build?.txCbor) || !isHex(build?.txHash) || build.txHash.length !== 64) {
-    throw new PreprodNegativeGuardrailsStageError("claim_build_tx_invalid", "Claim build response did not include a valid unsigned transaction.");
+    throw new PreprodNegativeGuardrailsStageError(
+      "claim_build_tx_invalid",
+      "Claim build response did not include a valid unsigned transaction.",
+    );
   }
   if (typeof build.reviewToken !== "string" || build.reviewToken.trim() === "") {
-    throw new PreprodNegativeGuardrailsStageError("claim_build_review_token_missing", "Claim build response did not include a review token.");
+    throw new PreprodNegativeGuardrailsStageError(
+      "claim_build_review_token_missing",
+      "Claim build response did not include a review token.",
+    );
   }
   if (!build.review || typeof build.review !== "object") {
-    throw new PreprodNegativeGuardrailsStageError("claim_build_review_missing", "Claim build response did not include review material.");
+    throw new PreprodNegativeGuardrailsStageError(
+      "claim_build_review_missing",
+      "Claim build response did not include review material.",
+    );
   }
 }
 
@@ -315,7 +347,10 @@ async function postAppFailure(fetchFn, baseUrl, endpoint, body) {
   const response = await fetchApp(fetchFn, baseUrl, endpoint, body);
   const payload = await safeJson(response);
   if (response.status >= 200 && response.status < 300) {
-    throw new PreprodNegativeGuardrailsStageError(`${guardrailName(endpoint)}_not_rejected`, `${endpoint} accepted a negative guardrail request.`);
+    throw new PreprodNegativeGuardrailsStageError(
+      `${guardrailName(endpoint)}_not_rejected`,
+      `${endpoint} accepted a negative guardrail request.`,
+    );
   }
   return {
     status: response.status,
@@ -334,7 +369,10 @@ async function fetchApp(fetchFn, baseUrl, endpoint, body) {
       body: JSON.stringify(body),
     });
   } catch (error) {
-    throw new PreprodNegativeGuardrailsStageError("fetch_failed", `Negative guardrail request failed: ${error?.message ?? "request failed"}`);
+    throw new PreprodNegativeGuardrailsStageError(
+      "fetch_failed",
+      `Negative guardrail request failed: ${error?.message ?? "request failed"}`,
+    );
   }
   if (!response || !Number.isInteger(response.status) || typeof response.json !== "function") {
     throw new PreprodNegativeGuardrailsStageError("response_malformed", `${endpoint} did not return a JSON response.`);
@@ -372,7 +410,10 @@ async function forceWalletNetwork(page, role, networkId) {
 
 async function waitForWrongNetworkReclaimEvidence(page) {
   return Promise.race([
-    page.getByText("Network mismatch").waitFor().then(() => "Network mismatch"),
+    page
+      .getByText("Network mismatch")
+      .waitFor()
+      .then(() => "Network mismatch"),
     page
       .getByText(/Wallet address network does not match/iu)
       .waitFor()
@@ -389,7 +430,10 @@ async function expectError(fn) {
       message: typeof error?.message === "string" ? error.message : "Unknown error.",
     };
   }
-  throw new PreprodNegativeGuardrailsStageError("guardrail_not_rejected", "Negative guardrail operation unexpectedly succeeded.");
+  throw new PreprodNegativeGuardrailsStageError(
+    "guardrail_not_rejected",
+    "Negative guardrail operation unexpectedly succeeded.",
+  );
 }
 
 function walletButtonName(role) {

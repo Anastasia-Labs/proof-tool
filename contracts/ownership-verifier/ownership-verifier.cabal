@@ -15,9 +15,7 @@ library
     Ownership.OneShotNFT
     Ownership.ParamsHolder
     Ownership.ReclaimBase
-    Ownership.ReclaimGlobal
     Ownership.ReclaimGlobalV2
-    Ownership.ReclaimGlobalV2Bench
     Ownership.ReclaimGlobalMulti
     Ownership.ReclaimGlobalMultiV2Bench
     Ownership.Verify
