@@ -43,10 +43,20 @@ type proveRequest struct {
 	MasterXPrvHex       string          `json:"master_xprv_hex"`
 	TargetCredentialHex string          `json:"target_credential_hex"`
 	DestinationHex      string          `json:"destination_address_hex"`
+	Path                *pathRequest    `json:"path,omitempty"`
 	Search              searchRequest   `json:"search"`
 	Artifacts           artifactRequest `json:"artifacts"`
 	Tuning              tuningRequest   `json:"tuning,omitempty"`
 	IncludeDebugPath    bool            `json:"include_debug_path,omitempty"`
+}
+
+// pathRequest is an explicit CIP-1852 account/role/index. When set on a prove
+// request, discovery is skipped and the path is verified against the target
+// credential instead. search is ignored for find-path in that case.
+type pathRequest struct {
+	Account uint32 `json:"account"`
+	Role    uint32 `json:"role"`
+	Index   uint32 `json:"index"`
 }
 
 type discoverRequest struct {
@@ -557,26 +567,42 @@ func prove(requestJSON string, progressCB js.Value) (js.Value, error) {
 
 	progress(progressCB, "find-path", 0.20)
 	endFindPath := trace.span("find-path", nil)
-	path, discoveryCacheHit := cachedDiscoveryPath(master, target)
-	if !discoveryCacheHit {
-		paths, discoverErr := ownership.DiscoverCredentialPaths(
-			context.Background(),
-			master,
-			[][]byte{target},
-			ownership.DiscoveryOptions{Search: searchOptions(req.Search)},
-			func(update ownership.DiscoveryProgress) {
-				discoveryProgress(progressCB, update)
-			},
-		)
-		if discoverErr != nil {
-			return js.Undefined(), discoverErr
+	var path ownership.Path
+	var discoveryCacheHit bool
+	if req.Path != nil {
+		path = ownership.Path{
+			Account: req.Path.Account,
+			Role:    req.Path.Role,
+			Index:   req.Path.Index,
 		}
-		var credential [28]byte
-		copy(credential[:], target)
-		path = paths[credential]
-		cacheDiscoveryPaths(master, paths)
+		if err := ownership.ValidateExplicitCredentialPath(master, target, path); err != nil {
+			endFindPath(map[string]any{"explicit_path": true, "error": err.Error()})
+			return js.Undefined(), err
+		}
+		progress(progressCB, "find-path", 1)
+		endFindPath(map[string]any{"explicit_path": true, "cache_hit": false})
+	} else {
+		path, discoveryCacheHit = cachedDiscoveryPath(master, target)
+		if !discoveryCacheHit {
+			paths, discoverErr := ownership.DiscoverCredentialPaths(
+				context.Background(),
+				master,
+				[][]byte{target},
+				ownership.DiscoveryOptions{Search: searchOptions(req.Search)},
+				func(update ownership.DiscoveryProgress) {
+					discoveryProgress(progressCB, update)
+				},
+			)
+			if discoverErr != nil {
+				return js.Undefined(), discoverErr
+			}
+			var credential [28]byte
+			copy(credential[:], target)
+			path = paths[credential]
+			cacheDiscoveryPaths(master, paths)
+		}
+		endFindPath(map[string]any{"explicit_path": false, "cache_hit": discoveryCacheHit})
 	}
-	endFindPath(map[string]any{"cache_hit": discoveryCacheHit})
 
 	endWitness := trace.span("witness creation", nil)
 	publicInput, err := ownershipdest.PublicInputForCredentialDestination(target, destination)
@@ -1727,7 +1753,7 @@ func searchOptions(req searchRequest) ownership.SearchOptions {
 		opts.MaxAccount = 9
 	}
 	if opts.MaxIndex == 0 {
-		opts.MaxIndex = 999
+		opts.MaxIndex = 5000
 	}
 	if req.Account != nil {
 		opts.Account = *req.Account

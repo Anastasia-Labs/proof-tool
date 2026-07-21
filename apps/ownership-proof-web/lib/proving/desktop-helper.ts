@@ -71,7 +71,7 @@ export async function proveDestinationViaHelper(input: DesktopHelperProveInput):
         requests: uniqueRequests,
         search: {
           max_account: 9,
-          max_index: 999,
+          max_index: 5000,
         },
         include_debug_path: false,
       }),

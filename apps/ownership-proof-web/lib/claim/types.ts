@@ -119,11 +119,19 @@ export type ClaimDraftDestinationOutput = {
   value: AssetMap;
 };
 
+export type ClaimProofPath = {
+  account: number;
+  role: number;
+  index: number;
+};
+
 export type ClaimProofRequest = {
   out_ref: string;
   target_credential: string;
   destination_address_encoding: typeof DESTINATION_ADDRESS_V1_ENCODING;
   destination_address: string;
+  /** When set, browser proving skips credential discovery for this request. */
+  path?: ClaimProofPath;
 };
 
 export type ClaimDraftResponse = {

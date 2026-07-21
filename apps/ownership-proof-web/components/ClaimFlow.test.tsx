@@ -717,7 +717,7 @@ describe("ClaimFlow", () => {
         expect(body).toMatchObject({
           profile: "single-destination",
           requests: draft.proofRequests,
-          search: { max_account: 9, max_index: 999 },
+          search: { max_account: 9, max_index: 5000 },
           include_debug_path: false,
         });
         expect(body).not.toHaveProperty("path");

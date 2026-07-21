@@ -160,22 +160,26 @@ export async function proveDestinationInBrowser(
     input.signal?.addEventListener("abort", onAbort);
 
     masterXPrvHex = bytesToHex(input.masterXPrv);
-    const discovery = await client.discover(
-      buildDiscoveryRequestJson(masterXPrvHex, input.draft.proofRequests),
-      (progress) => {
-        input.onProgress?.({
-          provider: "browser-wasm",
-          stage: progress.stage ?? "find-path",
-          frac: progress.frac,
-          current: total > 0 ? 1 : 0,
-          total,
-          engine: "local-key-discovery",
-          discovery: workerDiscoveryMetrics(progress),
-        });
-      },
-    );
-    if (discovery.ok !== true) {
-      throw new Error("The browser could not locate the requested credential keys.");
+    if (!allProofRequestsHavePath(input.draft.proofRequests)) {
+      const discovery = await client.discover(
+        buildDiscoveryRequestJson(masterXPrvHex, input.draft.proofRequests),
+        (progress) => {
+          input.onProgress?.({
+            provider: "browser-wasm",
+            stage: progress.stage ?? "find-path",
+            frac: progress.frac,
+            current: total > 0 ? 1 : 0,
+            total,
+            engine: "local-key-discovery",
+            discovery: workerDiscoveryMetrics(progress),
+          });
+        },
+      );
+      if (discovery.ok !== true) {
+        throw new Error(
+          "The browser could not locate the requested credential keys.",
+        );
+      }
     }
     input.onProgress?.({
       provider: "browser-wasm",
@@ -500,7 +504,7 @@ function buildDiscoveryRequestJson(masterXPrvHex: string, requests: ClaimProofRe
     target_credentials_hex: [...new Set(requests.map((request) => request.target_credential))],
     search: {
       max_account: 9,
-      max_index: 999,
+      max_index: 5000,
     },
   });
 }
@@ -526,24 +530,45 @@ function finiteProgressNumber(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
+function allProofRequestsHavePath(requests: ClaimProofRequest[]): boolean {
+  return (
+    requests.length > 0 &&
+    requests.every(
+      (request) =>
+        request.path != null &&
+        Number.isInteger(request.path.account) &&
+        Number.isInteger(request.path.role) &&
+        Number.isInteger(request.path.index),
+    )
+  );
+}
+
 function buildProveRequestJson(
   descriptor: BrowserProvingDescriptor,
   workerCount: number,
   masterXPrvHex: string,
   request: ClaimProofRequest,
 ): string {
-  return JSON.stringify({
+  const body: Record<string, unknown> = {
     master_xprv_hex: masterXPrvHex,
     target_credential_hex: request.target_credential,
     destination_address_hex: request.destination_address,
     search: {
       max_account: 9,
-      max_index: 999,
+      max_index: 5000,
     },
     artifacts: buildArtifactsBlock(descriptor),
     tuning: buildTuningBlock(descriptor, workerCount),
     include_debug_path: false,
-  });
+  };
+  if (request.path != null) {
+    body.path = {
+      account: request.path.account,
+      role: request.path.role,
+      index: request.path.index,
+    };
+  }
+  return JSON.stringify(body);
 }
 
 function buildTuningBlock(

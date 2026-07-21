@@ -55,7 +55,7 @@ func TestGenerateDestinationProofsAgainstInstalledBundle(t *testing.T) {
 		}},
 		Search: ownership.SearchOptions{
 			Account: -1, Role: -1, Index: -1,
-			MaxAccount: 9, MaxIndex: 999,
+			MaxAccount: 9, MaxIndex: defaultMaxIndex,
 		},
 	}
 

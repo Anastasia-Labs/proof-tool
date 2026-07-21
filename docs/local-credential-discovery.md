@@ -49,13 +49,24 @@ Tests cover fixed boundary vectors, the CIP-11 role-2 vector, randomized valid
 masters and paths through roles 0 to 5, and canonical private re-verification
 of every production match.
 
+## Explicit path (skip search)
+
+Callers that already know the CIP-1852 `account` / `role` / `index` (for
+example a prior wallet scan) may pass an explicit `path` on the
+`proveDestination` request. When present, the prover skips discovery and the
+worker discovery cache, verifies that the master XPrv derives the target
+credential at that path (roles 0–2 only), then builds the witness. Omitting
+`path` keeps the automatic search below.
+
 ## Search order and bounds
 
-The default bounds remain accounts 0 through 9 and indexes 0 through 999. The
-schedule is index-major and role-prioritized:
+Browser / WASM proving and the desktop helper both default to accounts 0
+through 9 and indexes 0 through 5000 (aligned with a deep payment-key scan)
+unless the caller overrides `max_index`. The schedule is index-major and
+role-prioritized:
 
 ```text
-indexes 0..19, then 20..99, then 100..999
+indexes 0..19, then 20..99, then 100..MaxIndex
   for each index:
     role 0 across accounts 0..9
     role 1 across accounts 0..9
@@ -65,12 +76,13 @@ indexes 0..19, then 20..99, then 100..999
 This finds account 3 / role 0 / index 0 after four candidates, rather than
 exhausting thousands of high indexes under earlier accounts. Role 2 remains in
 the automatic search and an account-3 stake key at index 0 is reached after 24
-candidates. The full bounded miss is 30,000 candidates.
+candidates. A full bounded miss is `10 × 3 × (MaxIndex + 1)` candidates
+(150,030 for the shared browser/helper default of 5000).
 
 The 0–19 band is a priority tier, not a correctness cutoff. Cardano wallet gap
 conventions concern address usage/history; this local proof search has no
 trusted transaction-history oracle, so it continues through the configured
-999 bound.
+`max_index` bound.
 
 ## Progress, cancellation, and privacy
 

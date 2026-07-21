@@ -443,6 +443,49 @@ describe("proveDestinationInBrowser", () => {
     expect(request).not.toHaveProperty("artifacts");
   });
 
+  it("skips discovery when every proof request supplies an explicit path", async () => {
+    const draft = draftWith(2);
+    draft.proofRequests = draft.proofRequests.map((request, index) => ({
+      ...request,
+      path: { account: index, role: 0, index: 7 + index },
+    }));
+    const worker = new FakeProverWorker({
+      init: (m) => [{ id: m.id as string, type: "ready" }],
+      preflight: (m) =>
+        readyPreflight().map((response) => ({ ...response, id: m.id as string })),
+      prove: (m) => [
+        {
+          id: m.id as string,
+          type: "prove-result",
+          result: { verified_locally: true, artifact: proveArtifact() },
+        },
+      ],
+    });
+    await proveDestinationInBrowser(
+      {
+        masterXPrv,
+        draft,
+        expectedVkHash: EXPECTED_VK_HASH,
+        browserProving: descriptor(),
+      },
+      { createWorker: () => worker },
+    );
+
+    expect(worker.seen.filter((message) => message.type === "discover")).toHaveLength(
+      0,
+    );
+    const proveMessages = worker.seen.filter((message) => message.type === "prove");
+    expect(proveMessages).toHaveLength(2);
+    for (const [index, message] of proveMessages.entries()) {
+      const request = JSON.parse(String(message.requestJson));
+      expect(request.path).toEqual({
+        account: index,
+        role: 0,
+        index: 7 + index,
+      });
+    }
+  });
+
   it("sends acknowledged W1/W2/W3/W5/W6/W7 options to both preflight and prove", async () => {
     vi.stubGlobal("navigator", { hardwareConcurrency: 32, deviceMemory: 8 });
     const worker = new FakeProverWorker({

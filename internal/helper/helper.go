@@ -29,6 +29,10 @@ const (
 
 	DestinationProfileSingle       = "single-destination"
 	DestinationPreflightCapability = "prove-destination-preflight-v1"
+
+	// defaultMaxIndex is the CIP-1852 soft-index upper bound when the client
+	// omits max_index. Kept in sync with browser/WASM discovery (5000).
+	defaultMaxIndex uint32 = 5000
 )
 
 type ProveRequest struct {
@@ -572,7 +576,7 @@ func buildSearchOptions(req ProveRequest) (ownership.SearchOptions, error) {
 	if req.MaxAccount != nil {
 		maxAccount = *req.MaxAccount
 	}
-	maxIndex := uint32(999)
+	maxIndex := defaultMaxIndex
 	if req.MaxIndex != nil {
 		maxIndex = *req.MaxIndex
 	}
@@ -587,7 +591,7 @@ func buildSearchOptions(req ProveRequest) (ownership.SearchOptions, error) {
 
 func buildDestinationSearchOptions(req *DestinationSearchRequest) ownership.SearchOptions {
 	maxAccount := uint32(9)
-	maxIndex := uint32(999)
+	maxIndex := defaultMaxIndex
 	if req != nil {
 		if req.MaxAccount != nil {
 			maxAccount = *req.MaxAccount
