@@ -233,8 +233,10 @@ creation. It first removes any stale authorization for the exact local origin
 through Lace Settings → Authorized DApps; this happens before the journey
 starts at the landing page. The journey still selects and connects Lace
 through the visible UI. Lace 2.1.1 connection approval selects Source Account,
-chooses the wallet by its configured label, captures the extension review, and
-then authorizes.
+chooses the wallet by its configured label, or the sole unambiguous source
+account after that wallet was preselected, captures the extension review, and
+then authorizes. The app-side credential check still has to match the configured
+role before the journey continues.
 
 After the impacted scan, the runner opens Lace Settings → Authorized DApps,
 captures the exact app-origin connection, disconnects it, switches to
