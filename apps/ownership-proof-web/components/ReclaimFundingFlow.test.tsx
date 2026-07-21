@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { I18nProvider } from "./I18nProvider";
 import { ReclaimFundingFlow } from "./ReclaimFundingFlow";
 
 const credential = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
@@ -113,6 +114,20 @@ describe("ReclaimFundingFlow", () => {
     expect(document.querySelector(`[data-lock-funds-state="${fixtureState}"]`)).toBeInTheDocument();
     expect((await screen.findAllByText(expectedText)).length).toBeGreaterThan(0);
     expect(screen.queryByRole("link", { name: /^Proof$/i })).not.toBeInTheDocument();
+  });
+
+  it("renders the transaction review fixture in Japanese", async () => {
+    window.history.replaceState(null, "", "/jp/reclaim?fixtureState=review-built");
+
+    render(
+      <I18nProvider locale="ja">
+        <ReclaimFundingFlow />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "トランザクションを確認", level: 1 })).toBeInTheDocument();
+    expect(screen.getByText(/以下のトランザクション内容を確認してください/u)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "署名して送信" })).toBeInTheDocument();
   });
 
   it("keeps Build Transaction disabled with a visible reason until a valid credential is entered", async () => {

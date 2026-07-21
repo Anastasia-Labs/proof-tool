@@ -7,12 +7,12 @@ import { useEffect } from "react";
 // fragment validation) lives in the claim flow, so forward the fragment
 // there. `location.replace` keeps the landing page out of history, and the
 // fragment never leaves the browser.
-export function HelperPairingForward() {
+export function HelperPairingForward({ claimPath = "/claim" }: { claimPath?: "/claim" | "/jp/claim" }) {
   useEffect(() => {
     const { hash } = window.location;
     if (/[#&]helper=/u.test(hash) && /[#&]pair=/u.test(hash)) {
-      window.location.replace(`/claim${hash}`);
+      window.location.replace(`${claimPath}${hash}`);
     }
-  }, []);
+  }, [claimPath]);
   return null;
 }

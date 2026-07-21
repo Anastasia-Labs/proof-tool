@@ -43,6 +43,8 @@ import {
   ReclaimSummaryTiles,
 } from "./ReclaimShell";
 import type { ReclaimShellStep, ReclaimShellStepStatus, ReclaimSummaryTile } from "./ReclaimShell";
+import { localizedPath } from "../lib/i18n/locales";
+import { Localize, useAppLocale } from "./I18nProvider";
 
 type CardanoWalletProvider = {
   name?: string;
@@ -121,6 +123,7 @@ const lockFundsSteps: LockFundsStep[] = [
 ];
 
 export function ReclaimFundingFlow() {
+  const locale = useAppLocale();
   const [fixtureState, setFixtureState] = useState<LockFundsVisualState | null | undefined>(undefined);
   const [deployment, setDeployment] = useState<DeploymentResponse | null>(null);
   const [deploymentLoading, setDeploymentLoading] = useState(true);
@@ -560,7 +563,7 @@ export function ReclaimFundingFlow() {
                   <RefreshCw size={21} aria-hidden="true" />
                   Lock another batch
                 </button>
-                <a className="claim-secondary-button lock-claim-link" href="/claim">
+                <a className="claim-secondary-button lock-claim-link" href={localizedPath(locale, "/claim")}>
                   Go to Claim funds
                   <Send size={20} aria-hidden="true" />
                 </a>
@@ -1540,157 +1543,165 @@ function TokenPickerModal({
     BigInt(selectedQuantity) <= BigInt(selectedOption.available);
 
   return (
-    <div className="lock-token-modal-backdrop">
-      <section className="lock-token-modal" role="dialog" aria-modal="true" aria-labelledby="lock-token-modal-title">
-        <header className="lock-token-modal-header">
-          <div>
-            <h2 id="lock-token-modal-title">Add token from wallet</h2>
-            <p>Choose a native asset held by the connected funding wallet.</p>
-          </div>
-          <button className="claim-icon-button" type="button" onClick={onClose} aria-label="Close token selector">
-            <X size={19} aria-hidden="true" />
-          </button>
-        </header>
+    <Localize>
+      <div className="lock-token-modal-backdrop">
+        <section className="lock-token-modal" role="dialog" aria-modal="true" aria-labelledby="lock-token-modal-title">
+          <header className="lock-token-modal-header">
+            <div>
+              <h2 id="lock-token-modal-title">Add token from wallet</h2>
+              <p>Choose a native asset held by the connected funding wallet.</p>
+            </div>
+            <button className="claim-icon-button" type="button" onClick={onClose} aria-label="Close token selector">
+              <X size={19} aria-hidden="true" />
+            </button>
+          </header>
 
-        <div className="lock-token-modal-body">
-          <div className="lock-token-picker-list">
-            <label className="lock-token-search">
-              <span>Search policy ID or token name</span>
-              <div>
-                <Search size={18} aria-hidden="true" />
-                <input
-                  value={search}
-                  onChange={(event) => onSearch(event.target.value)}
-                  placeholder="Search policy ID or token name"
-                />
-              </div>
-            </label>
-
-            {!inventory ? (
-              <div className="lock-token-empty-state">
-                <strong>Wallet inventory not loaded</strong>
-                <p>Refresh the connected CIP-30 wallet inventory before choosing a native asset.</p>
-                <button
-                  className="claim-secondary-button"
-                  type="button"
-                  onClick={onRefresh}
-                  disabled={!canRefreshInventory || assetsLoading}
-                >
-                  {assetsLoading ? (
-                    <Loader2 className="spin" size={18} aria-hidden="true" />
-                  ) : (
-                    <RefreshCw size={18} aria-hidden="true" />
-                  )}
-                  Refresh wallet inventory
-                </button>
-              </div>
-            ) : filteredOptions.length === 0 ? (
-              <div className="lock-token-empty-state">
-                <strong>No matching native assets</strong>
-                <p>
-                  {search.trim()
-                    ? "No wallet asset matches that search."
-                    : "This connected wallet inventory has no native tokens."}
-                </p>
-              </div>
-            ) : (
-              <div className="lock-token-table" role="group" aria-label="Wallet native assets">
-                <div className="lock-token-table-head">
-                  <span>Token</span>
-                  <span>Available</span>
-                  <span>Unit</span>
-                  <span>Action</span>
-                </div>
-                {filteredOptions.map((option) => (
-                  <div
-                    className={`lock-token-table-row ${selectedOption?.unit === option.unit ? "selected" : ""}`}
-                    key={option.unit}
-                  >
-                    <div>
-                      <strong>{option.label}</strong>
-                      <small>{abbreviateMiddle(option.policyId, 18)}</small>
-                    </div>
-                    <strong>{option.available}</strong>
-                    <code>{abbreviateMiddle(option.unit, 22)}</code>
-                    <button className="claim-secondary-button" type="button" onClick={() => onSelect(option.unit)}>
-                      Select
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <aside className="lock-token-selection" aria-label="Selected native asset">
-            {selectedOption ? (
-              <>
-                <span>Selected asset</span>
-                <strong>{selectedOption.label}</strong>
-                <dl>
-                  <div>
-                    <dt>Available</dt>
-                    <dd>{selectedOption.available}</dd>
-                  </div>
-                  <div>
-                    <dt>Unit</dt>
-                    <dd>
-                      <code>{selectedOption.unit}</code>
-                    </dd>
-                  </div>
-                </dl>
-                <label className="lock-field">
-                  <span>Amount to lock</span>
+          <div className="lock-token-modal-body">
+            <div className="lock-token-picker-list">
+              <label className="lock-token-search">
+                <span>Search policy ID or token name</span>
+                <div>
+                  <Search size={18} aria-hidden="true" />
                   <input
-                    value={selectedQuantity}
-                    onChange={(event) => onQuantityChange(event.target.value)}
-                    inputMode="numeric"
+                    value={search}
+                    onChange={(event) => onSearch(event.target.value)}
+                    placeholder="Search policy ID or token name"
                   />
-                </label>
-                {tokenPickerError ? <p className="lock-token-error">{tokenPickerError}</p> : null}
-                <button className="claim-primary-button" type="button" onClick={onAdd} disabled={!quantityOk}>
-                  Add token
-                </button>
-              </>
-            ) : (
-              <div className="lock-token-empty-state compact">
-                <strong>Select a wallet asset</strong>
-                <p>Choose a token from the inventory list to fill its exact asset unit.</p>
-              </div>
-            )}
-          </aside>
-        </div>
+                </div>
+              </label>
 
-        <footer className="lock-token-modal-footer">
-          <button className="lock-token-link-button" type="button" onClick={onManual}>
-            Enter unit manually
-          </button>
-          <button className="claim-secondary-button" type="button" onClick={onClose}>
-            Cancel
-          </button>
-        </footer>
-      </section>
-    </div>
+              {!inventory ? (
+                <div className="lock-token-empty-state">
+                  <strong>Wallet inventory not loaded</strong>
+                  <p>Refresh the connected CIP-30 wallet inventory before choosing a native asset.</p>
+                  <button
+                    className="claim-secondary-button"
+                    type="button"
+                    onClick={onRefresh}
+                    disabled={!canRefreshInventory || assetsLoading}
+                  >
+                    {assetsLoading ? (
+                      <Loader2 className="spin" size={18} aria-hidden="true" />
+                    ) : (
+                      <RefreshCw size={18} aria-hidden="true" />
+                    )}
+                    Refresh wallet inventory
+                  </button>
+                </div>
+              ) : filteredOptions.length === 0 ? (
+                <div className="lock-token-empty-state">
+                  <strong>No matching native assets</strong>
+                  <p>
+                    {search.trim()
+                      ? "No wallet asset matches that search."
+                      : "This connected wallet inventory has no native tokens."}
+                  </p>
+                </div>
+              ) : (
+                <div className="lock-token-table" role="group" aria-label="Wallet native assets">
+                  <div className="lock-token-table-head">
+                    <span>Token</span>
+                    <span>Available</span>
+                    <span>Unit</span>
+                    <span>Action</span>
+                  </div>
+                  {filteredOptions.map((option) => (
+                    <div
+                      className={`lock-token-table-row ${selectedOption?.unit === option.unit ? "selected" : ""}`}
+                      key={option.unit}
+                    >
+                      <div>
+                        <strong>{option.label}</strong>
+                        <small>{abbreviateMiddle(option.policyId, 18)}</small>
+                      </div>
+                      <strong>{option.available}</strong>
+                      <code>{abbreviateMiddle(option.unit, 22)}</code>
+                      <button className="claim-secondary-button" type="button" onClick={() => onSelect(option.unit)}>
+                        Select
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <aside className="lock-token-selection" aria-label="Selected native asset">
+              {selectedOption ? (
+                <>
+                  <span>Selected asset</span>
+                  <strong>{selectedOption.label}</strong>
+                  <dl>
+                    <div>
+                      <dt>Available</dt>
+                      <dd>{selectedOption.available}</dd>
+                    </div>
+                    <div>
+                      <dt>Unit</dt>
+                      <dd>
+                        <code>{selectedOption.unit}</code>
+                      </dd>
+                    </div>
+                  </dl>
+                  <label className="lock-field">
+                    <span>Amount to lock</span>
+                    <input
+                      value={selectedQuantity}
+                      onChange={(event) => onQuantityChange(event.target.value)}
+                      inputMode="numeric"
+                    />
+                  </label>
+                  {tokenPickerError ? <p className="lock-token-error">{tokenPickerError}</p> : null}
+                  <button className="claim-primary-button" type="button" onClick={onAdd} disabled={!quantityOk}>
+                    Add token
+                  </button>
+                </>
+              ) : (
+                <div className="lock-token-empty-state compact">
+                  <strong>Select a wallet asset</strong>
+                  <p>Choose a token from the inventory list to fill its exact asset unit.</p>
+                </div>
+              )}
+            </aside>
+          </div>
+
+          <footer className="lock-token-modal-footer">
+            <button className="lock-token-link-button" type="button" onClick={onManual}>
+              Enter unit manually
+            </button>
+            <button className="claim-secondary-button" type="button" onClick={onClose}>
+              Cancel
+            </button>
+          </footer>
+        </section>
+      </div>
+    </Localize>
   );
 }
 
 function AssetList({ assets }: { assets: AssetMap }) {
   const rows = sortAssets(assets);
   if (rows.length === 0) {
-    return <p className="claim-muted">No assets selected.</p>;
+    return (
+      <Localize>
+        <p className="claim-muted">No assets selected.</p>
+      </Localize>
+    );
   }
   return (
-    <div className="lock-asset-table">
-      <div className="lock-asset-table-head">
-        <span>Asset</span>
-        <span>Quantity</span>
-      </div>
-      {rows.map(([unit, quantity]) => (
-        <div className="lock-asset-table-row" key={unit}>
-          <span>{formatAssetUnit(unit)}</span>
-          <strong>{unit === LOVELACE_UNIT ? formatLovelace(quantity) : quantity}</strong>
+    <Localize>
+      <div className="lock-asset-table">
+        <div className="lock-asset-table-head">
+          <span>Asset</span>
+          <span>Quantity</span>
         </div>
-      ))}
-    </div>
+        {rows.map(([unit, quantity]) => (
+          <div className="lock-asset-table-row" key={unit}>
+            <span>{formatAssetUnit(unit)}</span>
+            <strong>{unit === LOVELACE_UNIT ? formatLovelace(quantity) : quantity}</strong>
+          </div>
+        ))}
+      </div>
+    </Localize>
   );
 }
 

@@ -12,7 +12,7 @@ export default async function CredentialProofDevPage() {
     notFound();
   }
 
-  const { ProofFlow } = await import("../../../components/ProofFlow");
+  const { ProofFlow } = await import("../../../../components/ProofFlow");
 
   return <ProofFlow />;
 }

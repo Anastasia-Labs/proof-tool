@@ -269,6 +269,33 @@ describe("real Lace profile driver", () => {
     expect(clicks).toEqual(["dropdown", "account:compromised_user", "before-authorize", "authorize"]);
   });
 
+  it("accepts one unambiguous Lace source account after the wallet was preselected", async () => {
+    const compromised = deriveRoleState({
+      role: "compromised_user",
+      mnemonic: words("cable", 12),
+      label: "Restored Wallet #2",
+    });
+    const driver = new RealLaceProfileDriver({
+      browserChannel: "chromium",
+      extensionDir: "/tmp/lace",
+      extensionRoute: "expo/index.html",
+      manifestPath: "/tmp/lace/manifest.json",
+      providerId: "lace",
+      providerName: "Lace",
+      roleLabels: { compromised_user: "Restored Wallet #2" },
+      roleStates: new Map([["compromised_user", compromised]]),
+      userDataDir: "/tmp/profile",
+      walletPassword: "test-password",
+    });
+    const { context, clicks } = fakeLaceDappConnectContext("Restored Wallet #2", ["Source Account"]);
+    driver.context = context;
+    driver.extensionId = "laceextensionid";
+
+    await driver.approveDappConnection("compromised_user");
+
+    expect(clicks).toEqual(["dropdown", "account:Source Account", "authorize"]);
+  }, 10_000);
+
   it("disconnects the exact local origin through Lace Authorized DApps", async () => {
     const safe = deriveRoleState({
       role: "safe_claim_destination",
@@ -369,7 +396,7 @@ function fakeExtensionContext() {
   };
 }
 
-function fakeLaceDappConnectContext(accountLabel) {
+function fakeLaceDappConnectContext(accountLabel, availableAccountLabels = [accountLabel]) {
   const clicks = [];
   let dropdownOpen = false;
   const page = {
@@ -385,11 +412,17 @@ function fakeLaceDappConnectContext(accountLabel) {
           return makeLocator(kind, hasText);
         },
         filter(options) {
-          return makeLocator(kind, options.hasText);
+          return makeLocator("account", options.hasText);
+        },
+        async count() {
+          return kind === "account-list" ? availableAccountLabels.length : 1;
+        },
+        nth(index) {
+          return makeLocator("account", availableAccountLabels[index]);
         },
         async isVisible() {
           if (kind === "dropdown" || kind === "authorize") return true;
-          if (kind === "account") return dropdownOpen && hasText === accountLabel;
+          if (kind === "account") return dropdownOpen && availableAccountLabels.includes(hasText);
           return false;
         },
         async click() {
@@ -405,7 +438,7 @@ function fakeLaceDappConnectContext(accountLabel) {
       });
       if (selector === '[data-testid="dropdown-button"]') return makeLocator("dropdown");
       if (selector === '[data-testid="dapp-connector-primary-button"]') return makeLocator("authorize");
-      if (selector === '[data-testid^="dropdown-menu-item-"]') return makeLocator("account");
+      if (selector === '[data-testid^="dropdown-menu-item-"]') return makeLocator("account-list");
       return makeLocator("missing");
     },
   };

@@ -738,12 +738,24 @@ async function approveLaceDappConnection(context, extensionId, accountLabel, fal
         continue;
       }
       await accountDropdown.click();
-      const account = page.locator('[data-testid^="dropdown-menu-item-"]').filter({ hasText: accountLabel }).first();
-      if (!(await waitUntilVisible(account, 5_000))) {
-        throw new PreprodRealLaceDriverError(
-          "lace_connection_account_missing",
-          `Lace connection prompt does not expose the configured account ${accountLabel}.`,
-        );
+      const accountOptions = page.locator('[data-testid^="dropdown-menu-item-"]');
+      const configuredAccount = accountOptions.filter({ hasText: accountLabel }).first();
+      let account = configuredAccount;
+      if (!(await waitUntilVisible(configuredAccount, 5_000))) {
+        const visibleAccounts = [];
+        for (let index = 0; index < (await accountOptions.count()); index += 1) {
+          const candidate = accountOptions.nth(index);
+          if (await safeVisible(candidate)) {
+            visibleAccounts.push(candidate);
+          }
+        }
+        if (visibleAccounts.length !== 1) {
+          throw new PreprodRealLaceDriverError(
+            "lace_connection_account_missing",
+            `Lace connection prompt does not expose the configured account ${accountLabel} or one unambiguous source account.`,
+          );
+        }
+        account = visibleAccounts[0];
       }
       await account.click();
       if (onBeforeApprove) {

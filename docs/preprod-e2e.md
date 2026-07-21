@@ -233,14 +233,24 @@ creation. It first removes any stale authorization for the exact local origin
 through Lace Settings → Authorized DApps; this happens before the journey
 starts at the landing page. The journey still selects and connects Lace
 through the visible UI. Lace 2.1.1 connection approval selects Source Account,
-chooses the wallet by its configured label, captures the extension review, and
-then authorizes.
+chooses the wallet by its configured label, or the sole unambiguous source
+account after that wallet was preselected, captures the extension review, and
+then authorizes. The app-side credential check still has to match the configured
+role before the journey continues.
 
 After the impacted scan, the runner opens Lace Settings → Authorized DApps,
 captures the exact app-origin connection, disconnects it, switches to
 `safe_claim_dest`, and reconnects through the visible safe-wallet UI. A
 missing approval dialog is a failure, so the runner cannot silently reuse the
 impacted account.
+
+The provider-backed scan must contain the exact prepared outref. The lane then
+isolates that outref in browser responses through the post-submit rescan so a
+long-lived Lace test profile cannot accidentally include and spend unrelated,
+still-valid test claims or keep the isolated journey open after its fixture is
+spent. The initial response must contain the prepared outref exactly once;
+later responses may omit it only after submission. Transaction review and
+submission must still contain exactly that prepared input.
 
 The app also refreshes wallet discovery on the Cardano initialization event,
 focus or visibility changes, and a bounded ten-second fallback poll to handle

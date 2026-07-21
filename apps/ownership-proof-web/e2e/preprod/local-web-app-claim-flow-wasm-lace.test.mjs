@@ -8,7 +8,11 @@ import {
   pinLocalDeploymentManifest,
   resolveOpenPullRequest,
 } from "./local-web-app-claim-flow-wasm-lace.mjs";
-import { disposePageRoutes, prepareLaceRoleBeforeNavigation } from "./web-app-claim-flow-wasm-lace.mjs";
+import {
+  disposePageRoutes,
+  isolatePreparedClaimResponse,
+  prepareLaceRoleBeforeNavigation,
+} from "./web-app-claim-flow-wasm-lace.mjs";
 
 const commitSha = "a".repeat(40);
 
@@ -132,6 +136,32 @@ describe("local production PR claim flow", () => {
         },
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it("isolates the prepared claim when the Lace wallet has other valid claims", () => {
+    const payload = {
+      available: true,
+      page: { cursor: null, limit: 100, nextCursor: "next", total: 2 },
+      utxos: [{ outRefId: "aa#0" }, { outRefId: "BB#1" }],
+    };
+
+    expect(isolatePreparedClaimResponse(payload, "bb#1")).toEqual({
+      available: true,
+      page: { cursor: null, limit: 100, nextCursor: null, total: 1 },
+      utxos: [{ outRefId: "BB#1" }],
+    });
+    expect(payload.page).toMatchObject({ nextCursor: "next", total: 2 });
+    expect(() => isolatePreparedClaimResponse(payload, "cc#2")).toThrowError(
+      expect.objectContaining({ code: "prepared_claim_not_discovered" }),
+    );
+    expect(isolatePreparedClaimResponse(payload, "cc#2", { allowMissing: true })).toEqual({
+      available: true,
+      page: { cursor: null, limit: 100, nextCursor: null, total: 0 },
+      utxos: [],
+    });
+    expect(() => isolatePreparedClaimResponse({ available: false }, "bb#1")).toThrowError(
+      expect.objectContaining({ code: "prepared_claim_index_response_invalid" }),
+    );
   });
 
   it("requires a clean named branch with an existing open PR", () => {
