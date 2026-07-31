@@ -296,6 +296,34 @@ describe("real Lace profile driver", () => {
     expect(clicks).toEqual(["dropdown", "account:Source Account", "authorize"]);
   }, 10_000);
 
+  it("fails closed when two real Lace account rows do not match the configured role", async () => {
+    const compromised = deriveRoleState({
+      role: "compromised_user",
+      mnemonic: words("cable", 12),
+      label: "missing_role",
+    });
+    const driver = new RealLaceProfileDriver({
+      browserChannel: "chromium",
+      extensionDir: "/tmp/lace",
+      extensionRoute: "expo/index.html",
+      manifestPath: "/tmp/lace/manifest.json",
+      providerId: "lace",
+      providerName: "Lace",
+      roleLabels: { compromised_user: "missing_role" },
+      roleStates: new Map([["compromised_user", compromised]]),
+      userDataDir: "/tmp/profile",
+      walletPassword: "test-password",
+    });
+    const { context, clicks } = fakeLaceDappConnectContext("missing_role", ["Source Account", "Safe Account"]);
+    driver.context = context;
+    driver.extensionId = "laceextensionid";
+
+    await expect(driver.approveDappConnection("compromised_user")).rejects.toMatchObject({
+      code: "lace_connection_account_missing",
+    });
+    expect(clicks).toEqual(["dropdown"]);
+  });
+
   it("disconnects the exact local origin through Lace Authorized DApps", async () => {
     const safe = deriveRoleState({
       role: "safe_claim_destination",
@@ -399,6 +427,11 @@ function fakeExtensionContext() {
 function fakeLaceDappConnectContext(accountLabel, availableAccountLabels = [accountLabel]) {
   const clicks = [];
   let dropdownOpen = false;
+  const accountNodes = availableAccountLabels.flatMap((label, index) => [
+    { kind: "account", label, testId: `dropdown-menu-item-${index}` },
+    { kind: "account-child", label: label.slice(0, 2).toUpperCase(), testId: `dropdown-menu-item-${index}-avatar` },
+    { kind: "account-child", label, testId: `dropdown-menu-item-${index}-text` },
+  ]);
   const page = {
     url() {
       return "chrome-extension://laceextensionid/expo/index.html#/cardano-dapp-connect";
@@ -407,22 +440,27 @@ function fakeLaceDappConnectContext(accountLabel, availableAccountLabels = [acco
       return false;
     },
     locator(selector) {
-      const makeLocator = (kind, hasText = null) => ({
+      const makeLocator = (kind, accountNode = null) => ({
         first() {
-          return makeLocator(kind, hasText);
-        },
-        filter(options) {
-          return makeLocator("account", options.hasText);
+          return makeLocator(kind, accountNode);
         },
         async count() {
-          return kind === "account-list" ? availableAccountLabels.length : 1;
+          return kind === "account-list" ? accountNodes.length : 1;
         },
         nth(index) {
-          return makeLocator("account", availableAccountLabels[index]);
+          return makeLocator(accountNodes[index]?.kind ?? "missing", accountNodes[index]);
+        },
+        async getAttribute(name) {
+          if (name === "data-testid") return accountNode?.testId ?? null;
+          if (name === "aria-label" && kind === "account") return accountNode?.label ?? null;
+          return null;
+        },
+        async innerText() {
+          return accountNode?.label ?? "";
         },
         async isVisible() {
           if (kind === "dropdown" || kind === "authorize") return true;
-          if (kind === "account") return dropdownOpen && availableAccountLabels.includes(hasText);
+          if (kind === "account" || kind === "account-child") return dropdownOpen;
           return false;
         },
         async click() {
@@ -430,7 +468,7 @@ function fakeLaceDappConnectContext(accountLabel, availableAccountLabels = [acco
             dropdownOpen = true;
             clicks.push("dropdown");
           } else if (kind === "account") {
-            clicks.push(`account:${hasText}`);
+            clicks.push(`account:${accountNode.label}`);
           } else if (kind === "authorize") {
             clicks.push("authorize");
           }
