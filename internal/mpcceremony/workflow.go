@@ -2855,26 +2855,6 @@ func phase2FileLoader(root string, chain Chain, shape Phase2Shape) Phase2Loader 
 	}
 }
 
-func appendedPhase1Loader(root string, chain Chain, domainN uint64, candidate *gnarkmpc.Phase1) Phase1Loader {
-	base := phase1FileLoader(root, chain, domainN)
-	return func(index int) (*gnarkmpc.Phase1, error) {
-		if index == len(chain.Records) {
-			return candidate, nil
-		}
-		return base(index)
-	}
-}
-
-func appendedPhase2Loader(root string, chain Chain, shape Phase2Shape, candidate *gnarkmpc.Phase2) Phase2Loader {
-	base := phase2FileLoader(root, chain, shape)
-	return func(index int) (*gnarkmpc.Phase2, error) {
-		if index == len(chain.Records) {
-			return candidate, nil
-		}
-		return base(index)
-	}
-}
-
 func contributionPhase2Shape(base Phase2Shape) Phase2Shape {
 	shape := base
 	shape.SigmaCKK = slices.Clone(base.SigmaCKK)
