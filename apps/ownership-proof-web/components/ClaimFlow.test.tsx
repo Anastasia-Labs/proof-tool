@@ -1403,6 +1403,28 @@ describe("ClaimFlow", () => {
     expect(screen.getByRole("heading", { name: "Verify this recovery service" })).toBeInTheDocument();
   });
 
+  it("resumes the safe-wallet handoff after refreshing the CIP-30 page bridge", async () => {
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    vi.stubGlobal("fetch", claimFlowFetch());
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+    await connectImpactedAndContinueToSafeWallet();
+    await waitFor(() => expect(window.localStorage.getItem("proof-tool.claim-flow.resume.v1")).not.toBeNull());
+    const snapshot = JSON.parse(window.localStorage.getItem("proof-tool.claim-flow.resume.v1") ?? "null");
+    expect(snapshot).toMatchObject({ screen: "safe-wallet", safeWallet: null, draft: null });
+    expect(snapshot.claimRows).toHaveLength(1);
+
+    cleanup();
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+    expect(await screen.findByText("Resume your claim in progress?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+
+    expect(await screen.findByRole("heading", { name: "Connect safe wallet" })).toBeInTheDocument();
+  });
+
   it("paginates claims beyond page 2 with numbered page buttons", async () => {
     const enable = vi.fn().mockResolvedValue({
       getNetworkId: vi.fn().mockResolvedValue(0),

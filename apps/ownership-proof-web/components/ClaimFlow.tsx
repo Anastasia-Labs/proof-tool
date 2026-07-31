@@ -275,11 +275,11 @@ type ClaimFlowResumeSnapshot = {
   selectedImpactedWallet: string;
   selectedSafeWallet: string;
   impactedWallet: ImpactedWalletSummary | null;
-  safeWallet: SafeWalletSummary;
+  safeWallet: SafeWalletSummary | null;
   claimRows: ClaimRow[];
   claimIndexerTotal: number;
   pendingOutrefs: string[];
-  draft: ClaimDraftResponse;
+  draft: ClaimDraftResponse | null;
   proofArtifacts?: Record<string, unknown>[];
   build?: ClaimBuildResponse | null;
 };
@@ -1130,7 +1130,9 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       return;
     }
     const resumeScreen = resumableClaimScreen(screen);
-    if (!resumeScreen || !draft || !safeWallet) {
+    const canResumeSafeWalletHandoff = resumeScreen === "safe-wallet" && impactedWallet && claimRows.length > 0;
+    const canResumeAfterDestination = resumeScreen !== "safe-wallet" && draft && safeWallet;
+    if (!resumeScreen || (!canResumeSafeWalletHandoff && !canResumeAfterDestination)) {
       return;
     }
     writeClaimFlowResumeSnapshot({
@@ -6896,11 +6898,11 @@ function readClaimFlowResumeSnapshot(): ClaimFlowResumeSnapshot | null {
       !resumableClaimScreen(parsed.screen) ||
       typeof parsed.selectedImpactedWallet !== "string" ||
       typeof parsed.selectedSafeWallet !== "string" ||
-      !parsed.safeWallet ||
-      !parsed.draft ||
+      !parsed.impactedWallet ||
       !Array.isArray(parsed.claimRows) ||
       !Array.isArray(parsed.pendingOutrefs) ||
-      typeof parsed.claimIndexerTotal !== "number"
+      typeof parsed.claimIndexerTotal !== "number" ||
+      (parsed.screen !== "safe-wallet" && (!parsed.safeWallet || !parsed.draft))
     ) {
       return null;
     }
@@ -6912,6 +6914,8 @@ function readClaimFlowResumeSnapshot(): ClaimFlowResumeSnapshot | null {
 
 function resumableClaimScreen(screen: ClaimScreen): ClaimScreen | null {
   switch (screen) {
+    case "safe-wallet":
+      return screen;
     case "helper-unavailable":
     case "create-proofs-generating":
     case "create-proofs-complete":

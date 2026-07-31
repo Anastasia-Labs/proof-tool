@@ -247,10 +247,18 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
 
     await expectHeading(page, "Connect safe wallet");
     await capture("07-safe-wallet.png", page, "safe-wallet");
+    await page.waitForFunction(
+      (storageKey) => Boolean(globalThis.localStorage.getItem(storageKey)),
+      "proof-tool.claim-flow.resume.v1",
+    );
     await walletDriver.disconnectDappOrigin(config.baseUrl, {
       beforeDisconnect: (extensionPage) =>
         capture("08-lace-impacted-disconnect.png", extensionPage, "lace-impacted-disconnect"),
     });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expectHeading(page, "Verify this recovery service");
+    await page.getByRole("button", { name: "Resume", exact: true }).click();
+    await expectHeading(page, "Connect safe wallet");
     await walletDriver.connectRole(page, SAFE_ROLE, "claim-wallet-option");
     await page.getByRole("button", { name: "Connect safe wallet", exact: true }).click();
     await walletDriver.approveDappConnection(SAFE_ROLE, {
