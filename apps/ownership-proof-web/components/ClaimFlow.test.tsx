@@ -1519,6 +1519,36 @@ describe("ClaimFlow", () => {
     expect(await screen.findByRole("heading", { name: "Create proofs" })).toBeInTheDocument();
   });
 
+  it("does not expose safe-wallet confirmation while its claim draft is still pending", async () => {
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex] }),
+    });
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    const base = claimFlowFetch({ draft });
+    let resolveDraft: (response: Response) => void = () => {};
+    const pendingDraft = new Promise<Response>((resolve) => {
+      resolveDraft = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: RequestInfo | URL, init?: RequestInit) =>
+        String(url) === "/claim-api/draft" ? pendingDraft : base(url, init),
+      ),
+    );
+
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+
+    await connectImpactedAndContinueToSafeWallet();
+    fireEvent.click(await findSafeWalletOption());
+    fireEvent.click(screen.getByRole("button", { name: "Connect safe wallet" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Connect safe wallet" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Confirm destination and continue" })).not.toBeInTheDocument();
+
+    await act(async () => resolveDraft(jsonResponse(draft)));
+    expect(await screen.findByRole("button", { name: "Confirm destination and continue" })).toBeInTheDocument();
+  });
+
   it("clears the connected safe wallet when choosing a different wallet", async () => {
     installWallets({
       impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),

@@ -1681,12 +1681,13 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       safeWalletApiRef.current = api;
       setSafeWalletSigningAvailable(true);
       setSafeWalletSigningSessionState("ready");
-      setSafeWallet(walletSummary);
       // Stay on the safe-wallet screen after a successful connect (C17) so the
       // user sees the populated destination panel and confirms it explicitly.
-      // The draft is still created here; only the auto-advance is removed.
+      // Publish the connected destination only after the draft attempt settles
+      // so an early confirmation cannot race the in-flight draft and then be
+      // overwritten by this connection handler's completion.
       await createOrRefreshClaimDraft(walletSummary);
-      setScreen((current) => (current === "insufficient-ada" ? current : "safe-wallet"));
+      setSafeWallet(walletSummary);
     } catch (error) {
       setSafeWallet(null);
       safeWalletApiRef.current = null;
