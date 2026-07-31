@@ -44,6 +44,8 @@ describe("reclaim deployment manifest validation", () => {
     }
     expect(result.deployment.reclaimGlobalProofSlotEncoding).toBe(FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2);
     expect(result.deployment.reclaimGlobalBatchTranscriptVkHash).toBe(manifest.proof.cardano_vk_blake2b256);
+    expect(result.deployment.verifierVkHash).toBe(manifest.proof.cardano_vk_blake2b256);
+    expect(result.deployment.proofVkHash).toBe(manifest.proof.vk_hash);
   });
 
   it("fails closed for incomplete or mismatched statement-bound V2 metadata", () => {
@@ -146,9 +148,9 @@ describe("reclaim deployment manifest validation", () => {
     expect(errorCodes(validateReclaimDeploymentManifest(manifest))).toContain("global_credential_mismatch");
   });
 
-  it("disables readiness for a verifier hash/proof mismatch", () => {
+  it("disables readiness when the on-chain verifier hash is not the Cardano VK hash", () => {
     const manifest = validManifest();
-    manifest.proof.vk_hash = prefixedHash("9");
+    manifest.reclaim_global.verifier_vk_hash = prefixedHash("9");
 
     expect(errorCodes(validateReclaimDeploymentManifest(manifest))).toContain("verifier_hash_mismatch");
   });
@@ -377,7 +379,8 @@ function validManifest(): ReclaimDeploymentManifest {
   const sourceCommit = "abcdef1234567890";
   const globalCredential = hash56("b");
   const paramsPolicy = hash56("d");
-  const verifierHash = prefixedHash("e");
+  const nativeVerifierHash = prefixedHash("e");
+  const cardanoVerifierHash = prefixedHash("1");
 
   return {
     schema: RECLAIM_DEPLOYMENT_SCHEMA,
@@ -395,10 +398,10 @@ function validManifest(): ReclaimDeploymentManifest {
       script_hash: hash56("c"),
       rewarding_credential: globalCredential,
       params_currency_symbol: paramsPolicy,
-      verifier_vk_hash: verifierHash,
+      verifier_vk_hash: cardanoVerifierHash,
       proof_profile: "single-destination",
       proof_slot_encoding: FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2,
-      batch_transcript_vk_hash: prefixedHash("1"),
+      batch_transcript_vk_hash: cardanoVerifierHash,
     },
     params_utxo: {
       tx_hash: hash64("f"),
@@ -412,8 +415,8 @@ function validManifest(): ReclaimDeploymentManifest {
       circuit_id: DESTINATION_CIRCUIT_ID,
       key_version: DESTINATION_KEY_VERSION,
       destination_address_encoding: DESTINATION_ADDRESS_ENCODING,
-      vk_hash: verifierHash,
-      cardano_vk_blake2b256: prefixedHash("1"),
+      vk_hash: nativeVerifierHash,
+      cardano_vk_blake2b256: cardanoVerifierHash,
     },
     batching: {
       default_utxo_count: 6,

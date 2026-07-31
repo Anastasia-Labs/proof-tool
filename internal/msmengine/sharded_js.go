@@ -421,27 +421,48 @@ const rangeFetchConcurrency = 4
 
 // worker is one Web Worker plus a channel keyed by request id for its replies.
 type worker struct {
-	js      js.Value // the Worker object
-	onMsg   js.Func
-	onErr   js.Func
-	id      int
-	mu      sync.Mutex
-	replies chan workerReply
+	js           js.Value // the Worker object
+	onMsg        js.Func
+	onErr        js.Func
+	id           int
+	mu           sync.Mutex
+	stopOnce     sync.Once
+	replies      chan workerReply
+	progressSAB  js.Value
+	progressView js.Value
+	atomics      js.Value
 }
 
 type workerReply struct {
-	id        int
-	partial   []byte
-	err       error
-	computeMS float64
-	timings   map[string]any
-	bytes     map[string]any
+	id           int
+	partial      []byte
+	err          error
+	errorCode    string
+	retryable    bool
+	retryAfterMS int
+	computeMS    float64
+	timings      map[string]any
+	bytes        map[string]any
+}
+
+type sectionTaskExecution struct {
+	worker          *worker
+	reply           workerReply
+	scalarBytes     int
+	scalarMarshalMS float64
+	sabCopyMS       float64
+	queueWaitMS     float64
+	workerMS        float64
+	totalMS         float64
+	attempt         int
 }
 
 // workerPool owns the Web Workers and round-robins shards across them.
 type workerPool struct {
+	mu        sync.RWMutex
 	workers   []*worker
-	closeOnce sync.Once
+	workerURL string
+	closed    bool
 }
 
 // shardedMSM dispatches each MSM across a workerPool. It satisfies MSMEngine.
@@ -501,7 +522,7 @@ func NewShardedWithOptions(workerURL string, cap int, opts Options) (*shardedMSM
 	if prefetchWindow > 4 {
 		prefetchWindow = 4
 	}
-	pool := &workerPool{}
+	pool := &workerPool{workerURL: workerURL}
 	for i := 0; i < n; i++ {
 		w, err := newWorker(g, workerURL, i)
 		if err != nil {
@@ -534,10 +555,13 @@ func NewShardedWithOptions(workerURL string, cap int, opts Options) (*shardedMSM
 func newWorker(g js.Value, workerURL string, id int) (*worker, error) {
 	jsWorker := g.Get("Worker").New(workerURL)
 	w := &worker{
-		js:      jsWorker,
-		id:      id,
-		replies: make(chan workerReply, 1),
+		js:          jsWorker,
+		id:          id,
+		replies:     make(chan workerReply, 1),
+		progressSAB: g.Get("SharedArrayBuffer").New(8),
+		atomics:     g.Get("Atomics"),
 	}
+	w.progressView = g.Get("Int32Array").New(w.progressSAB)
 	w.onMsg = js.FuncOf(func(this js.Value, args []js.Value) any {
 		data := args[0].Get("data")
 		if typ := data.Get("type"); !typ.IsUndefined() {
@@ -546,15 +570,36 @@ func newWorker(g js.Value, workerURL string, id int) (*worker, error) {
 				return nil
 			case "init-error":
 				select {
-				case w.replies <- workerReply{err: errors.New(data.Get("error").String())}:
+				case w.replies <- workerReply{
+					err: errors.New(data.Get("error").String()), errorCode: "worker-initialization",
+					retryable: true,
+				}:
 				default:
 				}
 				return nil
 			}
 		}
 		if errv := data.Get("error"); !errv.IsUndefined() && !errv.IsNull() {
+			errorCode := ""
+			if value := data.Get("error_code"); value.Type() == js.TypeString {
+				errorCode = value.String()
+			}
+			retryable := false
+			if value := data.Get("retryable"); value.Type() == js.TypeBoolean {
+				retryable = value.Bool()
+			}
+			retryAfterMS := 0
+			if value := data.Get("retry_after_ms"); value.Type() == js.TypeNumber {
+				candidate := value.Int()
+				if candidate > 0 && candidate <= 30_000 {
+					retryAfterMS = candidate
+				}
+			}
 			select {
-			case w.replies <- workerReply{id: data.Get("id").Int(), err: errors.New(errv.String())}:
+			case w.replies <- workerReply{
+				id: data.Get("id").Int(), err: errors.New(errv.String()),
+				errorCode: errorCode, retryable: retryable, retryAfterMS: retryAfterMS,
+			}:
 			default:
 			}
 			return nil
@@ -580,7 +625,9 @@ func newWorker(g js.Value, workerURL string, id int) (*worker, error) {
 			}
 		}
 		select {
-		case w.replies <- workerReply{err: errors.New(msg)}:
+		case w.replies <- workerReply{
+			err: errors.New(msg), errorCode: "worker-terminated", retryable: true,
+		}:
 		default:
 		}
 		return nil
@@ -641,8 +688,64 @@ func (s *shardedMSM) Close() error {
 }
 
 func (p *workerPool) close() {
-	p.closeOnce.Do(func() {
-		terminateWorkers(p.workers)
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+	p.closed = true
+	workers := append([]*worker(nil), p.workers...)
+	p.workers = nil
+	p.mu.Unlock()
+	terminateWorkers(workers)
+}
+
+func (p *workerPool) worker(slot int) *worker {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.closed || slot < 0 || slot >= len(p.workers) {
+		return nil
+	}
+	return p.workers[slot]
+}
+
+func (p *workerPool) count() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.workers)
+}
+
+func (p *workerPool) replace(slot int, expected *worker) (*worker, error) {
+	replacement, err := newWorker(js.Global(), p.workerURL, expected.id)
+	if err != nil {
+		return nil, err
+	}
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		replacement.stop()
+		return nil, errors.New("worker pool is closed")
+	}
+	if slot < 0 || slot >= len(p.workers) || p.workers[slot] != expected {
+		p.mu.Unlock()
+		replacement.stop()
+		return nil, errors.New("worker slot changed before replacement")
+	}
+	p.workers[slot] = replacement
+	p.mu.Unlock()
+	expected.stop()
+	return replacement, nil
+}
+
+func (w *worker) stop() {
+	w.stopOnce.Do(func() {
+		if !w.js.IsUndefined() {
+			w.js.Set("onmessage", js.Null())
+			w.js.Set("onerror", js.Null())
+			w.js.Call("terminate")
+		}
+		w.onMsg.Release()
+		w.onErr.Release()
 	})
 }
 
@@ -678,7 +781,7 @@ func (s *shardedMSM) MSMG1(dst *bls12381.G1Jac, points []bls12381.G1Affine, scal
 			ptsBuf := marshalG1Points(points[r[0]:r[1]])
 			scsBuf := marshalScalars(scalars[r[0]:r[1]])
 			marshalMS := elapsedMS(marshalStart)
-			w := s.pool.workers[i%len(s.pool.workers)]
+			w := s.pool.worker(i % s.pool.count())
 			queueStart := time.Now()
 			w.mu.Lock()
 			queueMS := elapsedMS(queueStart)
@@ -765,7 +868,7 @@ func (s *shardedMSM) MSMG2(dst *bls12381.G2Jac, points []bls12381.G2Affine, scal
 			ptsBuf := marshalG2Points(points[r[0]:r[1]])
 			scsBuf := marshalScalars(scalars[r[0]:r[1]])
 			marshalMS := elapsedMS(marshalStart)
-			w := s.pool.workers[i%len(s.pool.workers)]
+			w := s.pool.worker(i % s.pool.count())
 			queueStart := time.Now()
 			w.mu.Lock()
 			queueMS := elapsedMS(queueStart)
@@ -857,7 +960,7 @@ func (s *shardedMSM) MSMG1Ranged(dst *bls12381.G1Jac, n int, fetch FetchG1, scal
 		i, r := i, r
 		go func() {
 			totalStart := time.Now()
-			w := s.pool.workers[i%len(s.pool.workers)]
+			w := s.pool.worker(i % s.pool.count())
 			queueStart := time.Now()
 			w.mu.Lock()
 			queueMS := elapsedMS(queueStart)
@@ -978,7 +1081,7 @@ func (s *shardedMSM) MSMG2Ranged(dst *bls12381.G2Jac, n int, fetch FetchG2, scal
 		i, r := i, r
 		go func() {
 			totalStart := time.Now()
-			w := s.pool.workers[i%len(s.pool.workers)]
+			w := s.pool.worker(i % s.pool.count())
 			queueStart := time.Now()
 			w.mu.Lock()
 			queueMS := elapsedMS(queueStart)
@@ -1094,40 +1197,34 @@ func (s *shardedMSM) MSMG1Section(dst *bls12381.G1Jac, plan *PKSectionPlan, sect
 	ch := make(chan g1res, len(ranges))
 	launch := func(workerSlot, idx int) {
 		r := ranges[idx]
-		w := s.pool.workers[workerSlot]
 		go func() {
-			totalStart := time.Now()
-			scalarStart := time.Now()
-			scsBuf := marshalScalars(scalars[r[0]:r[1]])
-			scalarMS := elapsedMS(scalarStart)
-			queueStart := time.Now()
-			w.mu.Lock()
-			queueMS := elapsedMS(queueStart)
-			sabStart := time.Now()
-			scsSab := newSAB(scsBuf)
-			zeroBytes(scsBuf)
-			sabMS := elapsedMS(sabStart)
-			workerStart := time.Now()
-			reply := w.postSectionAndWaitLocked(idx, false, string(planJSON), section, r, scsSab, s.pinnedDecode, s.optW7, s.chunkPrefetchWindow)
-			zeroSAB(scsSab)
-			workerMS := elapsedMS(workerStart)
-			w.mu.Unlock()
+			execution := s.executeSectionTask(workerSlot, idx, false, string(planJSON), section, r, scalars[r[0]:r[1]])
+			w := execution.worker
+			reply := execution.reply
+			workerID := workerSlot
+			if w != nil {
+				workerID = w.id
+			}
 			fields := map[string]any{
 				"section":               section,
 				"worker_owned_fetch":    true,
 				"point_bytes_from_main": 0,
-				"scalar_bytes":          len(scsBuf),
-				"scalar_marshal_ms":     scalarMS,
-				"sab_copy_ms":           sabMS,
-				"queue_wait_ms":         queueMS,
-				"worker_turnaround_ms":  workerMS,
+				"scalar_bytes":          execution.scalarBytes,
+				"scalar_marshal_ms":     execution.scalarMarshalMS,
+				"sab_copy_ms":           execution.sabCopyMS,
+				"queue_wait_ms":         execution.queueWaitMS,
+				"worker_turnaround_ms":  execution.workerMS,
 				"worker_compute_ms":     reply.computeMS,
-				"total_ms":              elapsedMS(totalStart),
+				"total_ms":              execution.totalMS,
 				"error":                 errorString(reply.err),
+			}
+			if execution.attempt > 1 {
+				fields["attempt"] = execution.attempt
+				fields["attempt_max"] = asyncShardMaxAttempts
 			}
 			addTraceFields(fields, reply.timings)
 			addByteTraceFields(fields, reply.bytes)
-			emitShardTrace("MSMG1Section", "g1", idx, w.id, r, n, fields)
+			emitShardTrace("MSMG1Section", "g1", idx, workerID, r, n, fields)
 			if reply.err != nil {
 				ch <- g1res{idx: idx, workerSlot: workerSlot, r: r, err: reply.err}
 				return
@@ -1144,8 +1241,8 @@ func (s *shardedMSM) MSMG1Section(dst *bls12381.G1Jac, plan *PKSectionPlan, sect
 	var affinityNext []int
 	resultsExpected := len(ranges)
 	if s.optW7 {
-		affinity = newContiguousShardAffinity(len(ranges), len(s.pool.workers))
-		affinityNext = make([]int, len(s.pool.workers))
+		affinity = newContiguousShardAffinity(len(ranges), s.pool.count())
+		affinityNext = make([]int, s.pool.count())
 		resultsExpected = 0
 		for workerSlot, shards := range affinity.byWorker {
 			if len(shards) == 0 {
@@ -1156,7 +1253,7 @@ func (s *shardedMSM) MSMG1Section(dst *bls12381.G1Jac, plan *PKSectionPlan, sect
 			resultsExpected++
 		}
 	} else {
-		initial := len(s.pool.workers)
+		initial := s.pool.count()
 		if initial > len(ranges) {
 			initial = len(ranges)
 		}
@@ -1237,40 +1334,34 @@ func (s *shardedMSM) MSMG2Section(dst *bls12381.G2Jac, plan *PKSectionPlan, sect
 	ch := make(chan g2res, len(ranges))
 	launch := func(workerSlot, idx int) {
 		r := ranges[idx]
-		w := s.pool.workers[workerSlot]
 		go func() {
-			totalStart := time.Now()
-			scalarStart := time.Now()
-			scsBuf := marshalScalars(scalars[r[0]:r[1]])
-			scalarMS := elapsedMS(scalarStart)
-			queueStart := time.Now()
-			w.mu.Lock()
-			queueMS := elapsedMS(queueStart)
-			sabStart := time.Now()
-			scsSab := newSAB(scsBuf)
-			zeroBytes(scsBuf)
-			sabMS := elapsedMS(sabStart)
-			workerStart := time.Now()
-			reply := w.postSectionAndWaitLocked(idx, true, string(planJSON), section, r, scsSab, s.pinnedDecode, s.optW7, s.chunkPrefetchWindow)
-			zeroSAB(scsSab)
-			workerMS := elapsedMS(workerStart)
-			w.mu.Unlock()
+			execution := s.executeSectionTask(workerSlot, idx, true, string(planJSON), section, r, scalars[r[0]:r[1]])
+			w := execution.worker
+			reply := execution.reply
+			workerID := workerSlot
+			if w != nil {
+				workerID = w.id
+			}
 			fields := map[string]any{
 				"section":               section,
 				"worker_owned_fetch":    true,
 				"point_bytes_from_main": 0,
-				"scalar_bytes":          len(scsBuf),
-				"scalar_marshal_ms":     scalarMS,
-				"sab_copy_ms":           sabMS,
-				"queue_wait_ms":         queueMS,
-				"worker_turnaround_ms":  workerMS,
+				"scalar_bytes":          execution.scalarBytes,
+				"scalar_marshal_ms":     execution.scalarMarshalMS,
+				"sab_copy_ms":           execution.sabCopyMS,
+				"queue_wait_ms":         execution.queueWaitMS,
+				"worker_turnaround_ms":  execution.workerMS,
 				"worker_compute_ms":     reply.computeMS,
-				"total_ms":              elapsedMS(totalStart),
+				"total_ms":              execution.totalMS,
 				"error":                 errorString(reply.err),
+			}
+			if execution.attempt > 1 {
+				fields["attempt"] = execution.attempt
+				fields["attempt_max"] = asyncShardMaxAttempts
 			}
 			addTraceFields(fields, reply.timings)
 			addByteTraceFields(fields, reply.bytes)
-			emitShardTrace("MSMG2Section", "g2", idx, w.id, r, n, fields)
+			emitShardTrace("MSMG2Section", "g2", idx, workerID, r, n, fields)
 			if reply.err != nil {
 				ch <- g2res{idx: idx, workerSlot: workerSlot, r: r, err: reply.err}
 				return
@@ -1287,8 +1378,8 @@ func (s *shardedMSM) MSMG2Section(dst *bls12381.G2Jac, plan *PKSectionPlan, sect
 	var affinityNext []int
 	resultsExpected := len(ranges)
 	if s.optW7 {
-		affinity = newContiguousShardAffinity(len(ranges), len(s.pool.workers))
-		affinityNext = make([]int, len(s.pool.workers))
+		affinity = newContiguousShardAffinity(len(ranges), s.pool.count())
+		affinityNext = make([]int, s.pool.count())
 		resultsExpected = 0
 		for workerSlot, shards := range affinity.byWorker {
 			if len(shards) == 0 {
@@ -1299,7 +1390,7 @@ func (s *shardedMSM) MSMG2Section(dst *bls12381.G2Jac, plan *PKSectionPlan, sect
 			resultsExpected++
 		}
 	} else {
-		initial := len(s.pool.workers)
+		initial := s.pool.count()
 		if initial > len(ranges) {
 			initial = len(ranges)
 		}
@@ -1352,6 +1443,71 @@ func (s *shardedMSM) MSMG2Section(dst *bls12381.G2Jac, plan *PKSectionPlan, sect
 	return nil
 }
 
+// executeSectionTask gives the pre-W1 synchronous Basis section the same
+// bounded recovery policy as the W1 asynchronous scheduler. The successful
+// path still performs exactly one marshal, SAB copy, post, and wait.
+func (s *shardedMSM) executeSectionTask(workerSlot, requestID int, g2 bool, planJSON, section string, r [2]int, scalars []fr.Element) sectionTaskExecution {
+	totalStart := time.Now()
+	var execution sectionTaskExecution
+	for attempt := 1; attempt <= asyncShardMaxAttempts; attempt++ {
+		w := s.pool.worker(workerSlot)
+		execution.worker = w
+		execution.attempt = attempt
+		if w == nil {
+			execution.reply.err = failClosed("worker-terminated", errors.New("worker slot is unavailable"))
+			break
+		}
+		scalarStart := time.Now()
+		scsBuf := marshalScalars(scalars)
+		execution.scalarBytes = len(scsBuf)
+		execution.scalarMarshalMS = elapsedMS(scalarStart)
+		queueStart := time.Now()
+		w.mu.Lock()
+		execution.queueWaitMS = elapsedMS(queueStart)
+		sabStart := time.Now()
+		scsSab := newSAB(scsBuf)
+		zeroBytes(scsBuf)
+		execution.sabCopyMS = elapsedMS(sabStart)
+		workerStart := time.Now()
+		execution.reply = w.postSectionAndWaitLocked(
+			requestID, g2, planJSON, section, r, scsSab,
+			s.pinnedDecode, s.optW7, s.chunkPrefetchWindow,
+		)
+		zeroSAB(scsSab)
+		execution.workerMS = elapsedMS(workerStart)
+		w.mu.Unlock()
+		if execution.reply.err == nil {
+			break
+		}
+		retryable, replace, retryAfter := sectionWorkerRetry(execution.reply.err)
+		if !retryable || attempt >= asyncShardMaxAttempts {
+			break
+		}
+		if replace {
+			replacement, err := s.pool.replace(workerSlot, w)
+			if err != nil {
+				execution.reply.err = failClosed("worker-terminated", fmt.Errorf("replace worker slot %d: %w", workerSlot, err))
+				break
+			}
+			execution.worker = replacement
+		}
+		delay := asyncRetryBackoff(attempt+1, workerSlot)
+		if retryAfter > delay {
+			delay = retryAfter
+		}
+		EmitTrace("measure", "msm-shard-retry", map[string]any{
+			"section": section, "shard_index": requestID,
+			"worker_id": w.id, "attempt": attempt + 1,
+			"attempt_max": asyncShardMaxAttempts, "replace_worker": replace,
+			"backoff_ms": float64(delay) / float64(time.Millisecond),
+			"error":      execution.reply.err.Error(),
+		})
+		time.Sleep(delay)
+	}
+	execution.totalMS = elapsedMS(totalStart)
+	return execution
+}
+
 // dispatch posts one shard to this worker over a SharedArrayBuffer and blocks
 // until the worker posts back its partial (or an error). Blocking parks the Go
 // goroutine; the JS event loop runs the worker's onmessage, which feeds the
@@ -1396,6 +1552,7 @@ func (w *worker) postSectionAndWaitLocked(id int, g2 bool, planJSON string, sect
 }
 
 func (w *worker) postSectionAndWaitLockedCancelable(id int, g2 bool, planJSON string, section string, r [2]int, scsSab js.Value, pinnedDecode, optW7 bool, chunkPrefetchWindow int, cancel <-chan struct{}) workerReply {
+	w.resetProgress(id)
 	msg := js.Global().Get("Object").New()
 	msg.Set("type", "msm-section-range")
 	msg.Set("id", id)
@@ -1408,16 +1565,34 @@ func (w *worker) postSectionAndWaitLockedCancelable(id int, g2 bool, planJSON st
 	msg.Set("pinnedDecode", pinnedDecode)
 	msg.Set("optW7", optW7)
 	msg.Set("chunkPrefetchWindow", chunkPrefetchWindow)
+	msg.Set("progress", w.progressSAB)
 	w.js.Call("postMessage", msg)
-	reply, waitErr := waitForAsyncResult(w.replies, cancel, asyncWorkerReplyTimeout)
+	reply, waitErr := waitForAsyncResultWithProgress(
+		w.replies,
+		cancel,
+		asyncWorkerInactivityTimeout,
+		asyncWorkerAbsoluteTimeout,
+		func() uint64 { return w.readProgress(id) },
+	)
 	if waitErr != nil {
 		if errors.Is(waitErr, errAsyncWaitCancelled) {
 			return workerReply{err: failClosed("async-msm-cancelled", waitErr)}
 		}
-		return workerReply{err: failClosed("worker-terminated", waitErr)}
+		return workerReply{err: classifyTypedSectionWorkerError(
+			"worker-terminated", true, 0, waitErr,
+		)}
 	}
 	if reply.err != nil {
-		reply.err = classifySectionWorkerError(reply.err)
+		if reply.errorCode == "" {
+			reply.err = classifySectionWorkerError(reply.err)
+		} else {
+			reply.err = classifyTypedSectionWorkerError(
+				reply.errorCode,
+				reply.retryable,
+				time.Duration(reply.retryAfterMS)*time.Millisecond,
+				reply.err,
+			)
+		}
 		return reply
 	}
 	if reply.id != id {
@@ -1429,6 +1604,22 @@ func (w *worker) postSectionAndWaitLockedCancelable(id int, g2 bool, planJSON st
 		return reply
 	}
 	return reply
+}
+
+func (w *worker) resetProgress(id int) {
+	w.atomics.Call("store", w.progressView, 1, 0)
+	w.atomics.Call("store", w.progressView, 0, id)
+}
+
+func (w *worker) readProgress(id int) uint64 {
+	if generation := w.atomics.Call("load", w.progressView, 0).Int(); generation != id {
+		return 0
+	}
+	value := w.atomics.Call("load", w.progressView, 1).Int()
+	if value <= 0 {
+		return 0
+	}
+	return uint64(value)
 }
 
 // newSAB copies b into a freshly allocated SharedArrayBuffer-backed Uint8Array

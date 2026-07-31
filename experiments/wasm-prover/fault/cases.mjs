@@ -4,9 +4,10 @@ export const faultCases = Object.freeze([
   {
     id: 'worker-kill',
     capability: 'worker_kill_mid_shard',
-    dependency: 'W1 worker dispatch/cancellation fault hook',
+    dependency: 'W1 worker error/termination fault hook plus same-shard replacement',
     accept(outcome) {
-      return outcome.status === 'failed-closed' && outcome.error_class === 'worker-terminated' &&
+      return outcome.status === 'recovered' && outcome.verified_locally === true &&
+        Number.isSafeInteger(outcome.retry_count) && outcome.retry_count > 0 &&
         outcome.cpu_fallback === false && outcome.cpu_fallback_state === 'none' &&
         !outcome.hung && !outcome.partial_proof;
     },
@@ -24,6 +25,26 @@ export const faultCases = Object.freeze([
         outcome.cpu_fallback_state === 'none' &&
         !outcome.partial_proof &&
         !outcome.hung;
+    },
+  },
+  {
+    id: 'network-recover',
+    capability: 'abort_range_fetch',
+    dependency: 'fault-serving seam plus bounded same-shard retry',
+    accept(outcome) {
+      return outcome.status === 'recovered' &&
+        outcome.verified_locally === true &&
+        Number.isSafeInteger(outcome.retry_count) &&
+        outcome.retry_count > 0 &&
+        Number.isSafeInteger(outcome.retry_max) &&
+        outcome.retry_count <= outcome.retry_max &&
+        Number.isSafeInteger(outcome.runtime_retry_count) &&
+        outcome.runtime_retry_count > 0 &&
+        outcome.runtime_retry_count < outcome.retry_max &&
+        outcome.cpu_fallback === false &&
+        outcome.cpu_fallback_state === 'none' &&
+        !outcome.hung &&
+        !outcome.partial_proof;
     },
   },
   {

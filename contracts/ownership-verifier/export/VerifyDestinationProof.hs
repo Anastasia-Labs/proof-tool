@@ -10,29 +10,38 @@ import System.Exit (die)
 import qualified PlutusTx.Builtins as B
 import PlutusTx.Builtins (BuiltinByteString)
 
-import Ownership.Verify (verifyOwnershipDestinationWithVK)
+import Ownership.Verify
+  ( ownershipDestinationPublicInputDigest
+  , verifyOwnershipDestinationWithVK
+  )
 
 main :: IO ()
 main = do
   args <- getArgs
   case args of
-    [vkPath, proofHex, credentialHex, destinationHex] -> do
+    [vkPath, proofHex, credentialHex, destinationHex, publicInputDigestHex] -> do
       vkBytes <- decodeHex <$> readFile vkPath
       let proofBytes = decodeHex proofHex
           credentialBytes = decodeHex credentialHex
           destinationBytes = decodeHex destinationHex
+          publicInputDigestBytes = decodeHex publicInputDigestHex
       requireLength "verifier key" 672 vkBytes
       requireLength "proof" 336 proofBytes
       requireLength "credential" 28 credentialBytes
       requireLength "destination" 58 destinationBytes
+      requireLength "public input digest" 32 publicInputDigestBytes
       let vk = bytesToBuiltin vkBytes
           proof = bytesToBuiltin proofBytes
           credential = bytesToBuiltin credentialBytes
           destination = bytesToBuiltin destinationBytes
+          publicInputDigest = bytesToBuiltin publicInputDigestBytes
+      when
+        (publicInputDigest /= ownershipDestinationPublicInputDigest credential destination) $
+        die "public input digest does not bind credential and destination"
       if verifyOwnershipDestinationWithVK vk proof credential destination
         then putStrLn "ok"
         else die "contract destination-proof verifier rejected artifact"
-    _ -> die "usage: verify-destination-proof VK_PATH PROOF_HEX CREDENTIAL_HEX DESTINATION_HEX"
+    _ -> die "usage: verify-destination-proof VK_PATH PROOF_HEX CREDENTIAL_HEX DESTINATION_HEX PUBLIC_INPUT_DIGEST_HEX"
 
 decodeHex :: String -> [Integer]
 decodeHex input

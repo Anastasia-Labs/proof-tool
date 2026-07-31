@@ -72,6 +72,7 @@ export function verifyDeploymentPair(reclaim, claim, preflight) {
   assertEqual("network_id", reclaimDeployment.networkId, claimDeployment.networkId);
   assertEqual("source_commit", reclaimDeployment.sourceCommit, claimDeployment.sourceCommit);
   assertEqual("verifier_vk_hash", reclaimDeployment.verifierVkHash, claimDeployment.verifierVkHash);
+  assertEqual("proof_vk_hash", reclaimDeployment.proofVkHash, claimDeployment.proofVkHash);
 
   const expectedSourceCommit = preflight?.context?.manifest?.source_commit;
   if (expectedSourceCommit && reclaimDeployment.sourceCommit !== expectedSourceCommit) {
@@ -132,6 +133,7 @@ export function verifyDeploymentPair(reclaim, claim, preflight) {
     networkId: reclaimDeployment.networkId,
     sourceCommit: reclaimDeployment.sourceCommit,
     verifierVkHash: reclaimDeployment.verifierVkHash,
+    proofVkHash: reclaimDeployment.proofVkHash,
     contractVersion: reclaimDeployment.contractVersion,
     proofProfile: capabilities.proofProfile,
     helperKeyVersion: capabilities.helperKeyVersion,

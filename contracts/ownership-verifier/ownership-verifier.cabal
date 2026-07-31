@@ -17,7 +17,6 @@ library
     Ownership.ReclaimBase
     Ownership.ReclaimGlobalV2
     Ownership.ReclaimGlobalMulti
-    Ownership.ReclaimGlobalMultiV2Bench
     Ownership.Verify
   build-depends:
     , base              >= 4.17 && < 5

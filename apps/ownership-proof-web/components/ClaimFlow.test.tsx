@@ -2283,9 +2283,10 @@ function claimDeployment() {
       reclaimGlobalScriptHash: "c".repeat(56),
       paramsCurrencySymbol: "d".repeat(56),
       paramsTokenName: "",
-      verifierVkHash: "e".repeat(64),
+      verifierVkHash: "f".repeat(64),
+      proofVkHash: "e".repeat(64),
       reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
-      reclaimGlobalBatchTranscriptVkHash: "e".repeat(64),
+      reclaimGlobalBatchTranscriptVkHash: "f".repeat(64),
       contractVersion: "v1",
       sourceCommit: "f".repeat(40),
       paramsUtxo: {

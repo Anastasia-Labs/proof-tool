@@ -13,6 +13,12 @@ const faultDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(faultDir, '../../..');
 const parsedFlags = parseOptimizationFlags(process.argv.slice(2));
 const options = parseArgs(parsedFlags.rest);
+const artifactOverrides = options.artifactOverridesFile
+  ? JSON.parse(await fs.readFile(options.artifactOverridesFile, 'utf8'))
+  : {};
+const privateInputs = options.privateInputsFile
+  ? JSON.parse(await fs.readFile(options.privateInputsFile, 'utf8'))
+  : {};
 validateFaultWorkerCount(options.workers);
 const cases = selectFaultCases(options.cases);
 const adapter = await createFaultBrowserAdapter({
@@ -21,6 +27,8 @@ const adapter = await createFaultBrowserAdapter({
   tuning: { ...toRuntimeTuning(parsedFlags.flags), worker_count: options.workers },
   optimizationFlags: parsedFlags.flags,
   workerCount: options.workers,
+  artifactOverrides,
+  privateInputs,
 });
 try {
   const report = await runFaultCases(cases, adapter, { deadlineMs: options.deadlineMs, workerCount: options.workers });
@@ -39,6 +47,8 @@ function parseArgs(args) {
     outputDir: path.join(repoRoot, 'experiments/wasm-prover/output'),
     deadlineMs: 180_000,
     workers: 8,
+    artifactOverridesFile: '',
+    privateInputsFile: '',
   };
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -52,6 +62,8 @@ function parseArgs(args) {
     else if (arg === '--output-dir') options.outputDir = path.resolve(next());
     else if (arg === '--deadline-ms') options.deadlineMs = Number(next());
     else if (arg === '--workers') options.workers = Number(next());
+    else if (arg === '--artifact-overrides') options.artifactOverridesFile = path.resolve(next());
+    else if (arg === '--private-inputs-file') options.privateInputsFile = path.resolve(next());
     else throw new Error(`unknown argument ${arg}`);
   }
   return options;

@@ -1,7 +1,18 @@
 # Trusted Setup Ceremony
 
-This project now has a reproducible local ceremony path for the ownership
-Groth16 keys:
+This repository has two deliberately separate Groth16 setup paths:
+
+- `proof-tool setup-ceremony` is a reproducible, signed, single-actor local
+  setup.
+- `cmd/mpc-ceremony` is the two-phase multi-party workflow whose production
+  process is documented in
+  [`mpc-ceremony-runbook.md`](mpc-ceremony-runbook.md).
+
+The commands, transcripts, and trust claims are not interchangeable.
+
+## Single-Actor Local Setup
+
+Run the local path with:
 
 ```sh
 go run ./cmd/proof-tool setup-ceremony \
@@ -37,10 +48,23 @@ the setup into a public multi-party ceremony. Public users must either trust the
 named setup operator and release signing key, or require a true public MPC
 ceremony or a transparent proof system.
 
-For a production release, run from a clean tagged commit with
+For a signed rehearsal or explicitly trusted single-operator release, run from
+a clean tagged commit with
 `--require-clean-git`, record the operator and host controls in release notes,
 publish the signed bundle and transcript, and keep the Ed25519 private signing
-key outside the published bundle.
+key outside the published bundle. Do not label such a bundle "multi-party",
+"trustless", or production MPC evidence.
+
+The dedicated MPC command uses gnark's BLS12-381 `mpcsetup` package, requires
+ordered contributions in both phases, uses separate future public beacons for
+Phase 1 and Phase 2, and supports full independent transcript replay. Software
+verification alone is still insufficient: participant independence, host
+controls, entropy quality, erasure, public archival, and independent audits are
+operational requirements. See the full
+[`MPC ceremony operator, contributor, and auditor runbook`](mpc-ceremony-runbook.md).
+Its current Mainnet decision is **NO-GO**; see
+[`mpc-production-readiness.md`](mpc-production-readiness.md) before using any
+ceremony binary or artifact.
 
 ## Toxic Waste Handling
 
@@ -52,3 +76,8 @@ system, but Go does not provide a ceremony-grade zeroization proof.
 For stronger production hygiene, use an ephemeral controlled host, disable or
 destroy swap, avoid persistent crash dumps, publish `TOXIC-WASTE-HANDLING.md`,
 and destroy the ceremony host or VM after the artifacts are signed and copied.
+
+The MPC path narrows the trust assumption to require at least one honest
+independent contributor in each phase, but it does not cryptographically prove
+that a contributor erased its randomness. Every accepted participant must use
+and attest to the host controls in the MPC runbook.

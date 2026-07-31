@@ -148,7 +148,7 @@ export async function runDestinationProofStage(options = {}) {
   const claimDeployment = await fetchAppJson(fetchFn, appTarget.baseUrl, "/claim-api/deployment");
   const deployment = assertClaimDeployment(claimDeployment);
   const helperStatus = await fetchHelperJson(fetchFn, helperUrl, "/status", appOrigin, token, "GET");
-  const helperProfile = assertHelperDestinationProfile(helperStatus, deployment.verifierVkHash);
+  const helperProfile = assertHelperDestinationProfile(helperStatus, deployment.proofVkHash);
   const matchingUtxos = await loadMatchingReclaimUtxos(fetchFn, appTarget.baseUrl, impactedCredential);
   if (matchingUtxos.length < batchSize) {
     throw new PreprodDestinationProofStageError(
@@ -185,7 +185,7 @@ export async function runDestinationProofStage(options = {}) {
     },
     include_debug_path: false,
   });
-  const proofSummaries = assertProofArtifacts(helperResponse, draft, deployment.verifierVkHash);
+  const proofSummaries = assertProofArtifacts(helperResponse, draft, deployment.proofVkHash);
 
   const screenshotPath = options.page
     ? path.join(outputDir, "screenshots", "generate-destination-bound-proofs.png")
@@ -207,7 +207,8 @@ export async function runDestinationProofStage(options = {}) {
     network: deployment.network,
     networkId: deployment.networkId,
     proofProfile: draft.proofProfile,
-    verifierVkHash: deployment.verifierVkHash,
+    proofVkHash: deployment.proofVkHash,
+    onChainVerifierVkHash: deployment.verifierVkHash,
     helper: {
       helperUrl,
       tokenRequired: true,
@@ -364,10 +365,14 @@ function assertClaimDeployment(response) {
       "Claim deployment must use destination-address-v1.",
     );
   }
-  if (typeof deployment.id !== "string" || typeof deployment.verifierVkHash !== "string") {
+  if (
+    typeof deployment.id !== "string" ||
+    typeof deployment.verifierVkHash !== "string" ||
+    typeof deployment.proofVkHash !== "string"
+  ) {
     throw new PreprodDestinationProofStageError(
       "claim_deployment_malformed",
-      "Claim deployment is missing id or verifier hash.",
+      "Claim deployment is missing id, on-chain verifier hash, or native proof verifier hash.",
     );
   }
   return deployment;

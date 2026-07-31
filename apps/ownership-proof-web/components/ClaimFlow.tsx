@@ -1221,7 +1221,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
           setHelperError("Proof Helper destination key is not ready.");
           return false;
         }
-        if (deployment?.available && profile.key_hash !== deployment.deployment.verifierVkHash) {
+        if (deployment?.available && profile.key_hash !== deployment.deployment.proofVkHash) {
           setHelperState("unavailable");
           setHelperError("Proof Helper destination key hash does not match this claim deployment.");
           return false;
@@ -1280,7 +1280,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     setBrowserProvingStatus("checking");
     setBrowserProvingDetail("");
     try {
-      const check = await checkBrowserProving(browserProvingDescriptor, deployment.deployment.verifierVkHash);
+      const check = await checkBrowserProving(browserProvingDescriptor, deployment.deployment.proofVkHash);
       setBrowserProvingStatus(check.status);
       setBrowserProvingDetail(
         check.status === "ready"
@@ -1780,7 +1780,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     const runId = ++proofRunIdRef.current;
     try {
       if (proofMethod === "browser") {
-        await generateClaimProofsInBrowser(deployment.deployment.verifierVkHash, runId);
+        await generateClaimProofsInBrowser(deployment.deployment.proofVkHash, runId);
         return;
       }
 
@@ -1826,7 +1826,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
           signal: abortController.signal,
           onProgress: setProofProgress,
         });
-        const artifacts = validateDestinationProofResponse(helperResponse, draft, deployment.deployment.verifierVkHash);
+        const artifacts = validateDestinationProofResponse(helperResponse, draft, deployment.deployment.proofVkHash);
         applyProofRunSuccess(runId, artifacts);
       } catch (error) {
         if (error instanceof DesktopHelperCancelledError) {

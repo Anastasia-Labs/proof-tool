@@ -27,6 +27,7 @@ describe("deploy-or-verify preprod manifest stage", () => {
       networkId: 0,
       sourceCommit: "1234567890abcdef1234567890abcdef12345678",
       verifierVkHash: "b".repeat(64),
+      proofVkHash: "c".repeat(64),
       proofProfile: "single-destination",
       destinationAddressEncoding: "destination-address-v1",
       referenceScriptsConfigured: true,
@@ -53,6 +54,15 @@ describe("deploy-or-verify preprod manifest stage", () => {
 
     expect(() => verifyDeploymentPair(validDeploymentResponse(), claim, preflight())).toThrow(
       /verifier_vk_hash mismatch/u,
+    );
+  });
+
+  it("rejects native proof-key endpoint mismatches independently", () => {
+    const claim = validClaimDeploymentResponse();
+    claim.deployment.proofVkHash = "d".repeat(64);
+
+    expect(() => verifyDeploymentPair(validDeploymentResponse(), claim, preflight())).toThrow(
+      /proof_vk_hash mismatch/u,
     );
   });
 
@@ -165,6 +175,7 @@ function deployment() {
     paramsCurrencySymbol: "e".repeat(56),
     paramsTokenName: "00",
     verifierVkHash: "b".repeat(64),
+    proofVkHash: "c".repeat(64),
     contractVersion: "test-contract",
     sourceCommit: "1234567890abcdef1234567890abcdef12345678",
   };

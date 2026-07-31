@@ -201,7 +201,12 @@ these environment variables:
 - `RECLAIM_GLOBAL_SCRIPT_HASH`
 - `RECLAIM_PARAMS_CURRENCY_SYMBOL`
 - `RECLAIM_PARAMS_TOKEN_NAME`
-- `RECLAIM_VERIFIER_VK_HASH`
+- `RECLAIM_VERIFIER_VK_HASH` (Cardano wire-format VK hash embedded on-chain)
+- `RECLAIM_PROOF_VK_HASH` (native gnark VK hash used by provers)
+- `RECLAIM_PROOF_CARDANO_VK_BLAKE2B256` (must equal
+  `RECLAIM_VERIFIER_VK_HASH`)
+- `RECLAIM_GLOBAL_BATCH_TRANSCRIPT_VK_HASH` (the same Cardano hash used by the
+  V2 transcript preflight)
 - `RECLAIM_CONTRACT_VERSION`
 - `RECLAIM_SOURCE_COMMIT`
 
@@ -272,8 +277,9 @@ Before enabling deposits:
 - Publish a valid reclaim deployment manifest.
 - Verify the `ReclaimBase` address from the manifest matches the deployed
   script parameters.
-- Verify the `ReclaimGlobalV2` verifier key hash matches the published proof
-  helper/verifier key bundle.
+- Verify `ReclaimGlobalV2` embeds the published Cardano wire-format verifier
+  key hash, while `proof.vk_hash` independently matches the native proof-helper
+  key bundle.
 - Run a preprod deposit from the page.
 - Confirm the output has inline `ReclaimBaseDatum` with the expected payment key
   hash.

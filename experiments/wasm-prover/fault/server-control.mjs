@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const supportedModes = new Set(['chunk-corruption', 'network-abort']);
+const supportedModes = new Set(['chunk-corruption', 'network-abort', 'network-recover']);
 
 export function createFaultServerControl() {
   let state = cleanState();
@@ -29,7 +29,7 @@ export function createFaultServerControl() {
           armed: true,
           hit_count: 0,
           retry_count: 0,
-          retry_max: body.mode === 'network-abort' ? 3 : 1,
+          retry_max: body.mode === 'network-abort' || body.mode === 'network-recover' ? 3 : 1,
         };
         sendJSON(res, 200, state);
         return true;
@@ -42,13 +42,21 @@ export function createFaultServerControl() {
         return false;
       }
       const mode = state.mode;
-      const retryCount = state.retry_count + 1;
+      const nextRetryCount = state.retry_count + 1;
+      const retryCount = Math.min(nextRetryCount, state.retry_max);
+      const recovering = mode === 'network-recover';
       state = {
         ...state,
-        armed: mode === 'network-abort' && retryCount < state.retry_max,
+        armed: mode === 'network-abort' || (recovering && retryCount < state.retry_max),
         hit_count: state.hit_count + 1,
         retry_count: retryCount,
       };
+      if (recovering && retryCount >= state.retry_max) {
+        // The final request is served normally by the underlying asset host;
+        // the first two retryable responses prove that the same shard was
+        // retried without restarting the proof.
+        return false;
+      }
       const raw = await readFile(filePath);
       res.setHeader('Content-Type', contentType);
       res.setHeader('Cache-Control', 'no-store');
@@ -60,7 +68,16 @@ export function createFaultServerControl() {
         res.end(corrupted);
         return true;
       }
-      if (retryCount >= state.retry_max) {
+      if (recovering) {
+        // Chromium may transparently replay an idempotent GET when a response
+        // body is cut mid-stream. A retryable HTTP response is observable at
+        // the Worker boundary and therefore proves the runtime retry path.
+        const message = Buffer.from('fault injection: transient range fetch failure\n');
+        res.writeHead(503, { 'Content-Length': message.length });
+        res.end(message);
+        return true;
+      }
+      if (mode === 'network-abort' && retryCount >= state.retry_max) {
         const message = Buffer.from('fault injection: bounded range fetch retries exhausted\n');
         res.writeHead(503, { 'Content-Length': message.length });
         res.end(message);

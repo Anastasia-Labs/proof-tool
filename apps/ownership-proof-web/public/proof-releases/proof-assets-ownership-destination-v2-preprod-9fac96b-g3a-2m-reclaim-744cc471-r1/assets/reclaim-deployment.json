@@ -14,7 +14,7 @@
     "script_hash": "a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8",
     "rewarding_credential": "a4da74e7cb6ea4f4e60456a0a6eabf0ccf83464ebe55664390ef39f8",
     "params_currency_symbol": "d6777b8c3be1c6c0c9baba52a880c1980a662c16ffc0885ecaa03119",
-    "verifier_vk_hash": "blake2b256:b1c03cf24376bcd6c743cb372169ff71f93b210e0d8d52b2c6831808f50ded80",
+    "verifier_vk_hash": "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4",
     "proof_profile": "single-destination",
     "proof_slot_encoding": "full-proof-plus-public-input-digest-v2",
     "batch_transcript_vk_hash": "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4"

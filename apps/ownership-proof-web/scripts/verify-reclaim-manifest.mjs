@@ -126,7 +126,7 @@ export function validateReclaimManifest(raw) {
     "reclaim_base.required_global_credential",
     errors,
   );
-  exact(global.verifier_vk_hash, proof.vk_hash, "proof.vk_hash", errors);
+  exact(global.verifier_vk_hash, proof.cardano_vk_blake2b256, "reclaim_global.verifier_vk_hash", errors);
   exact(params.datum_reclaim_base_script_hash, base.script_hash, "params_utxo.datum_reclaim_base_script_hash", errors);
   exact(params.policy_id, global.params_currency_symbol, "params_utxo.policy_id", errors);
   if (

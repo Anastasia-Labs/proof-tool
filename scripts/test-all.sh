@@ -53,6 +53,10 @@ fi
 
 run_step "go build" go build ./...
 run_step "go vet" go vet ./...
+run_step "MPC rehearsal state self-test" \
+  bash scripts/run-mpc-k21-local-rehearsal.sh self-test-state
+run_step "MPC rehearsal close recovery self-test" \
+  bash scripts/run-mpc-k21-local-rehearsal.sh self-test-close-recovery
 
 if command -v golangci-lint >/dev/null 2>&1; then
   run_step "golangci-lint" golangci-lint run ./...
@@ -62,9 +66,9 @@ fi
 
 if [[ "$FAST" == "1" ]]; then
   run_step "go test (fast: skips circuit compile suites)" \
-    go test ./cmd/... ./internal/prover/... ./internal/verifier/... ./internal/helper/... \
+    go test -short ./cmd/... ./internal/prover/... ./internal/verifier/... ./internal/helper/... \
     ./internal/msmengine/... ./internal/streampk/... ./internal/streamprove/... \
-    ./internal/proofassets/... ./internal/batchtranscript/...
+    ./internal/proofassets/... ./internal/batchtranscript/... ./internal/mpcceremony/...
 else
   # PROOF_TOOL_RUN_FULL_PROOF=1 un-gates the real Groth16 ownership /
   # multi / destination round-trip integration tests (positive + tamper

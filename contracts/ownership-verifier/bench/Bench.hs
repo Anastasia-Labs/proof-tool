@@ -50,7 +50,6 @@ import Ownership.ReclaimGlobalMulti
   ( reclaimGlobalMultiRedeemerData
   , reclaimGlobalMultiValidatorCode
   )
-import qualified Ownership.ReclaimGlobalMultiV2Bench as V2Multi
 import Ownership.Verify (ownershipDestinationPublicInputDigest)
 import Protocol11Snapshot
   ( Protocol11Snapshot (..)
@@ -172,8 +171,6 @@ main = do
       statementV2GlobalScript = compiledToProgram (statementV2GlobalValidatorCode paramCurrencySymbol destinationVk (B.blake2b_256 destinationVk))
       multiCases =
         fmap (multiBenchmarkCase baseScript) multiFixtures
-      historicalV2MultiCases =
-        fmap (multiBenchmarkCaseWith "historical V2 multi distinct same-master" v2MultiGlobalValidatorCode baseScript) multiFixtures
       statementV2DistinctCases =
         [ statementV2BenchmarkCase "ZK-02 statement-bound distinct" baseScript statementV2GlobalScript (take inputCount distinctFixtures)
         | inputCount <- [1 .. 9]
@@ -331,7 +328,7 @@ main = do
       (headerLabels !! 12)
       (headerLabels !! 13)
   putStrLn (replicate 177 '-')
-  mapM_ printCase (multiCases <> historicalV2MultiCases <> statementV2DistinctCases <> statementV2RepeatedCases <> reconciliationCases <> ledgerPreprodCapacityCases <> releaseCases)
+  mapM_ printCase (multiCases <> statementV2DistinctCases <> statementV2RepeatedCases <> reconciliationCases <> ledgerPreprodCapacityCases <> releaseCases)
   putStrLn ""
   putStrLn "ZK-02 all-distinct redeemer sizes (exact Plutus Data CBOR; not transaction CBOR)"
   forM_ [1 .. 9] $ \inputCount ->
@@ -341,10 +338,9 @@ main = do
     (compiledCodeSize (baseValidatorCode globalCredential))
     (compiledCodeSize (statementV2GlobalValidatorCode paramCurrencySymbol destinationVk (B.blake2b_256 destinationVk)))
   forM_ multiFixtures $ \fixture ->
-    printf "  Multi count-%d: production=%d bytes; historical V2=%d bytes\n"
+    printf "  Reference Multi count-%d: %d bytes\n"
       (multiFixtureCredentialCount fixture)
       (compiledCodeSize (multiGlobalValidatorCode paramCurrencySymbol (multiFixtureVerifierKey fixture)))
-      (compiledCodeSize (v2MultiGlobalValidatorCode paramCurrencySymbol (multiFixtureVerifierKey fixture)))
   let productionParamCurrencySymbol = V3.CurrencySymbol (bytesToBuiltin (replicate 28 0))
       productionStatementV2GlobalCode = statementV2GlobalValidatorCode productionParamCurrencySymbol destinationVk (B.blake2b_256 destinationVk)
       productionStatementV2GlobalCredential =
@@ -391,8 +387,7 @@ statementV2BenchmarkCase name baseScript globalScript fixtures =
     baseTotal = sumBudgets baseRuns
     globalBudget = evaluateBudget globalScript claimContext
 
--- | Production reconciliation path.  The V2 branch uses
--- 'Ownership.ReclaimGlobalV2', never the historical benchmark-only module.
+-- | Production reconciliation path using 'Ownership.ReclaimGlobalV2'.
 reconciliationBenchmarkCase ::
   Evaluator ->
   ClaimProfile ->
@@ -493,7 +488,7 @@ multiBenchmarkCase ::
   MultiOwnershipFixture ->
   BenchmarkCase
 multiBenchmarkCase =
-  multiBenchmarkCaseWith "multi distinct same-master" multiGlobalValidatorCode
+  multiBenchmarkCaseWith "reference multi distinct same-master" multiGlobalValidatorCode
 
 multiBenchmarkCaseWith ::
   String ->
@@ -631,13 +626,6 @@ statementV2GlobalValidatorCode currencySymbol verifierKey verifierKeyHash =
 multiGlobalValidatorCode :: V3.CurrencySymbol -> BuiltinByteString -> CompiledCode (BuiltinData -> BuiltinUnit)
 multiGlobalValidatorCode currencySymbol verifierKey =
   reclaimGlobalMultiValidatorCode
-    `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef currencySymbol
-    `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef paramTokenName
-    `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef verifierKey
-
-v2MultiGlobalValidatorCode :: V3.CurrencySymbol -> BuiltinByteString -> CompiledCode (BuiltinData -> BuiltinUnit)
-v2MultiGlobalValidatorCode currencySymbol verifierKey =
-  V2Multi.reclaimGlobalMultiValidatorCode
     `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef currencySymbol
     `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef paramTokenName
     `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef verifierKey

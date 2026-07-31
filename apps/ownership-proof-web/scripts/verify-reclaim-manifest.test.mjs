@@ -32,6 +32,13 @@ describe("verify-reclaim-manifest V2 coherence", () => {
     expect(errorFields(manifest)).toContain("reclaim_global.batch_transcript_vk_hash");
   });
 
+  it("rejects the native gnark VK hash in the on-chain verifier field", () => {
+    const manifest = statementBoundV2Manifest();
+    manifest.reclaim_global.verifier_vk_hash = manifest.proof.vk_hash;
+
+    expect(errorFields(manifest)).toContain("reclaim_global.verifier_vk_hash");
+  });
+
   it("accepts the explicit seven-slot V2 capacity policy", () => {
     const manifest = statementBoundV2Manifest();
     manifest.batching = {

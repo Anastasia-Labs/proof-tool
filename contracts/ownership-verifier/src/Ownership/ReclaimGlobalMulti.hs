@@ -4,6 +4,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
+-- | Reference implementation of aggregate ownership-proof verification.
+--
+-- This validator is currently unused by the ownership-proof web app and
+-- production deployments. 'Ownership.ReclaimGlobalV2' was selected instead
+-- because its smaller proving key enables faster browser proving. This module
+-- is retained so developers can reference a batched proof-verification
+-- contract.
 module Ownership.ReclaimGlobalMulti
   ( MultiReclaimScan
   , ReclaimGlobalMultiParams (..)

@@ -100,11 +100,11 @@ The accepted Gate G1 signed-r8 run used `streampk-sharded-groth16` with all
 W1-W7 flags, 16 applied Workers, 16 shards, and range-fetch concurrency two.
 It completed proof construction in 70.400 seconds, peaked at 1.4593 GiB main
 WASM heap, verified locally and through the compiled contract, and passed the
-complete tamper and five-case fault suites. The production-host confirmation
-completed in 115.770 seconds / 1.4627 GiB under substantially heavier
-concurrent load; it confirms coherence rather than replacing the accepted G1
-performance result. The old 111.461-second / 2.316-GiB O4/O2 run remains the
-ideal-host pre-optimization reference only.
+complete tamper and then-current five-case fault suites. The production-host
+confirmation completed in 115.770 seconds / 1.4627 GiB under substantially
+heavier concurrent load; it confirms coherence rather than replacing the
+accepted G1 performance result. The old 111.461-second / 2.316-GiB O4/O2 run
+remains the ideal-host pre-optimization reference only.
 
 Credential-discovery release evidence uses immutable release
 `proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-key-discovery-r1`.
@@ -113,6 +113,20 @@ and a cold Chromium proof for account 3, role 2, index 0 completed in 90.534
 seconds with 0.833 GiB peak main-WASM heap and `verified_locally=true`. Heavy
 unrelated host work contaminated the timing sample, so it qualifies the full
 discovery-to-proof path and artifact coherence, not a new performance record.
+
+The bounded worker/chunk recovery change passed its final 2026-07-31
+no-regression gate against a same-revision baseline. The counterbalanced gate
+ran three clean, locally verified proofs per runtime for each cache mode with
+16 workers and shards, range-fetch concurrency two, W1/W2/W3/W5/W6/W7,
+`GOGC=15`, and `GOMEMLIMIT=3200MiB`. Cold-cache median proving time was
+`51.470 s` for the recovery candidate versus `51.881 s` baseline (`-0.792%`);
+warm-cache median was `48.370 s` versus `48.609 s` (`-0.492%`). Median peak
+heap was `0.110%` lower in the cold gate and `0.111%` lower in the warm gate.
+Both passed the hard ceilings of `0.5%` proving-time regression and `1.0%`
+peak-heap regression, with no accepted sample carrying a transient
+contamination observation. This qualifies the healthy path as
+performance-preserving; the small apparent improvements are benchmark noise,
+not an optimization claim.
 
 These are browser-prover source defaults and proof-runtime measurements. They
 do not change claim batching by themselves. Until the statement-bound V2

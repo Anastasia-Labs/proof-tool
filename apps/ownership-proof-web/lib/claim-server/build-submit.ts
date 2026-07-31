@@ -300,7 +300,7 @@ export async function prepareClaimBuildPreflight(
     );
   }
 
-  const proofs = assertProofArtifacts(raw.proofArtifacts, draft, deployment.verifierVkHash);
+  const proofs = assertProofArtifacts(raw.proofArtifacts, draft, deployment.proofVkHash);
   const proofHexes = proofs.map((proof) => proof.proofHex);
   const paramsReferenceInput = await loadParamsReferenceInput(provider, deployment);
   const referenceScripts = await loadClaimReferenceScripts(provider, deployment);
@@ -627,7 +627,7 @@ function makeReclaimGlobalRedeemer(
   destinationOutputStartIndex: number | bigint,
   fullProofs: string[],
   publicInputDigests: string[],
-  verifierVkHash: string,
+  batchTranscriptVkHash: string,
 ): string {
   if (fullProofs.length !== publicInputDigests.length) {
     throw new Error("reclaim v2 proof/digest list lengths differ");
@@ -644,7 +644,7 @@ function makeReclaimGlobalRedeemer(
   // guard. The transaction carries only the parallel lists; the validator
   // independently recreates this transcript using its embedded hash.
   buildBatchTranscriptV2(
-    decodeBlake2b256(verifierVkHash, "deployment verifier key hash"),
+    decodeBlake2b256(batchTranscriptVkHash, "deployment batch transcript Cardano verifier-key hash"),
     fullProofs.map((proof, index) => decodeHexBytes(proof, `reclaim v2 proof ${index}`)),
     publicInputDigests.map((digest, index) => decodeHexBytes(digest, `reclaim v2 public input digest ${index}`)),
   );

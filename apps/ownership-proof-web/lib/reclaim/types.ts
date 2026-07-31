@@ -66,7 +66,10 @@ export type ReclaimDeployment = {
   reclaimGlobalBatchTranscriptVkHash: string;
   paramsCurrencySymbol: string;
   paramsTokenName: string;
+  /** BLAKE2b-256 of the Cardano wire-format VK embedded in ReclaimGlobal. */
   verifierVkHash: string;
+  /** BLAKE2b-256 of the native gnark VK used by local/browser provers. */
+  proofVkHash: string;
   contractVersion: string;
   sourceCommit: string;
   reclaimGlobalRewardingCredential?: string;

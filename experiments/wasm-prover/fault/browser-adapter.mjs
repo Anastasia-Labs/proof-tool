@@ -2,11 +2,22 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
-export async function createFaultBrowserAdapter({ repoRoot, baseURL, tuning = {}, optimizationFlags = {}, workerCount = 8 }) {
+export async function createFaultBrowserAdapter({
+  repoRoot,
+  baseURL,
+  tuning = {},
+  optimizationFlags = {},
+  workerCount = 8,
+  artifactOverrides = {},
+  privateInputs = {},
+}) {
   const require = createRequire(import.meta.url);
   const { chromium } = require(path.join(repoRoot, 'apps/ownership-proof-web/node_modules/playwright'));
   const browser = await chromium.launch({ headless: true, chromiumSandbox: false });
   const context = await browser.newContext();
+  await context.addInitScript((inputs) => {
+    globalThis.__benchmarkPrivateRequest = structuredClone(inputs || {});
+  }, privateInputs);
   await context.addInitScript(() => {
     const NativeWorker = globalThis.Worker;
     globalThis.__faultWorkers = [];
@@ -21,6 +32,12 @@ export async function createFaultBrowserAdapter({ repoRoot, baseURL, tuning = {}
         if (globalThis.__killWorkerOnNextShard && message?.type === 'msm-section-range') {
           globalThis.__killWorkerOnNextShard = false;
           setTimeout(() => {
+            // Worker.terminate() is intentionally silent in browsers. Inject
+            // the error event a crashed Worker would emit, then terminate it;
+            // the separate Go watchdog tests cover a silent disappearance.
+            if (typeof this.onerror === 'function') {
+              this.onerror({ message: 'fault injection: worker terminated mid-shard' });
+            }
             this.terminate();
           }, 0);
         }
@@ -42,8 +59,15 @@ export async function createFaultBrowserAdapter({ repoRoot, baseURL, tuning = {}
     }
     await page.goto(baseURL, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => globalThis.__proverLoaded === true, null, { timeout: 0 });
+    await page.evaluate((overrides) => {
+      globalThis.__defaultProofRequest.artifacts = {
+        ...(globalThis.__defaultProofRequest.artifacts || {}),
+        ...(overrides || {}),
+      };
+    }, artifactOverrides);
   }
   await loadFreshPage();
+  await resetFaultServer(baseURL);
 
   return {
     async capabilities() {
@@ -94,10 +118,13 @@ export async function createFaultBrowserAdapter({ repoRoot, baseURL, tuning = {}
       return runtime;
     },
     async runFault(testCase) {
+      if (testCase.id !== 'chunk-corruption' && testCase.id !== 'network-abort' && testCase.id !== 'network-recover') {
+        await resetFaultServer(baseURL);
+      }
       if (testCase.id === 'worker-kill') {
         return runWorkerKill(page, tuning);
       }
-      if (testCase.id === 'chunk-corruption' || testCase.id === 'network-abort') {
+      if (testCase.id === 'chunk-corruption' || testCase.id === 'network-abort' || testCase.id === 'network-recover') {
         return runTransportFault(page, baseURL, testCase.id, tuning);
       }
       if (testCase.id === 'memory-pressure') {
@@ -176,6 +203,7 @@ export async function createFaultBrowserAdapter({ repoRoot, baseURL, tuning = {}
       await browser.close().catch(() => {});
     },
     async close() {
+      await resetFaultServer(baseURL).catch(() => {});
       await context.close().catch(() => {});
       await browser.close().catch(() => {});
     },
@@ -184,19 +212,20 @@ export async function createFaultBrowserAdapter({ repoRoot, baseURL, tuning = {}
 
 async function runWorkerKill(page, tuning = {}) {
   await page.evaluate(() => { globalThis.__killWorkerOnNextShard = true; });
-  const firstAttempt = startProof(page, tuning);
-  const termination = firstAttempt.then(
-    () => ({ terminated: false, error: 'proof unexpectedly completed after worker termination' }),
-    (error) => ({ terminated: true, error: error?.message || String(error) }),
-  );
-  const outcome = await termination;
-  const fallback = classifyCPUFallbackFailure(outcome.error);
+  let result;
+  let error = '';
+  try {
+    result = await startProof(page, tuning);
+  } catch (caught) {
+    error = caught?.message || String(caught);
+  }
+  const fallback = result ? classifyCPUFallbackSuccess(result) : classifyCPUFallbackFailure(error);
+  const retryCount = countTraceEvents(result, 'msm-shard-retry');
   return {
-    status: outcome.terminated ? 'failed-closed' : 'unsafe-completed',
-    error_class: /worker-terminated|worker.*(?:error|terminated)|terminated.*worker/i.test(outcome.error)
-      ? 'worker-terminated'
-      : 'unexpected-worker-error',
-    error: outcome.error,
+    status: result?.verified_locally === true ? 'recovered' : 'failed-closed',
+    verified_locally: result?.verified_locally === true,
+    retry_count: retryCount,
+    error,
     cpu_fallback: fallback.state === 'observed' ? true : fallback.state === 'none' ? false : null,
     cpu_fallback_state: fallback.state,
     hung: false,
@@ -205,7 +234,15 @@ async function runWorkerKill(page, tuning = {}) {
 }
 
 async function runTransportFault(page, baseURL, id, tuning = {}) {
-  const mode = id === 'chunk-corruption' ? 'chunk-corruption' : 'network-abort';
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send('Network.enable');
+    await cdp.send('Network.clearBrowserCache');
+  } finally {
+    await cdp.detach();
+  }
+  const mode = id === 'chunk-corruption' ? 'chunk-corruption' :
+    id === 'network-recover' ? 'network-recover' : 'network-abort';
   const arm = await fetch(new URL('/__wasm-prover-fault/arm', baseURL), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -215,27 +252,45 @@ async function runTransportFault(page, baseURL, id, tuning = {}) {
   let result;
   let error = '';
   try {
-    result = await startProof(page, tuning);
+    // Readahead intentionally swallows transfer failures and would consume a
+    // transport fault before an authenticated MSM shard observes it.
+    result = await startProof(page, { ...tuning, chunk_readahead: 0 });
   } catch (caught) {
     error = caught?.message || String(caught);
   }
   const status = await fetch(new URL('/__wasm-prover-fault/status', baseURL)).then((response) => response.json());
+  await resetFaultServer(baseURL);
   const expectedClass = id === 'chunk-corruption' ? 'chunk-digest-mismatch' : 'range-fetch-aborted';
+  const runtimeRetryCount = countTraceEvents(result, 'msm-shard-retry');
   const fallback = result
     ? classifyCPUFallbackSuccess(result)
     : classifyCPUFallbackFailure(error);
   return {
-    status: result ? 'unsafe-completed' : 'failed-closed',
-    error_class: error.includes(expectedClass) ? expectedClass : 'unexpected-transport-error',
+    status: id === 'network-recover' && result?.verified_locally === true
+      ? 'recovered'
+      : result ? 'unsafe-completed' : 'failed-closed',
+    verified_locally: result?.verified_locally === true,
+    error_class: error.includes(expectedClass) ? expectedClass : result ? '' : 'unexpected-transport-error',
     error,
     retry_count: status.retry_count,
     retry_max: status.retry_max,
+    runtime_retry_count: runtimeRetryCount,
     cpu_fallback: fallback.state === 'observed' ? true : fallback.state === 'none' ? false : null,
     cpu_fallback_state: fallback.state,
-    partial_proof: !!result,
+    partial_proof: id === 'network-recover' ? false : !!result,
     hung: false,
     server_hit_count: status.hit_count,
   };
+}
+
+async function resetFaultServer(baseURL) {
+  const response = await fetch(new URL('/__wasm-prover-fault/reset', baseURL), { method: 'POST' });
+  if (!response.ok) throw new Error(`fault server reset returned ${response.status}`);
+}
+
+function countTraceEvents(result, stage) {
+  const events = Array.isArray(result?.trace?.events) ? result.trace.events : [];
+  return events.filter((event) => event?.stage === stage).length;
 }
 
 function startProof(page, tuning = {}) {

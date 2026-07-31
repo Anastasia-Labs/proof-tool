@@ -325,14 +325,43 @@ function verifyKeyCoherence(keyManifest, coherence, deployment) {
   for (const [field, expected] of Object.entries(checks)) equal(coherence?.[field], expected, `coherence ${field}`);
   equal(deployment.proof?.key_version, coherence.key_version, "deployment key version");
   equal(deployment.proof?.circuit_id, coherence.circuit_id, "deployment circuit id");
-  equal(deployment.proof?.vk_hash, coherence.vk_hash, "deployment VK hash");
-  equal(deployment.reclaim_global?.verifier_vk_hash, coherence.vk_hash, "on-chain VK hash");
+  equal(deployment.proof?.vk_hash, coherence.vk_hash, "native gnark VK hash");
   equal(deployment.proof?.cardano_vk_blake2b256, coherence.cardano_vk_blake2b256, "Cardano VK hash");
+  equal(deployment.reclaim_global?.verifier_vk_hash, coherence.cardano_vk_blake2b256, "on-chain Cardano VK hash");
   equal(
     deployment.reclaim_global?.batch_transcript_vk_hash,
     coherence.cardano_vk_blake2b256,
     "batch transcript VK hash",
   );
+  if (deployment.network === "Mainnet") {
+    equal(deployment.proof?.setup_transcript_hash, keyManifest.setup_transcript_hash, "Mainnet setup transcript hash");
+    equal(deployment.proof?.mpc_ceremony_id, coherence.mpc_ceremony_id, "Mainnet MPC ceremony id");
+    equal(deployment.proof?.mpc_candidate_id, coherence.mpc_candidate_id, "Mainnet MPC candidate id");
+    equal(
+      deployment.planning?.production_decision_id,
+      coherence.production_decision_id,
+      "Mainnet production decision id",
+    );
+    equal(deployment.planning?.mpc_release_id, coherence.mpc_release_id, "Mainnet MPC release id");
+    equal(
+      deployment.planning?.release_manifest_sha256,
+      coherence.release_manifest_sha256,
+      "Mainnet release manifest SHA-256",
+    );
+    equal(
+      deployment.planning?.release_manifest_sha256,
+      coherence.key_manifest_sha256,
+      "Mainnet exact signed release manifest",
+    );
+    for (const [label, value] of [
+      ["MPC ceremony id", coherence.mpc_ceremony_id],
+      ["MPC candidate id", coherence.mpc_candidate_id],
+      ["production decision id", coherence.production_decision_id],
+      ["MPC release id", coherence.mpc_release_id],
+    ]) {
+      checkDigestString(value, "sha256", `Mainnet ${label}`);
+    }
+  }
   equal(deployment.deployment_id, coherence.deployment_id, "deployment id");
   equal(deployment.source_commit, coherence.deployment_source_commit, "deployment source commit");
 }

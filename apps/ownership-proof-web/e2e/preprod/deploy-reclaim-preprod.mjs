@@ -807,7 +807,7 @@ export function buildManifest({
       script_hash: globalScriptHash,
       rewarding_credential: globalScriptHash,
       params_currency_symbol: paramsPolicyId,
-      verifier_vk_hash: destination.vkHash,
+      verifier_vk_hash: destination.cardanoVkBlake2b256,
       proof_profile: "single-destination",
       proof_slot_encoding: FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2,
       batch_transcript_vk_hash: destination.cardanoVkBlake2b256,

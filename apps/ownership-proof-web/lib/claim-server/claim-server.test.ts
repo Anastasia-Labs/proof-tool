@@ -53,6 +53,7 @@ const PARAMS_POLICY = "55".repeat(28);
 const PARAMS_TOKEN_NAME = "5245434c41494d";
 const PARAMS_HOLDER_ADDRESS = credentialToAddress("Preprod", scriptHashToCredential("66".repeat(28)));
 const VK_HASH = "22".repeat(32);
+const CARDANO_VK_HASH = "44".repeat(32);
 const SAFE_ADDRESS = credentialToAddress("Preprod", keyHashToCredential(SAFE_CREDENTIAL));
 const RECLAIM_ADDRESS = credentialToAddress("Preprod", scriptHashToCredential(RECLAIM_SCRIPT));
 const DEPLOYMENT: ReclaimDeployment = {
@@ -65,9 +66,10 @@ const DEPLOYMENT: ReclaimDeployment = {
   reclaimGlobalScriptHash: RECLAIM_GLOBAL_SCRIPT,
   paramsCurrencySymbol: PARAMS_POLICY,
   paramsTokenName: PARAMS_TOKEN_NAME,
-  verifierVkHash: VK_HASH,
+  verifierVkHash: CARDANO_VK_HASH,
+  proofVkHash: VK_HASH,
   reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
-  reclaimGlobalBatchTranscriptVkHash: VK_HASH,
+  reclaimGlobalBatchTranscriptVkHash: CARDANO_VK_HASH,
   contractVersion: "test",
   sourceCommit: "source",
   paramsUtxo: {
@@ -96,7 +98,7 @@ const DEPLOYMENT: ReclaimDeployment = {
 const STATEMENT_BOUND_V2_DEPLOYMENT: ReclaimDeployment = {
   ...DEPLOYMENT,
   reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
-  reclaimGlobalBatchTranscriptVkHash: VK_HASH,
+  reclaimGlobalBatchTranscriptVkHash: CARDANO_VK_HASH,
   batching: {
     default_utxo_count: CLAIM_DEFAULT_BATCH_CAP,
     optimization_utxo_count: CLAIM_OPTIMIZATION_BATCH_CAP,
@@ -1212,7 +1214,13 @@ function referenceScriptUtxos(
 }
 
 function isDeployment(value: unknown): value is ReclaimDeployment {
-  return Boolean(value && typeof value === "object" && "reclaimBaseAddress" in value && "verifierVkHash" in value);
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "reclaimBaseAddress" in value &&
+      "verifierVkHash" in value &&
+      "proofVkHash" in value,
+  );
 }
 
 function claimBuildReview(selectedOutrefs: string[]) {

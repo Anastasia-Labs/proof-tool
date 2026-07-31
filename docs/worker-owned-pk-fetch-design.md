@@ -155,6 +155,36 @@ and local acceptance gates passed. Later pinned-decode and commitment/overlap
 work superseded the w16/s64 tuning; current defaults and evidence are in
 `browser-proving.md`.
 
+### Chunk-local transient retry follow-up
+
+The slower-network mitigation adds one bounded retry for a transient failure
+while fetching an individual authenticated chunk. The worker first performs a
+single direct fetch; only a network/body-read failure or HTTP 408, 425, 429, or
+5xx response enters the delayed retry path. A successful fetch therefore does
+not allocate a retry timer, issue an extra request, or discard already-verified
+chunks. Integrity failures remain terminal.
+
+The candidate and production workers share the implementation and are covered
+by the W7 unit gate. The final 2026-07-31 acceptance used separately built
+baseline and recovery-candidate runtimes from the same source revision,
+temporary signed manifests, three counterbalanced samples per role, 16 workers
+and shards, range-fetch concurrency two, W1/W2/W3/W5/W6/W7, `GOGC=15`, and
+`GOMEMLIMIT=3200MiB`. Every accepted sample produced a locally verified proof
+and had a clean preflight with no transient contamination observation.
+
+The cold-cache median was `51,470 ms` for the recovery candidate versus
+`51,881 ms` for baseline (`-0.792%`), with median peak heap `0.82785 GiB`
+versus `0.82877 GiB` (`-0.110%`). The warm-cache median was `48,370 ms`
+versus `48,609 ms` (`-0.492%`), with median peak heap `0.82687 GiB` versus
+`0.82779 GiB` (`-0.111%`). Both passed the hard acceptance limits of at most
+`0.5%` proving-time regression and at most `1.0%` peak-heap regression. The
+healthy path made no retry and the observed result is evidence of no
+measurable regression, not a claim that retry logic makes proving faster.
+
+The repository worker sources are updated for this follow-up; immutable
+production release copies and their signed manifests are intentionally not
+rewritten without the release signing ceremony.
+
 ## Original Baseline Evidence
 
 The isolated browser WASM experiment already generated and locally verified a
@@ -631,13 +661,44 @@ Failure response:
 ```json
 {
   "id": 42,
-  "error": "chunk 17 blake2b256 mismatch"
+  "error": "fetch chunk 17 returned status 503",
+  "error_code": "chunk-fetch-http",
+  "retryable": true,
+  "retry_after_ms": 1000
 }
 ```
 
 The worker must include the request id in every response. The dispatcher must
 demultiplex replies by id and must support multiple outstanding requests per
 worker before over-sharding is benchmarked.
+
+The main runtime, not Worker-provided message text, owns shard retry policy.
+The worker's local same-chunk retry is fixed by the implementation above; the
+runtime still allow-lists transient network/HTTP failures and worker
+termination or initialization failures at the shard boundary. Chunk encoding,
+size, and digest failures, invalid partials, stale replies, unknown error
+codes, and compute failures remain terminal even if a Worker claims they are
+retryable. A failed shard gets at most three total attempts; worker-liveness
+failures replace only that worker, while transient fetch failures retain the
+worker and its verified W7 cache. Already accepted partials from other
+asynchronous shards are preserved.
+
+Before escalating a transient chunk transport failure to the shard boundary,
+the MSM worker makes one bounded same-chunk retry (two fetch attempts total).
+The retry uses a capped exponential delay with deterministic per-chunk jitter
+and honors a numeric `Retry-After` value up to 30 seconds. The healthy path
+does not allocate a timer or issue an extra request. Only network/body-read
+failures and HTTP 408, 425, 429, or 5xx responses are retryable; status,
+encoding, size, and digest failures remain terminal. The worker reports the
+attempt count for evidence, while the existing outer shard retry remains the
+backstop for a transport that stays unavailable.
+
+The reply wait uses a five-minute inactivity lease, matching the browser
+proving safety margin, and a 20-minute absolute cap. A generation-bound
+two-word `SharedArrayBuffer` records progress after each already-verified fetch
+window and before compute. Progress can renew the inactivity lease but never
+the absolute cap. The successful path has no polling or heartbeat messages and
+does not alter chunk concurrency, fetch order, hashing, decode, or MSM work.
 
 ## Worker Fetch Algorithm
 
@@ -655,7 +716,8 @@ For a task `{section, lo, hi}`:
 4. Find all chunks intersecting `[start, end_exclusive)`.
 5. For each chunk:
    - check cache by `{asset_id, chunk_size, chunk_index, blake2b256}`,
-   - if absent, fetch exact chunk path or exact chunk range,
+   - if absent, fetch exact chunk path or exact chunk range; retry one
+     transient network/body/408/425/429/5xx failure locally before escalating,
    - require status `206` for range fetches,
    - require byte count equals chunk size,
    - hash chunk with BLAKE2b-256 and SHA-256,
@@ -807,8 +869,10 @@ Add a command, likely under `cmd/proof-tool`, that:
 1. Starts from a verified key bundle directory.
 2. Runs the existing key-bundle verification path.
 3. Reads the reclaim deployment manifest.
-4. Asserts `proof.vk_hash`, `reclaim_global.verifier_vk_hash`, and generated
-   Cardano VK hash match.
+4. Asserts `proof.vk_hash` matches the native gnark key bundle, while
+   `reclaim_global.verifier_vk_hash` and
+   `proof.cardano_vk_blake2b256` both match the generated Cardano wire-format
+   VK hash.
 5. Generates the proving-key section index.
 6. Generates the serialized CCS if needed and records its hash.
 7. Splits `ownership.pk` into fixed raw chunks.

@@ -343,12 +343,19 @@ export function validateBrowserWasmClaimDeployment(response) {
       "The target deployment does not expose a valid pinned verifier-key hash.",
     );
   }
+  if (!/^(?:blake2b256:)?[0-9a-f]{64}$/u.test(String(deployment.proofVkHash ?? ""))) {
+    throw new WebAppClaimFlowContractError(
+      "preprod_manifest_incoherent",
+      "The target deployment does not expose a valid native proof verifier-key hash.",
+    );
+  }
   return Object.freeze({
     deploymentId: deployment.id,
     network: deployment.network,
     networkId: deployment.networkId,
     sourceCommit: deployment.sourceCommit,
     verifierVkHash: deployment.verifierVkHash,
+    proofVkHash: deployment.proofVkHash,
     proofAssetId: deployment.proof.browser_proving.id ?? null,
   });
 }

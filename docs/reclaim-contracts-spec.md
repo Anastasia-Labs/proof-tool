@@ -24,7 +24,11 @@ Developer entrypoints:
   validator, with one full destination-bound proof and one authenticated
   statement digest per matching input.
 - `src/Ownership/ReclaimGlobalMulti.hs`: one count-specific proof for an
-  ordered set of matching inputs.
+  ordered set of matching inputs. This reference implementation is currently
+  unused by the ownership-proof web app and production deployments:
+  `ReclaimGlobalV2` was selected because its smaller proving key enables faster
+  browser proving. `ReclaimGlobalMulti` remains available for developers
+  studying a batched proof-verification contract.
 - `test/VerifySpec.hs`: real-proof positives plus proof/order/destination/value
   negative cases.
 - `test-support/ScriptContextBuilder.hs`: transaction-context fixtures shared
@@ -243,7 +247,9 @@ off-chain mistakes harder to detect.
 destination-bound proof. It scans all spending inputs whose payment credential is
 the deployed `ReclaimBase` script hash, aggregates their credential hashes and
 values, and requires one proof that covers the full ordered credential set and
-the destination address.
+the destination address. It is retained as a developer reference rather than a
+web-app or production deployment path; the canonical `ReclaimGlobalV2` path uses
+a smaller proving key and therefore provides faster browser proving.
 
 ### Parameters
 

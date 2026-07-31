@@ -48,7 +48,8 @@ The harness also requires:
 - `RECLAIM_REVIEW_TOKEN_SECRET` and a configured Preprod provider;
 - `RECLAIM_DEPLOYMENT_MANIFEST_JSON` or one supported manifest path variable;
 - a loopback destination helper target and token for the desktop provider;
-- a signed destination key bundle whose VK hash matches the deployment;
+- a signed destination key bundle whose native VK hash matches the
+  deployment's `proof.vk_hash`;
 - a lowercase native-asset unit for the full injected-wallet lane.
 
 Source the repo-root `.env.local` when serving the local app so claim and
@@ -315,6 +316,11 @@ The deployed coherence set pins:
   `b1c03cf24376bcd6c743cb372169ff71f93b210e0d8d52b2c6831808f50ded80`;
 - Cardano/on-chain VK hash
   `06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4`;
+
+The deployment manifest records the first as `proof.vk_hash`. It records the
+second as both `proof.cardano_vk_blake2b256` and
+`reclaim_global.verifier_vk_hash`; the V2 batch-transcript preflight uses that
+same Cardano hash.
 - signed asset prefix `proof-assets/preprod-9fac96b-g3a/`;
 - proving key size 1,288,707,133 bytes, 615 two-MiB chunks, and CCS size
   129,221,468 bytes.

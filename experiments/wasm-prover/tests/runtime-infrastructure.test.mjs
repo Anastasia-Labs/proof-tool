@@ -800,6 +800,23 @@ test("every fault outcome rejects each reviewed false-pass shape", () => {
     }),
     false,
   );
+  assert.equal(
+    workerKill.accept({ ...safe["worker-kill"], retry_count: 0 }),
+    false,
+  );
+  const networkRecover = faultCases.find((item) => item.id === "network-recover");
+  assert.equal(
+    networkRecover.accept({ ...safe["network-recover"], verified_locally: false }),
+    false,
+  );
+  assert.equal(
+    networkRecover.accept({ ...safe["network-recover"], retry_count: 0 }),
+    false,
+  );
+  assert.equal(
+    networkRecover.accept({ ...safe["network-recover"], runtime_retry_count: 0 }),
+    false,
+  );
   const network = faultCases.find((item) => item.id === "network-abort");
   assert.equal(
     network.accept({ ...safe["network-abort"], partial_proof: true }),
@@ -973,8 +990,9 @@ test("persistence audit requires every source or an explicit unsupported reason"
 function safeFaultOutcomes() {
   return {
     "worker-kill": {
-      status: "failed-closed",
-      error_class: "worker-terminated",
+      status: "recovered",
+      verified_locally: true,
+      retry_count: 1,
       cpu_fallback: false,
       cpu_fallback_state: "none",
       hung: false,
@@ -988,6 +1006,17 @@ function safeFaultOutcomes() {
       partial_proof: false,
       hung: false,
       server_hit_count: 1,
+    },
+    "network-recover": {
+      status: "recovered",
+      verified_locally: true,
+      retry_count: 2,
+      retry_max: 3,
+      runtime_retry_count: 2,
+      partial_proof: false,
+      cpu_fallback: false,
+      cpu_fallback_state: "none",
+      hung: false,
     },
     "network-abort": {
       status: "failed-closed",

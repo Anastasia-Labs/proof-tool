@@ -49,6 +49,7 @@ func TestGenerateChunkManifestAndTamperGuards(t *testing.T) {
 	}
 	cardanoVKHash := prefixedHash("55")
 	deployment := testDeploymentManifest(keyManifest, cardanoVKHash)
+	deployment.Planning.ReleaseManifestSHA256 = keyManifestDigest.SHA256
 	outDir := filepath.Join(t.TempDir(), "assets")
 
 	manifest, err := GenerateChunkManifest(ChunkManifestOptions{
@@ -69,8 +70,14 @@ func TestGenerateChunkManifestAndTamperGuards(t *testing.T) {
 			"ownership.vk": {
 				Path:       "ownership.vk",
 				Size:       784,
+				SHA256:     shaPrefixedHash("22"),
+				Blake2b256: prefixedHash("11"),
+			},
+			"ownership-destination.ccs": {
+				Path:       "ownership-destination.ccs",
+				Size:       1024,
 				SHA256:     shaPrefixedHash("66"),
-				Blake2b256: prefixedHash("77"),
+				Blake2b256: prefixedHash("33"),
 			},
 		},
 	})
@@ -133,6 +140,24 @@ func TestGenerateChunkManifestAndTamperGuards(t *testing.T) {
 			t.Fatalf("expected vk_hash failure, got %v", err)
 		}
 	})
+	t.Run("vk asset digest tamper fails", func(t *testing.T) {
+		tampered := cloneChunkManifest(t, manifest)
+		pin := tampered.Assets["ownership.vk"]
+		pin.Blake2b256 = prefixedHash("99")
+		tampered.Assets["ownership.vk"] = pin
+		if err := ValidateChunkManifest(tampered, expect); err == nil || !strings.Contains(err.Error(), "ownership.vk blake2b256") {
+			t.Fatalf("expected ownership.vk coherence failure, got %v", err)
+		}
+	})
+	t.Run("ccs asset digest tamper fails", func(t *testing.T) {
+		tampered := cloneChunkManifest(t, manifest)
+		pin := tampered.Assets["ownership-destination.ccs"]
+		pin.Blake2b256 = prefixedHash("99")
+		tampered.Assets["ownership-destination.ccs"] = pin
+		if err := ValidateChunkManifest(tampered, expect); err == nil || !strings.Contains(err.Error(), "ownership-destination.ccs blake2b256") {
+			t.Fatalf("expected CCS coherence failure, got %v", err)
+		}
+	})
 	t.Run("deployment id tamper fails", func(t *testing.T) {
 		tampered := cloneChunkManifest(t, manifest)
 		tampered.Coherence.DeploymentID = "mainnet:wrong"
@@ -140,13 +165,36 @@ func TestGenerateChunkManifestAndTamperGuards(t *testing.T) {
 			t.Fatalf("expected deployment id failure, got %v", err)
 		}
 	})
+	t.Run("MPC provenance tamper fails", func(t *testing.T) {
+		tampered := cloneChunkManifest(t, manifest)
+		tampered.Coherence.MPCCandidateID = "sha256:" + strings.Repeat("99", 32)
+		if err := ValidateChunkManifest(tampered, expect); err == nil || !strings.Contains(err.Error(), "mpc candidate id") {
+			t.Fatalf("expected MPC candidate coherence failure, got %v", err)
+		}
+	})
+	t.Run("release manifest provenance tamper fails", func(t *testing.T) {
+		tampered := cloneChunkManifest(t, manifest)
+		tampered.Coherence.ReleaseManifestSHA256 = shaPrefixedHash("99")
+		if err := ValidateChunkManifest(tampered, expect); err == nil || !strings.Contains(err.Error(), "release manifest sha256") {
+			t.Fatalf("expected release manifest coherence failure, got %v", err)
+		}
+	})
+	t.Run("deployment cannot substitute a different signed key manifest", func(t *testing.T) {
+		tampered := *deployment
+		tampered.Planning.ReleaseManifestSHA256 = shaPrefixedHash("99")
+		if err := validateMainnetReleaseManifestDigest(&tampered, keyManifestDigest); err == nil ||
+			!strings.Contains(err.Error(), "exact signed key manifest") {
+			t.Fatalf("expected exact signed release manifest failure, got %v", err)
+		}
+	})
 }
 
 func TestValidateReclaimDeploymentStatementBoundV2(t *testing.T) {
 	keyManifest := &artifact.KeyManifest{
-		VKHash:     prefixedHash("11"),
-		CircuitID:  "root-ownership-destination-v1/bls12-381/groth16",
-		KeyVersion: "ownership-destination-v1",
+		VKHash:              prefixedHash("11"),
+		CircuitID:           "root-ownership-destination-v1/bls12-381/groth16",
+		KeyVersion:          "ownership-destination-v1",
+		SetupTranscriptHash: prefixedHash("44"),
 	}
 	cardanoVKHash := prefixedHash("55")
 	deployment := testDeploymentManifest(keyManifest, cardanoVKHash)
@@ -155,6 +203,18 @@ func TestValidateReclaimDeploymentStatementBoundV2(t *testing.T) {
 	if err := ValidateReclaimDeployment(deployment, keyManifest, cardanoVKHash); err != nil {
 		t.Fatalf("expected statement-bound V2 deployment to validate: %v", err)
 	}
+
+	deployment.Proof.SetupTranscriptHash = prefixedHash("99")
+	if err := ValidateReclaimDeployment(deployment, keyManifest, cardanoVKHash); err == nil || !strings.Contains(err.Error(), "setup_transcript_hash") {
+		t.Fatalf("expected setup transcript mismatch to fail, got %v", err)
+	}
+	deployment.Proof.SetupTranscriptHash = keyManifest.SetupTranscriptHash
+
+	deployment.ReclaimGlobal.VerifierVKHash = keyManifest.VKHash
+	if err := ValidateReclaimDeployment(deployment, keyManifest, cardanoVKHash); err == nil || !strings.Contains(err.Error(), "Cardano VK hash") {
+		t.Fatalf("expected native VK hash in on-chain verifier field to fail, got %v", err)
+	}
+	deployment.ReclaimGlobal.VerifierVKHash = cardanoVKHash
 
 	deployment.ReclaimGlobal.BatchTranscriptVKHash = ""
 	if err := ValidateReclaimDeployment(deployment, keyManifest, cardanoVKHash); err == nil || !strings.Contains(err.Error(), "batch_transcript_vk_hash") {
@@ -171,8 +231,9 @@ func testDeploymentManifest(keyManifest *artifact.KeyManifest, cardanoVKHash str
 	var deployment ReclaimDeploymentManifest
 	deployment.Schema = ReclaimDeploymentSchema
 	deployment.DeploymentID = "mainnet:" + strings.Repeat("b", 56) + ":" + strings.Repeat("a", 40)
+	deployment.Network = "Mainnet"
 	deployment.SourceCommit = strings.Repeat("a", 40)
-	deployment.ReclaimGlobal.VerifierVKHash = keyManifest.VKHash
+	deployment.ReclaimGlobal.VerifierVKHash = cardanoVKHash
 	deployment.ReclaimGlobal.ProofProfile = "single-destination"
 	deployment.ReclaimGlobal.ProofSlotEncoding = "full-proof-plus-public-input-digest-v2"
 	deployment.ReclaimGlobal.BatchTranscriptVKHash = cardanoVKHash
@@ -181,6 +242,12 @@ func testDeploymentManifest(keyManifest *artifact.KeyManifest, cardanoVKHash str
 	deployment.Proof.DestinationAddressEncoding = "destination-address-v1"
 	deployment.Proof.VKHash = keyManifest.VKHash
 	deployment.Proof.CardanoVKBlake2b256 = cardanoVKHash
+	deployment.Proof.SetupTranscriptHash = keyManifest.SetupTranscriptHash
+	deployment.Proof.MPCCeremonyID = "sha256:" + strings.Repeat("66", 32)
+	deployment.Proof.MPCCandidateID = "sha256:" + strings.Repeat("77", 32)
+	deployment.Planning.ProductionDecisionID = "sha256:" + strings.Repeat("88", 32)
+	deployment.Planning.MPCReleaseID = "sha256:" + strings.Repeat("99", 32)
+	deployment.Planning.ReleaseManifestSHA256 = shaPrefixedHash("aa")
 	return &deployment
 }
 

@@ -21,15 +21,15 @@ import (
 	"golang.org/x/crypto/blake2b"
 
 	"proof-tool/internal/artifact"
-	"proof-tool/internal/circuit/ownership"
-	"proof-tool/internal/circuit/ownershipdest"
+	"proof-tool/internal/keybundle"
+	"proof-tool/internal/keyprofile"
 	"proof-tool/internal/prover"
 )
 
 const (
 	ceremonyTranscriptSchema = "proof-tool-setup-transcript-v1"
-	manifestSignatureFile    = "manifest.sig"
-	manifestPublicKeyFile    = "manifest-public-key.hex"
+	manifestSignatureFile    = keybundle.ManifestSignatureFile
+	manifestPublicKeyFile    = keybundle.ManifestPublicKeyFile
 	setupTranscriptFile      = "setup-transcript.json"
 	toxicWasteNotesFile      = "TOXIC-WASTE-HANDLING.md"
 	bundleReadmeFile         = "README.md"
@@ -61,15 +61,7 @@ type setupCeremonyResult struct {
 	Manifest             *artifact.KeyManifest
 }
 
-type ceremonyCircuitProfile struct {
-	KeyVersion     string
-	CircuitID      string
-	Label          string
-	DefaultKeysDir string
-	Compile        func() (constraint.ConstraintSystem, error)
-	Inspect        func(string, bool) prover.BundleStatus
-	LoadVerifier   func(string) (*prover.OwnershipBundle, error)
-}
+type ceremonyCircuitProfile = keyprofile.Profile
 
 type ceremonyDigest struct {
 	SHA256     string `json:"sha256"`
@@ -438,105 +430,25 @@ func runSetupCeremony(opts setupCeremonyOptions) (*setupCeremonyResult, error) {
 }
 
 func verifyKeyBundle(keysDir, keyVersion, publicKeyHex, expectedSignatureKeyID string, requireProvingKey bool) (*artifact.KeyManifest, error) {
-	profile, err := ceremonyProfileForBundle(keysDir, keyVersion)
-	if err != nil {
-		return nil, err
-	}
-	status := profile.Inspect(keysDir, requireProvingKey)
-	if !status.Ready {
-		return nil, fmt.Errorf("key bundle is not ready: %s", status.Error)
-	}
-	manifest := status.Manifest
-	if expectedSignatureKeyID != "" && manifest.SignatureKeyID != expectedSignatureKeyID {
-		return nil, fmt.Errorf("manifest signature_key_id %q, want %q", manifest.SignatureKeyID, expectedSignatureKeyID)
-	}
-	if err := verifyManifestSignature(
-		filepath.Join(keysDir, "manifest.json"),
-		filepath.Join(keysDir, manifestSignatureFile),
-		publicKeyHex,
-	); err != nil {
-		return nil, err
-	}
-	return manifest, nil
-}
-
-func ceremonyProfileForBundle(keysDir, keyVersion string) (ceremonyCircuitProfile, error) {
-	if strings.TrimSpace(keyVersion) != "" {
-		return ceremonyProfileForKeyVersion(keyVersion)
-	}
-	manifest, err := artifact.ReadKeyManifest(filepath.Join(keysDir, "manifest.json"))
-	if err != nil {
-		return ceremonyCircuitProfile{}, err
-	}
-	return ceremonyProfileForKeyVersion(manifest.KeyVersion)
+	return keybundle.Verify(keybundle.VerifyOptions{
+		KeysDir:                keysDir,
+		KeyVersion:             keyVersion,
+		PublicKeyHex:           publicKeyHex,
+		ExpectedSignatureKeyID: expectedSignatureKeyID,
+		RequireProvingKey:      requireProvingKey,
+	})
 }
 
 func ceremonyProfileForKeyVersion(keyVersion string) (ceremonyCircuitProfile, error) {
-	switch strings.TrimSpace(keyVersion) {
-	case prover.DefaultKeyVersion:
-		return ceremonyCircuitProfile{
-			KeyVersion:     prover.DefaultKeyVersion,
-			CircuitID:      ownership.CircuitID,
-			Label:          "ownership",
-			DefaultKeysDir: prover.DefaultKeyDir(),
-			Compile:        prover.CompileOwnership,
-			Inspect:        prover.InspectOwnershipBundle,
-			LoadVerifier:   prover.LoadOwnershipVerifier,
-		}, nil
-	case prover.DefaultDestinationKeyVersion:
-		return ceremonyCircuitProfile{
-			KeyVersion:     prover.DefaultDestinationKeyVersion,
-			CircuitID:      ownershipdest.CircuitID,
-			Label:          "ownership destination",
-			DefaultKeysDir: prover.DefaultDestinationKeyDir(),
-			Compile:        prover.CompileOwnershipDestination,
-			Inspect:        prover.InspectOwnershipDestinationBundle,
-			LoadVerifier:   prover.LoadOwnershipDestinationVerifier,
-		}, nil
-	default:
-		return ceremonyCircuitProfile{}, fmt.Errorf("unsupported key version %q; expected %q or %q", keyVersion, prover.DefaultKeyVersion, prover.DefaultDestinationKeyVersion)
-	}
+	return keyprofile.ForKeyVersion(keyVersion)
 }
 
 func verifyManifestSignature(manifestPath, signaturePath, publicKeyHex string) error {
-	manifestBytes, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return fmt.Errorf("read manifest: %w", err)
-	}
-	signatureHex, err := os.ReadFile(signaturePath)
-	if err != nil {
-		return fmt.Errorf("read manifest signature: %w", err)
-	}
-	signature, err := hex.DecodeString(strings.TrimSpace(string(signatureHex)))
-	if err != nil {
-		return fmt.Errorf("decode manifest signature hex: %w", err)
-	}
-	if len(signature) != ed25519.SignatureSize {
-		return fmt.Errorf("manifest signature is %d bytes, want %d", len(signature), ed25519.SignatureSize)
-	}
-	publicKey, err := decodeEd25519PublicKeyHex(publicKeyHex)
-	if err != nil {
-		return err
-	}
-	if !ed25519.Verify(publicKey, manifestBytes, signature) {
-		return errors.New("manifest signature verification failed")
-	}
-	return nil
+	return keybundle.VerifyManifestSignature(manifestPath, signaturePath, publicKeyHex)
 }
 
 func manifestPublicKeyForVerification(keysDir, publicKeyHex, publicKeyFile string) (string, bool, error) {
-	if publicKeyHex != "" && publicKeyFile != "" {
-		return "", false, errors.New("use only one of --manifest-public-key or --manifest-public-key-file")
-	}
-	if publicKeyHex != "" {
-		return strings.TrimSpace(publicKeyHex), true, nil
-	}
-	if publicKeyFile != "" {
-		value, err := readTrimmedFile(publicKeyFile)
-		return value, true, err
-	}
-	value, err := readTrimmedFile(filepath.Join(keysDir, manifestPublicKeyFile))
-	return value, false, err
+	return keybundle.ManifestPublicKeyForVerification(keysDir, publicKeyHex, publicKeyFile)
 }
 
 func ensureFreshDirectory(dir string) error {
@@ -584,25 +496,20 @@ func readOrCreateEd25519SigningKey(path string) (ed25519.PrivateKey, ed25519.Pub
 	if strings.TrimSpace(path) == "" {
 		return nil, nil, false, errors.New("signing key path is required")
 	}
-	rawHex, err := os.ReadFile(path)
+	privateKey, publicKey, err := keybundle.LoadExistingPrivateKey(path)
 	if err == nil {
-		privateKey, err := decodeEd25519PrivateKeyHex(strings.TrimSpace(string(rawHex)))
-		if err != nil {
-			return nil, nil, false, fmt.Errorf("read signing key %s: %w", path, err)
-		}
-		publicKey := privateKey.Public().(ed25519.PublicKey)
 		if err := writePublicSigningKey(path, publicKey); err != nil {
 			return nil, nil, false, err
 		}
 		return privateKey, publicKey, false, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return nil, nil, false, fmt.Errorf("read signing key %s: %w", path, err)
+		return nil, nil, false, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, nil, false, fmt.Errorf("create signing key directory: %w", err)
 	}
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	publicKey, privateKey, err = ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("generate signing key: %w", err)
 	}
@@ -619,29 +526,7 @@ func readOrCreateEd25519SigningKey(path string) (ed25519.PrivateKey, ed25519.Pub
 }
 
 func decodeEd25519PrivateKeyHex(value string) (ed25519.PrivateKey, error) {
-	raw, err := hex.DecodeString(strings.TrimSpace(value))
-	if err != nil {
-		return nil, err
-	}
-	switch len(raw) {
-	case ed25519.SeedSize:
-		return ed25519.NewKeyFromSeed(raw), nil
-	case ed25519.PrivateKeySize:
-		return ed25519.PrivateKey(raw), nil
-	default:
-		return nil, fmt.Errorf("Ed25519 private key is %d bytes, want %d-byte seed or %d-byte private key", len(raw), ed25519.SeedSize, ed25519.PrivateKeySize)
-	}
-}
-
-func decodeEd25519PublicKeyHex(value string) (ed25519.PublicKey, error) {
-	raw, err := hex.DecodeString(strings.TrimSpace(value))
-	if err != nil {
-		return nil, fmt.Errorf("decode manifest public key hex: %w", err)
-	}
-	if len(raw) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("manifest public key is %d bytes, want %d", len(raw), ed25519.PublicKeySize)
-	}
-	return ed25519.PublicKey(raw), nil
+	return keybundle.DecodePrivateKeyHex(value)
 }
 
 func writePublicSigningKey(privateKeyPath string, publicKey ed25519.PublicKey) error {
@@ -726,14 +611,6 @@ func hostname() string {
 		return ""
 	}
 	return name
-}
-
-func readTrimmedFile(path string) (string, error) {
-	value, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read %s: %w", path, err)
-	}
-	return strings.TrimSpace(string(value)), nil
 }
 
 func toxicWasteNotes(generatedAt time.Time, source ceremonySource) string {

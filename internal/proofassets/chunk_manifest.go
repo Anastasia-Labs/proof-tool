@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/blake2b"
 
 	"proof-tool/internal/artifact"
+	"proof-tool/internal/strictjson"
 )
 
 const (
@@ -57,6 +58,11 @@ type ChunkCoherence struct {
 	ProofToolVersion       string `json:"proof_tool_version,omitempty"`
 	CardanoVKFormat        string `json:"cardano_vk_format,omitempty"`
 	CardanoVKBlake2b256    string `json:"cardano_vk_blake2b256,omitempty"`
+	MPCCeremonyID          string `json:"mpc_ceremony_id,omitempty"`
+	MPCCandidateID         string `json:"mpc_candidate_id,omitempty"`
+	ProductionDecisionID   string `json:"production_decision_id,omitempty"`
+	MPCReleaseID           string `json:"mpc_release_id,omitempty"`
+	ReleaseManifestSHA256  string `json:"release_manifest_sha256,omitempty"`
 	DeploymentID           string `json:"deployment_id"`
 	DeploymentSourceCommit string `json:"deployment_source_commit,omitempty"`
 }
@@ -128,6 +134,7 @@ type CompressedAssetPin struct {
 type ReclaimDeploymentManifest struct {
 	Schema        string `json:"schema"`
 	DeploymentID  string `json:"deployment_id"`
+	Network       string `json:"network"`
 	SourceCommit  string `json:"source_commit"`
 	ReclaimGlobal struct {
 		VerifierVKHash        string `json:"verifier_vk_hash"`
@@ -141,7 +148,15 @@ type ReclaimDeploymentManifest struct {
 		DestinationAddressEncoding string `json:"destination_address_encoding"`
 		VKHash                     string `json:"vk_hash"`
 		CardanoVKBlake2b256        string `json:"cardano_vk_blake2b256"`
+		SetupTranscriptHash        string `json:"setup_transcript_hash"`
+		MPCCeremonyID              string `json:"mpc_ceremony_id"`
+		MPCCandidateID             string `json:"mpc_candidate_id"`
 	} `json:"proof"`
+	Planning struct {
+		ProductionDecisionID  string `json:"production_decision_id"`
+		MPCReleaseID          string `json:"mpc_release_id"`
+		ReleaseManifestSHA256 string `json:"release_manifest_sha256"`
+	} `json:"planning"`
 }
 
 type ChunkManifestOptions struct {
@@ -204,6 +219,20 @@ func GenerateChunkManifest(opts ChunkManifestOptions) (*ChunkManifest, error) {
 	if err := ValidateReclaimDeployment(opts.Deployment, opts.KeyManifest, opts.CardanoVKBlake2b256); err != nil {
 		return nil, err
 	}
+	if err := validateMainnetReleaseManifestDigest(opts.Deployment, opts.KeyManifestDigest); err != nil {
+		return nil, err
+	}
+	assets := opts.Assets
+	if assets == nil {
+		assets = map[string]AssetPin{}
+	}
+	if err := ValidateKeyManifestAssetDigests(
+		opts.KeyManifest,
+		fileDigestFromAssetPin(assets["ownership.vk"]),
+		fileDigestFromAssetPin(assets["ownership-destination.ccs"]),
+	); err != nil {
+		return nil, err
+	}
 
 	idx, err := BuildPKIndex(opts.ProvingKeyPath)
 	if err != nil {
@@ -226,10 +255,6 @@ func GenerateChunkManifest(opts ChunkManifestOptions) (*ChunkManifest, error) {
 	})
 	if err != nil {
 		return nil, err
-	}
-	assets := opts.Assets
-	if assets == nil {
-		assets = map[string]AssetPin{}
 	}
 	return &ChunkManifest{
 		Schema:         ChunkManifestSchema,
@@ -255,6 +280,11 @@ func GenerateChunkManifest(opts ChunkManifestOptions) (*ChunkManifest, error) {
 			ProofToolVersion:       opts.KeyManifest.ProofToolVersion,
 			CardanoVKFormat:        opts.CardanoVKFormat,
 			CardanoVKBlake2b256:    opts.CardanoVKBlake2b256,
+			MPCCeremonyID:          opts.Deployment.Proof.MPCCeremonyID,
+			MPCCandidateID:         opts.Deployment.Proof.MPCCandidateID,
+			ProductionDecisionID:   opts.Deployment.Planning.ProductionDecisionID,
+			MPCReleaseID:           opts.Deployment.Planning.MPCReleaseID,
+			ReleaseManifestSHA256:  opts.Deployment.Planning.ReleaseManifestSHA256,
 			DeploymentID:           opts.Deployment.DeploymentID,
 			DeploymentSourceCommit: opts.Deployment.SourceCommit,
 		},
@@ -406,6 +436,13 @@ func ValidateChunkManifest(m *ChunkManifest, expected ChunkManifestExpectations)
 		if err := validateAgainstKeyManifest(m, expected.KeyManifest); err != nil {
 			return err
 		}
+		if err := ValidateKeyManifestAssetDigests(
+			expected.KeyManifest,
+			fileDigestFromAssetPin(m.Assets["ownership.vk"]),
+			fileDigestFromAssetPin(m.Assets["ownership-destination.ccs"]),
+		); err != nil {
+			return err
+		}
 	}
 	if expected.KeyManifestDigest.Size != 0 || expected.KeyManifestDigest.SHA256 != "" || expected.KeyManifestDigest.Blake2b256 != "" {
 		if m.Coherence.KeyManifestSHA256 != expected.KeyManifestDigest.SHA256 {
@@ -421,6 +458,21 @@ func ValidateChunkManifest(m *ChunkManifest, expected ChunkManifestExpectations)
 		}
 		if m.Coherence.DeploymentSourceCommit != expected.Deployment.SourceCommit {
 			return fmt.Errorf("deployment source commit mismatch: manifest %q, expected %q", m.Coherence.DeploymentSourceCommit, expected.Deployment.SourceCommit)
+		}
+		for _, check := range []struct {
+			name string
+			got  string
+			want string
+		}{
+			{"mpc ceremony id", m.Coherence.MPCCeremonyID, expected.Deployment.Proof.MPCCeremonyID},
+			{"mpc candidate id", m.Coherence.MPCCandidateID, expected.Deployment.Proof.MPCCandidateID},
+			{"production decision id", m.Coherence.ProductionDecisionID, expected.Deployment.Planning.ProductionDecisionID},
+			{"mpc release id", m.Coherence.MPCReleaseID, expected.Deployment.Planning.MPCReleaseID},
+			{"release manifest sha256", m.Coherence.ReleaseManifestSHA256, expected.Deployment.Planning.ReleaseManifestSHA256},
+		} {
+			if check.got != check.want {
+				return fmt.Errorf("%s mismatch: manifest %q, expected %q", check.name, check.got, check.want)
+			}
 		}
 	}
 	if expected.CardanoVKFormat != "" && m.Coherence.CardanoVKFormat != expected.CardanoVKFormat {
@@ -460,7 +512,7 @@ func ReadChunkManifest(path string) (*ChunkManifest, error) {
 		return nil, fmt.Errorf("read chunk manifest %s: %w", path, err)
 	}
 	var m ChunkManifest
-	if err := json.Unmarshal(raw, &m); err != nil {
+	if err := strictjson.Unmarshal(raw, &m); err != nil {
 		return nil, fmt.Errorf("parse chunk manifest %s: %w", path, err)
 	}
 	return &m, nil
@@ -494,7 +546,7 @@ func ReadReclaimDeployment(path string) (*ReclaimDeploymentManifest, error) {
 		return nil, fmt.Errorf("read deployment manifest %s: %w", path, err)
 	}
 	var m ReclaimDeploymentManifest
-	if err := json.Unmarshal(raw, &m); err != nil {
+	if err := strictjson.UnmarshalProjection(raw, &m); err != nil {
 		return nil, fmt.Errorf("parse deployment manifest %s: %w", path, err)
 	}
 	if m.Schema != ReclaimDeploymentSchema {
@@ -519,17 +571,25 @@ func ValidateReclaimDeployment(deployment *ReclaimDeploymentManifest, manifest *
 	if deployment.Proof.VKHash != manifest.VKHash {
 		return fmt.Errorf("deployment proof.vk_hash %q, want %q", deployment.Proof.VKHash, manifest.VKHash)
 	}
-	if deployment.ReclaimGlobal.VerifierVKHash != manifest.VKHash {
-		return fmt.Errorf("deployment reclaim_global.verifier_vk_hash %q, want %q", deployment.ReclaimGlobal.VerifierVKHash, manifest.VKHash)
-	}
 	if deployment.Proof.CircuitID != manifest.CircuitID {
 		return fmt.Errorf("deployment proof.circuit_id %q, want %q", deployment.Proof.CircuitID, manifest.CircuitID)
 	}
 	if deployment.Proof.KeyVersion != manifest.KeyVersion {
 		return fmt.Errorf("deployment proof.key_version %q, want %q", deployment.Proof.KeyVersion, manifest.KeyVersion)
 	}
+	if deployment.Proof.SetupTranscriptHash != "" &&
+		deployment.Proof.SetupTranscriptHash != manifest.SetupTranscriptHash {
+		return fmt.Errorf(
+			"deployment proof.setup_transcript_hash %q, want %q",
+			deployment.Proof.SetupTranscriptHash,
+			manifest.SetupTranscriptHash,
+		)
+	}
 	if cardanoVKBlake2b256 != "" && deployment.Proof.CardanoVKBlake2b256 != cardanoVKBlake2b256 {
 		return fmt.Errorf("deployment proof.cardano_vk_blake2b256 %q, want %q", deployment.Proof.CardanoVKBlake2b256, cardanoVKBlake2b256)
+	}
+	if deployment.ReclaimGlobal.VerifierVKHash != deployment.Proof.CardanoVKBlake2b256 {
+		return fmt.Errorf("deployment reclaim_global.verifier_vk_hash %q, want Cardano VK hash %q", deployment.ReclaimGlobal.VerifierVKHash, deployment.Proof.CardanoVKBlake2b256)
 	}
 	const statementBoundV2 = "full-proof-plus-public-input-digest-v2"
 	if deployment.ReclaimGlobal.ProofSlotEncoding != statementBoundV2 {
@@ -541,7 +601,58 @@ func ValidateReclaimDeployment(deployment *ReclaimDeploymentManifest, manifest *
 	if deployment.ReclaimGlobal.BatchTranscriptVKHash != deployment.Proof.CardanoVKBlake2b256 {
 		return fmt.Errorf("deployment reclaim_global.batch_transcript_vk_hash %q, want %q", deployment.ReclaimGlobal.BatchTranscriptVKHash, deployment.Proof.CardanoVKBlake2b256)
 	}
+	if isMainnetDeployment(deployment) {
+		if deployment.Proof.SetupTranscriptHash == "" {
+			return errors.New("mainnet deployment requires proof.setup_transcript_hash")
+		}
+		for _, identity := range []struct {
+			label string
+			value string
+		}{
+			{"proof.mpc_ceremony_id", deployment.Proof.MPCCeremonyID},
+			{"proof.mpc_candidate_id", deployment.Proof.MPCCandidateID},
+			{"planning.production_decision_id", deployment.Planning.ProductionDecisionID},
+			{"planning.mpc_release_id", deployment.Planning.MPCReleaseID},
+		} {
+			if !isSHA256ID(identity.value) {
+				return fmt.Errorf("mainnet deployment %s must be an exact sha256 identity", identity.label)
+			}
+		}
+		if err := validateDigest("sha256", deployment.Planning.ReleaseManifestSHA256); err != nil {
+			return fmt.Errorf("mainnet deployment planning.release_manifest_sha256: %w", err)
+		}
+	}
 	return nil
+}
+
+func isMainnetDeployment(deployment *ReclaimDeploymentManifest) bool {
+	return deployment != nil &&
+		(deployment.Network == "Mainnet" || strings.HasPrefix(deployment.DeploymentID, "mainnet:"))
+}
+
+func validateMainnetReleaseManifestDigest(
+	deployment *ReclaimDeploymentManifest,
+	keyManifestDigest FileDigest,
+) error {
+	if !isMainnetDeployment(deployment) {
+		return nil
+	}
+	if deployment.Planning.ReleaseManifestSHA256 != keyManifestDigest.SHA256 {
+		return fmt.Errorf(
+			"mainnet deployment release_manifest_sha256 %q, want exact signed key manifest %q",
+			deployment.Planning.ReleaseManifestSHA256,
+			keyManifestDigest.SHA256,
+		)
+	}
+	return nil
+}
+
+func isSHA256ID(value string) bool {
+	if value != strings.ToLower(value) || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	raw, err := hex.DecodeString(strings.TrimPrefix(value, "sha256:"))
+	return err == nil && len(raw) == 32
 }
 
 func SignDetached(raw []byte, privateKey ed25519.PrivateKey) string {
@@ -591,6 +702,54 @@ func checkKeyManifestPK(manifest *artifact.KeyManifest, digest FileDigest) error
 		return fmt.Errorf("proving key size mismatch: manifest %d, file %d", manifest.ProvingKeySize, digest.Size)
 	}
 	return nil
+}
+
+// ValidateKeyManifestAssetDigests binds the browser/runtime VK and CCS assets
+// to the already signed key manifest before a chunk manifest can be generated
+// or signed. This is intentionally a generator-side check; a downstream web
+// verifier must not be the first component to discover that release assets
+// describe a different circuit or verifying key.
+func ValidateKeyManifestAssetDigests(manifest *artifact.KeyManifest, vk, ccs FileDigest) error {
+	if manifest == nil {
+		return errors.New("key manifest is required")
+	}
+	if manifest.VKHash == "" || manifest.VerifyingKeySHA256 == "" || manifest.VerifyingKeySize <= 0 {
+		return errors.New("key manifest must include vk_hash, verifying key sha256, and verifying key size")
+	}
+	if vk.Size <= 0 || vk.SHA256 == "" || vk.Blake2b256 == "" {
+		return errors.New("ownership.vk asset pin with size, sha256, and blake2b256 is required")
+	}
+	if vk.Size != manifest.VerifyingKeySize {
+		return fmt.Errorf("ownership.vk size mismatch: manifest %d, asset %d", manifest.VerifyingKeySize, vk.Size)
+	}
+	if vk.SHA256 != manifest.VerifyingKeySHA256 {
+		return fmt.Errorf("ownership.vk sha256 mismatch: manifest %s, asset %s", manifest.VerifyingKeySHA256, vk.SHA256)
+	}
+	if vk.Blake2b256 != manifest.VKHash {
+		return fmt.Errorf("ownership.vk blake2b256 mismatch: manifest %s, asset %s", manifest.VKHash, vk.Blake2b256)
+	}
+	if manifest.ConstraintSystemHash == "" {
+		return errors.New("key manifest must include constraint_system_hash")
+	}
+	if ccs.Size <= 0 || ccs.SHA256 == "" || ccs.Blake2b256 == "" {
+		return errors.New("ownership-destination.ccs asset pin with size, sha256, and blake2b256 is required")
+	}
+	if ccs.Blake2b256 != manifest.ConstraintSystemHash {
+		return fmt.Errorf(
+			"ownership-destination.ccs blake2b256 mismatch: manifest %s, asset %s",
+			manifest.ConstraintSystemHash,
+			ccs.Blake2b256,
+		)
+	}
+	return nil
+}
+
+func fileDigestFromAssetPin(pin AssetPin) FileDigest {
+	return FileDigest{
+		Size:       pin.Size,
+		SHA256:     pin.SHA256,
+		Blake2b256: pin.Blake2b256,
+	}
 }
 
 func validateAgainstKeyManifest(m *ChunkManifest, manifest *artifact.KeyManifest) error {

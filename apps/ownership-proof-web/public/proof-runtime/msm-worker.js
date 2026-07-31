@@ -22,6 +22,116 @@ let readyPromise = null;
 
 const TUNING_VALUE = /^[A-Za-z0-9.]+$/;
 
+function workerTaskError(code, message, retryable = false, retryAfterMS = 0) {
+  const error = new Error(message);
+  error.workerCode = code;
+  error.retryable = retryable === true;
+  error.retryAfterMS = Number.isSafeInteger(retryAfterMS) && retryAfterMS > 0 ? retryAfterMS : 0;
+  return error;
+}
+
+function workerErrorPayload(error) {
+  const message = String(error && error.message ? error.message : error);
+  const code = typeof error?.workerCode === 'string' ? error.workerCode : 'worker-compute';
+  return {
+    message,
+    code,
+    retryable: error?.retryable === true,
+    retryAfterMS: Number.isSafeInteger(error?.retryAfterMS) ? error.retryAfterMS : 0,
+  };
+}
+
+function retryAfterMilliseconds(response) {
+  const value = (response.headers.get('retry-after') || '').trim();
+  if (!/^\d+$/.test(value)) return 0;
+  const milliseconds = Number(value) * 1000;
+  return Number.isSafeInteger(milliseconds) && milliseconds <= 30_000 ? milliseconds : 0;
+}
+
+// A transient transport failure should not discard a whole shard's verified
+// chunks and MSM work. Keep this retry strictly inside the chunk fetch path so
+// the successful path performs no timer allocation and no extra request. The
+// outer worker/shard retry remains the last resort for worker termination or a
+// transport that remains unavailable after this one recovery attempt.
+const CHUNK_FETCH_MAX_ATTEMPTS = 2;
+const CHUNK_RETRY_BASE_MS = 250;
+const CHUNK_RETRY_MAX_MS = 30_000;
+
+function chunkRetryDelayMilliseconds(chunk, attempt, retryAfterMS = 0) {
+  const shift = Math.min(Math.max(attempt - 1, 0), 3);
+  const base = Math.min(CHUNK_RETRY_MAX_MS, CHUNK_RETRY_BASE_MS * (2 ** shift));
+  const index = Number.isSafeInteger(chunk?.index) && chunk.index >= 0 ? chunk.index : 0;
+  // Deterministic jitter avoids synchronized retries without adding a random
+  // source or any work to successful requests.
+  const jitter = (index * 37 + attempt * 17) % 101;
+  return Math.min(CHUNK_RETRY_MAX_MS, Math.max(retryAfterMS, base + jitter));
+}
+
+async function retryChunkFetchOrThrow(error, chunk, attempt) {
+  if (error?.retryable !== true || attempt >= CHUNK_FETCH_MAX_ATTEMPTS) throw error;
+  const delay = chunkRetryDelayMilliseconds(chunk, attempt, error.retryAfterMS || 0);
+  await new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+async function fetchChunkAttempt(chunkURL, chunk) {
+  let response;
+  try {
+    response = await fetch(chunkURL, { cache: 'force-cache' });
+  } catch (error) {
+    throw workerTaskError(
+      'chunk-fetch-network',
+      `fetch chunk ${chunk.index}: ${String(error && error.message ? error.message : error)}`,
+      true,
+    );
+  }
+  if (response.status !== 200) {
+    const retryable = response.status === 408 || response.status === 425 ||
+      response.status === 429 || response.status >= 500;
+    const failure = workerTaskError(
+      'chunk-fetch-http',
+      `fetch chunk ${chunk.index} returned status ${response.status}`,
+      retryable,
+      retryable ? retryAfterMilliseconds(response) : 0,
+    );
+    if (response.body && typeof response.body.cancel === 'function') {
+      try { await response.body.cancel(); } catch { /* best effort */ }
+    }
+    throw failure;
+  }
+  try {
+    return { response, raw: new Uint8Array(await response.arrayBuffer()) };
+  } catch (error) {
+    throw workerTaskError(
+      'chunk-fetch-network',
+      `read chunk ${chunk.index} body: ${String(error && error.message ? error.message : error)}`,
+      true,
+    );
+  }
+}
+
+function workerProgressState(message) {
+  if (
+    !(message?.progress instanceof SharedArrayBuffer) ||
+    !Number.isSafeInteger(message.id)
+  ) {
+    return null;
+  }
+  const state = new Int32Array(message.progress);
+  return state.length >= 2 ? { state, requestID: message.id } : null;
+}
+
+function markWorkerProgress(progress, completedWindows) {
+  if (
+    !progress ||
+    !Number.isSafeInteger(completedWindows) ||
+    completedWindows <= 0 ||
+    Atomics.load(progress.state, 0) !== progress.requestID
+  ) {
+    return;
+  }
+  Atomics.store(progress.state, 1, completedWindows);
+}
+
 function tuningFromLocation(name, fallback) {
   try {
     const raw = new URL(self.location.href).searchParams.get(name);
@@ -182,39 +292,46 @@ async function fetchVerifiedChunk(baseURL, chunk, optW7 = false) {
     if (cached) {
       return {
         raw: cached, fetchMS: 0, hashMS: 0, fetchedBytes: 0, cacheHit: true, cacheMiss: false,
+        attempts: 0,
         transfer: { network: 0, diskCache: 0, opaque: 0 },
       };
     }
   }
   const fetchStarted = performance.now();
   const chunkURL = resolveChunkURL(baseURL, chunk.path);
-  const response = await fetch(chunkURL, { cache: 'force-cache' });
-  const raw = new Uint8Array(await response.arrayBuffer());
-  const fetchMS = performance.now() - fetchStarted;
-  if (response.status !== 200) {
-    throw new Error(`fetch chunk ${chunk.index} returned status ${response.status}`);
+  let attempt = 1;
+  let fetched;
+  try {
+    fetched = await fetchChunkAttempt(chunkURL, chunk);
+  } catch (error) {
+    await retryChunkFetchOrThrow(error, chunk, attempt);
+    attempt = 2;
+    fetched = await fetchChunkAttempt(chunkURL, chunk);
   }
+  const { response, raw } = fetched;
+  const fetchMS = performance.now() - fetchStarted;
   const encoding = (response.headers.get('content-encoding') || '').trim();
   if (encoding && encoding !== 'identity') {
-    throw new Error(`chunk ${chunk.index} content-encoding ${encoding}, want identity`);
+    throw workerTaskError('chunk-integrity', `chunk ${chunk.index} content-encoding ${encoding}, want identity`);
   }
   if (raw.byteLength !== chunk.size) {
-    throw new Error(`chunk ${chunk.index} size ${raw.byteLength}, want ${chunk.size}`);
+    throw workerTaskError('chunk-integrity', `chunk ${chunk.index} size ${raw.byteLength}, want ${chunk.size}`);
   }
   const hashStarted = performance.now();
   const digestError = self.__msmengineVerifyChunkBytes(raw, chunk.sha256, chunk.blake2b256);
-  if (digestError) throw new Error(digestError);
+  if (digestError) throw workerTaskError('chunk-integrity', digestError);
   const hashMS = performance.now() - hashStarted;
   // Verify-before-cache is the W7 security boundary. No error path above can
   // populate the LRU, so corrupt bytes are fetched and rejected again.
   if (optW7) insertVerifiedChunk(cacheKey, raw);
   return {
     raw, fetchMS, hashMS, fetchedBytes: raw.byteLength, cacheHit: false, cacheMiss: optW7,
+    attempts: attempt,
     transfer: classifyChunkTransfer(chunkURL, raw.byteLength),
   };
 }
 
-async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = false, prefetchWindow = 2) {
+async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = false, prefetchWindow = 2, onProgress) {
   if (!plan || typeof plan !== 'object') throw new Error('pk section plan is required');
   const section = plan.sections && plan.sections[sectionName];
   if (!section) throw new Error(`section ${sectionName} not found in pk section plan`);
@@ -242,6 +359,7 @@ async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = fal
     cache_hits: 0,
     cache_misses: 0,
     fetch_requests: 0,
+    fetch_attempts: 0,
     w7_applied: optW7 ? 1 : 0,
   };
   const bytes = {
@@ -268,11 +386,12 @@ async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = fal
     );
     for (let index = 0; index < window.length; index += 1) {
       const chunk = window[index];
-      const { raw, fetchMS, hashMS, fetchedBytes, cacheHit, cacheMiss, transfer } = verified[index];
+      const { raw, fetchMS, hashMS, fetchedBytes, cacheHit, cacheMiss, attempts, transfer } = verified[index];
       timings.fetch_ms += fetchMS;
       timings.hash_ms += hashMS;
       timings.cache_hits += cacheHit ? 1 : 0;
       timings.cache_misses += cacheMiss ? 1 : 0;
+      timings.fetch_attempts += attempts || 0;
       bytes.fetched += fetchedBytes;
       bytes.hashed += cacheHit ? 0 : raw.byteLength;
       bytes.cache_hit += cacheHit ? raw.byteLength : 0;
@@ -288,6 +407,7 @@ async function fetchSectionPointBytes(plan, sectionName, lo, hi, g2, optW7 = fal
       pointsRaw.set(raw.subarray(useStart - chunkStart, useEnd - chunkStart), useStart - start);
       timings.slice_ms += performance.now() - sliceStarted;
     }
+    if (typeof onProgress === 'function') onProgress(Math.floor(offset / windowSize) + 1);
   }
   return { pointsRaw, timings, bytes };
 }
@@ -318,6 +438,8 @@ function copyTimingFields(dst, src) {
 
 async function runSectionRange(msg) {
   const plan = typeof msg.pkPlan === 'string' ? JSON.parse(msg.pkPlan) : msg.pkPlan;
+  const progress = workerProgressState(msg);
+  let completedWindows = 0;
   const { pointsRaw, timings, bytes } = await fetchSectionPointBytes(
     plan,
     msg.section,
@@ -326,7 +448,12 @@ async function runSectionRange(msg) {
     msg.g2,
     msg.optW7 === true,
     msg.chunkPrefetchWindow,
+    (value) => {
+      completedWindows = value;
+      markWorkerProgress(progress, value);
+    },
   );
+  markWorkerProgress(progress, completedWindows + 1);
   const scsU8 = new Uint8Array(msg.scs);
   const computeStarted = performance.now();
   let partial;
@@ -411,6 +538,13 @@ self.onmessage = async (e) => {
     // transferable — hand ownership to the main thread to avoid a copy.
     self.postMessage({ id, partial, compute_ms: timings.compute_ms || computeMS, timings }, [partial.buffer]);
   } catch (err) {
-    self.postMessage({ id: msg && msg.id, error: String(err && err.message ? err.message : err) });
+    const failure = workerErrorPayload(err);
+    self.postMessage({
+      id: msg && msg.id,
+      error: failure.message,
+      error_code: failure.code,
+      retryable: failure.retryable,
+      retry_after_ms: failure.retryAfterMS,
+    });
   }
 };

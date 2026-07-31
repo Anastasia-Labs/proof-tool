@@ -7,6 +7,8 @@ import (
 	"io"
 	"math"
 	"os"
+
+	"proof-tool/internal/strictjson"
 )
 
 const (
@@ -184,7 +186,7 @@ func ReadPKIndex(path string) (*PKIndex, error) {
 		return nil, fmt.Errorf("read index %s: %w", path, err)
 	}
 	var idx PKIndex
-	if err := json.Unmarshal(raw, &idx); err != nil {
+	if err := strictjson.Unmarshal(raw, &idx); err != nil {
 		return nil, fmt.Errorf("parse index %s: %w", path, err)
 	}
 	if err := ValidatePKIndex(&idx); err != nil {

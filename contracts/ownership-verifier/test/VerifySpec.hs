@@ -51,37 +51,28 @@ import Ownership.ReclaimGlobalMulti
   , reclaimGlobalMultiValidator
   , validateMultiReclaimInputsWithProofCheck
   )
-import qualified Ownership.ReclaimGlobalMultiV2Bench as V2Multi
 import Ownership.Verify
   ( BatchCommittedProofCheck (..)
   , CommittedProofCheck (..)
   , ParsedBatchVerifyingKey (..)
-  , ParsedVerifyingKey (..)
-  , Proof (Proof)
-  , Scalar (Scalar)
   , batchCoefficientUsesUnscaledAlpha
   , blsBaseFieldOrder
   , blsScalarFieldOrder
   , coefficientFirstVkX
   , commitmentYIsCanonical
-  , committedProofMergedSidesWithVK
   , expandMsgXmd48
-  , groth16VerifyCommittedParsedNoPok
   , ownershipDestinationDomain
   , ownershipDestinationPublicInputDigest
   , ownershipDomain
   , ownershipProofBatchChallenge
   , ownershipProofBatchChallengeV2
   , ownershipProofBatchDomainV2
-  , ownershipProofBatchMergeChallenge
   , ownershipProofBatchMergeChallengeV2
   , ownershipPublicInputDigest
   , parseVerifyingKey
   , parseVerifyingKeyBatch
   , verifyOwnershipDestinationWithParsedBatchVKKnown28NoPok
   , verifyOwnershipDestinationWithParsedVKKnown28NoPok
-  , verifyCommittedProofMergedWithVK
-  , verifyCommittedProofPokBatch
   , verifyOwnershipWithVK
   )
 import qualified PlutusLedgerApi.V3 as V3
@@ -133,23 +124,11 @@ proofWithCommitmentY y proof =
     <> B.integerToByteString BigEndian 48 y
     <> B.sliceByteString 288 48 proof
 
-replaceProofSlice :: Integer -> Integer -> BuiltinByteString -> BuiltinByteString -> BuiltinByteString
-replaceProofSlice offset width replacement proof =
-  B.sliceByteString 0 offset proof
-    <> replacement
-    <> B.sliceByteString (offset + width) (336 - offset - width) proof
-
 flipFirstBit :: BuiltinByteString -> BuiltinByteString
 flipFirstBit bytes =
   let firstByte = B.indexByteString bytes 0
       flipped = if even firstByte then firstByte + 1 else firstByte - 1
    in B.consByteString flipped (B.sliceByteString 1 (B.lengthOfByteString bytes - 1) bytes)
-
-flipBitAt :: Integer -> BuiltinByteString -> BuiltinByteString
-flipBitAt offset bytes =
-  B.sliceByteString 0 offset bytes
-    <> flipFirstBit (B.sliceByteString offset 1 bytes)
-    <> B.sliceByteString (offset + 1) (B.lengthOfByteString bytes - offset - 1) bytes
 
 batchPowers :: Integer -> Int -> [Integer]
 batchPowers challenge count =
@@ -339,10 +318,6 @@ runReclaimGlobalStatementV2 verifierKey verifierKeyHash ctx =
 runReclaimGlobalMulti :: BuiltinByteString -> V3.ScriptContext -> Bool
 runReclaimGlobalMulti verifierKey ctx =
   reclaimGlobalMultiValidator paramCurrencySymbol paramTokenName verifierKey (V3.toBuiltinData ctx)
-
-runReclaimGlobalMultiV2 :: BuiltinByteString -> V3.ScriptContext -> Bool
-runReclaimGlobalMultiV2 verifierKey ctx =
-  V2Multi.reclaimGlobalMultiValidator paramCurrencySymbol paramTokenName verifierKey (V3.toBuiltinData ctx)
 
 runRawReclaimBase :: V3.Credential -> V3.ScriptContext -> Bool
 runRawReclaimBase credential ctx =
@@ -742,136 +717,6 @@ main = do
                 genReclaimBaseDifferentialCase
                 shrinkReclaimBaseDifferentialCase
                 reclaimBaseDifferentialProperty
-        ]
-    , testGroup "ReclaimGlobalMulti benchmark-only merged finalVerify"
-        [ testCase "M3/M4 Multi paired corpus and eager-vkX wiring mutations reject" $ do
-            let parsed = parseVerifyingKey multiVk
-                s = ownershipProofBatchMergeChallenge multiProof
-            case groth16VerifyCommittedParsedNoPok parsed (Proof multiProof) (Scalar multiPub) of
-              CommittedProofCheck commitment pok a b c vkX -> do
-                let grothLhs = B.bls12_381_millerLoop a b
-                    merged currentVkX currentC currentCommitment currentPok =
-                      verifyCommittedProofMergedWithVK parsed grothLhs currentVkX currentC currentCommitment currentPok s
-                    oldGroth currentVkX currentC =
-                      B.bls12_381_finalVerify
-                        grothLhs
-                        ( parsedAlphaBeta parsed
-                            `B.bls12_381_mulMlResult` B.bls12_381_millerLoop currentVkX (parsedGamma parsed)
-                            `B.bls12_381_mulMlResult` B.bls12_381_millerLoop currentC (parsedDelta parsed)
-                        )
-                    delta = parsedIc0 parsed
-                    (actualLhs, actualRhs) = committedProofMergedSidesWithVK parsed grothLhs vkX c commitment pok s
-                    expectedOldGrothRhs =
-                      parsedAlphaBeta parsed
-                        `B.bls12_381_mulMlResult` B.bls12_381_millerLoop vkX (parsedGamma parsed)
-                        `B.bls12_381_mulMlResult` B.bls12_381_millerLoop c (parsedDelta parsed)
-                    expectedLhs =
-                      grothLhs
-                        `B.bls12_381_mulMlResult` B.bls12_381_millerLoop (s `B.bls12_381_G1_scalarMul` pok) (parsedCkG parsed)
-                    expectedRhs =
-                      expectedOldGrothRhs
-                        `B.bls12_381_mulMlResult` B.bls12_381_millerLoop
-                          (B.bls12_381_G1_neg (s `B.bls12_381_G1_scalarMul` commitment))
-                          (parsedCkGSN parsed)
-                assertBool "M4 correct Multi merge rejected" (merged vkX c commitment pok)
-                assertBool "M4 actual Multi LHS differs from independent oracle" (B.bls12_381_finalVerify actualLhs expectedLhs)
-                assertBool "M4 actual Multi RHS differs from independent oracle" (B.bls12_381_finalVerify actualRhs expectedRhs)
-                forM_ [(grothScalar, pokScalar) | grothScalar <- [1, 2], pokScalar <- [3, 4]] $ \(grothScalar, pokScalar) -> do
-                  let changedC = c `B.bls12_381_G1_add` (grothScalar `B.bls12_381_G1_scalarMul` delta)
-                      changedPok = pok `B.bls12_381_G1_add` (pokScalar `B.bls12_381_G1_scalarMul` delta)
-                  assertBool "M3 old Groth unexpectedly accepted" (not (oldGroth vkX changedC))
-                  assertBool "M3 old PoK unexpectedly accepted" (not (verifyCommittedProofPokBatch parsed commitment changedPok))
-                  assertBool "M3 paired Multi error accepted" (not (merged vkX changedC commitment changedPok))
-                let omittedD = vkX `B.bls12_381_G1_add` B.bls12_381_G1_neg commitment
-                    doubledD = vkX `B.bls12_381_G1_add` commitment
-                    scaledD = vkX `B.bls12_381_G1_add` ((s - 1) `B.bls12_381_G1_scalarMul` commitment)
-                    swappedBases =
-                      B.bls12_381_finalVerify
-                        (B.bls12_381_millerLoop pok (parsedCkGSN parsed))
-                        (B.bls12_381_millerLoop (B.bls12_381_G1_neg commitment) (parsedCkG parsed))
-                assertBool "M4 omitted eager D accepted" (not (merged omittedD c commitment pok))
-                assertBool "M4 doubled eager D accepted" (not (merged doubledD c commitment pok))
-                assertBool "M4 substituted scaled D accepted" (not (merged scaledD c commitment pok))
-                assertBool "M4 swapped ckG/ckGSN accepted" (not swappedBases)
-        , testCase "M1-M3 Multi positive and component negatives match old validator" $ do
-            let positiveContext =
-                  reclaimGlobalMultiContext multiProof 0 0
-                    [reclaimBaseInput, differentOwnerReclaimBaseInput]
-                    [paramInput]
-                    [exactDestinationOutput]
-            oldPositive <- safeBool (runReclaimGlobalMulti multiVk positiveContext)
-            v2Positive <- safeBool (runReclaimGlobalMultiV2 multiVk positiveContext)
-            oldPositive @?= True
-            v2Positive @?= oldPositive
-            forM_
-              [ ("A", 0)
-              , ("B", 48)
-              , ("C", 144)
-              , ("D", 192)
-              , ("PoK", 288)
-              ] $ \(label, offset) -> do
-                let changedContext =
-                      reclaimGlobalMultiContext (flipBitAt offset multiProof) 0 0
-                        [reclaimBaseInput, differentOwnerReclaimBaseInput]
-                        [paramInput]
-                        [exactDestinationOutput]
-                oldNegative <- safeBool (runReclaimGlobalMulti multiVk changedContext)
-                v2Negative <- safeBool (runReclaimGlobalMultiV2 multiVk changedContext)
-                assertBool (label <> " Multi mutation accepted by old validator") (not oldNegative)
-                assertBool (label <> " Multi mutation accepted by V2 validator") (not v2Negative)
-                v2Negative @?= oldNegative
-            let donorMutations =
-                  [ ("C-valid-subgroup", replaceProofSlice 144 48 (B.sliceByteString 144 48 destinationProof) multiProof)
-                  , ("D-valid-subgroup", replaceProofSlice 192 96 (B.sliceByteString 192 96 destinationProof) multiProof)
-                  , ("PoK-valid-subgroup", replaceProofSlice 288 48 (B.sliceByteString 288 48 destinationProof) multiProof)
-                  , ( "C+PoK-valid-subgroup"
-                    , replaceProofSlice 288 48 (B.sliceByteString 288 48 destinationProof) $
-                        replaceProofSlice 144 48 (B.sliceByteString 144 48 destinationProof) multiProof
-                    )
-                  ]
-            forM_ donorMutations $ \(label, changedProof) -> do
-              let changedContext =
-                    reclaimGlobalMultiContext changedProof 0 0
-                      [reclaimBaseInput, differentOwnerReclaimBaseInput]
-                      [paramInput]
-                      [exactDestinationOutput]
-              oldNegative <- safeBool (runReclaimGlobalMulti multiVk changedContext)
-              v2Negative <- safeBool (runReclaimGlobalMultiV2 multiVk changedContext)
-              assertBool (label <> " accepted by old Multi") (not oldNegative)
-              assertBool (label <> " accepted by V2 Multi") (not v2Negative)
-              v2Negative @?= oldNegative
-        , testCase "M2 Multi statement and destination negatives match old validator" $ do
-            let negativeContexts =
-                  [ reclaimGlobalMultiContext multiProof 0 0
-                      [differentOwnerReclaimBaseInput, reclaimBaseInput]
-                      [paramInput]
-                      [exactDestinationOutput]
-                  , reclaimGlobalMultiContext multiProof 0 0
-                      [reclaimBaseInput, differentOwnerReclaimBaseInput]
-                      [paramInput]
-                      [changedDestinationOutput]
-                  , reclaimGlobalMultiContext multiProof 0 0
-                      [reclaimBaseInput, differentOwnerReclaimBaseInput]
-                      [paramInput]
-                      [underpaidDestinationOutput]
-                  , reclaimGlobalMultiContext multiProof 0 0
-                      [reclaimBaseInput]
-                      [paramInput]
-                      [exactDestinationOutput]
-                  , reclaimGlobalMultiContext multiProof 0 0
-                      [reclaimBaseInput, thirdOwnerReclaimBaseInput]
-                      [paramInput]
-                      [exactDestinationOutput]
-                  , reclaimGlobalMultiContext destinationProof 0 0
-                      [reclaimBaseInput, differentOwnerReclaimBaseInput]
-                      [paramInput]
-                      [exactDestinationOutput]
-                  ]
-            forM_ negativeContexts $ \ctx -> do
-              oldNegative <- safeBool (runReclaimGlobalMulti multiVk ctx)
-              v2Negative <- safeBool (runReclaimGlobalMultiV2 multiVk ctx)
-              oldNegative @?= False
-              v2Negative @?= oldNegative
         ]
     , testGroup "ZK-02 statement-bound ReclaimGlobal V2"
         [ testCase "golden ordinary transcript frames key hash, count, proof, and digest exactly" $ do

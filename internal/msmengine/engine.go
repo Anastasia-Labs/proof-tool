@@ -10,9 +10,11 @@
 package msmengine
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381"
 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
@@ -38,6 +40,20 @@ func failClosed(class string, err error) error {
 	return &FailClosedError{Class: class, Err: err}
 }
 
+// sectionWorkerFailure carries retry policy separately from the public
+// fail-closed class. Only explicitly allow-listed transport failures can set
+// Retryable; message text never grants retry authority.
+type sectionWorkerFailure struct {
+	Code       string
+	Retryable  bool
+	Replace    bool
+	RetryAfter time.Duration
+	Err        error
+}
+
+func (e *sectionWorkerFailure) Error() string { return e.Err.Error() }
+func (e *sectionWorkerFailure) Unwrap() error { return e.Err }
+
 func classifySectionWorkerError(err error) error {
 	message := strings.ToLower(err.Error())
 	switch {
@@ -56,6 +72,46 @@ func classifySectionWorkerError(err error) error {
 	default:
 		return failClosed("sharded-worker-error", err)
 	}
+}
+
+func classifyTypedSectionWorkerError(code string, advertisedRetryable bool, retryAfter time.Duration, err error) error {
+	if err == nil {
+		return nil
+	}
+	class := "sharded-worker-error"
+	retryable := false
+	replace := false
+	switch code {
+	case "chunk-integrity":
+		class = "chunk-digest-mismatch"
+	case "chunk-fetch-network", "chunk-fetch-http":
+		class = "range-fetch-aborted"
+		retryable = advertisedRetryable
+	case "worker-terminated", "worker-initialization":
+		class = "worker-terminated"
+		retryable = advertisedRetryable
+		replace = true
+	default:
+		// Unknown or compute/protocol failures remain terminal even if a Worker
+		// advertises them as retryable.
+		retryAfter = 0
+	}
+	if retryAfter < 0 || retryAfter > 30*time.Second {
+		retryAfter = 0
+	}
+	failure := &sectionWorkerFailure{
+		Code: code, Retryable: retryable, Replace: replace,
+		RetryAfter: retryAfter, Err: err,
+	}
+	return failClosed(class, failure)
+}
+
+func sectionWorkerRetry(err error) (retryable, replace bool, retryAfter time.Duration) {
+	var failure *sectionWorkerFailure
+	if !errors.As(err, &failure) {
+		return false, false, 0
+	}
+	return failure.Retryable, failure.Replace, failure.RetryAfter
 }
 
 func workerReplyIntegrityError(requested, received int) error {

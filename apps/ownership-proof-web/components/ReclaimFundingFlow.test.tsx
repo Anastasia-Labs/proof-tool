@@ -401,6 +401,7 @@ function deployment() {
     paramsCurrencySymbol: "params-policy",
     paramsTokenName: "params-token",
     verifierVkHash: "vk-hash",
+    proofVkHash: "native-vk-hash",
     contractVersion: "v1",
     sourceCommit: "commit",
   };

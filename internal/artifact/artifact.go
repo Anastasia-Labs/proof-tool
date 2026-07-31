@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"proof-tool/internal/strictjson"
 )
 
 const (
@@ -107,7 +109,7 @@ func readJSON(path string, value any) error {
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
-	if err := json.Unmarshal(b, value); err != nil {
+	if err := strictjson.Unmarshal(b, value); err != nil {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
 	return nil

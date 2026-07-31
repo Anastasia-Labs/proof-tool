@@ -66,7 +66,6 @@ so there is no V1 production or comparison surface to select accidentally.
 | Surface | Classification | Evidence and treatment |
 | --- | --- | --- |
 | `Ownership.Verify` | Shared production logic | Not independently exported, but its BLS/Groth16 parser and verifier are reachable from the exact active ReclaimGlobalV2 artifact. Covered by `RG-5`, `RG-6`, cross-language vectors, and the trust report. Cryptographic knowledge soundness remains an explicit assumption. |
-| `Ownership.ReclaimGlobalMultiV2Bench` | Excluded benchmark | Exposed by the Cabal library but never imported by the exporter; used only by benchmarks/tests. |
 | `bench/Bench.hs` and `bench/ProfileV4.hs` | Supporting evidence | Benchmark executables, not validators deployed by the application. Their capacity and differential results may support fuel/exunit boundaries but cannot replace formal theorems. |
 | `export/VerifyDestinationProof.hs` | Supporting evidence | Off-chain executable that evaluates repository-backed proof material. It is not an on-chain entrypoint. |
 | `test-support/ReclaimBaseOracle.hs` | Supporting oracle | Test-only typed oracle used to check the raw ReclaimBase rewrite. It is not deployed and cannot be the subject substituted for the compiled script. |

@@ -14,7 +14,7 @@
     "script_hash": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
     "rewarding_credential": "1556d4b8968fc1bc2beb692634a8e1c7e4d476cce48a5969c007b2c5",
     "params_currency_symbol": "82c806809e8e2a65c153041db187ca96f2feeb87a3fe135bf3803174",
-    "verifier_vk_hash": "blake2b256:b1c03cf24376bcd6c743cb372169ff71f93b210e0d8d52b2c6831808f50ded80",
+    "verifier_vk_hash": "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4",
     "proof_profile": "single-destination",
     "proof_slot_encoding": "full-proof-plus-public-input-digest-v2",
     "batch_transcript_vk_hash": "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4"

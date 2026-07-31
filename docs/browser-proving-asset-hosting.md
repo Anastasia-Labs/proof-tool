@@ -239,8 +239,10 @@ descriptor's runtime URLs must be same-origin paths (validated); `pk_url`/`ccs_u
 may be absolute ranged-host URLs. A disabled example lives in
 `deployments/reclaim/preprod/disabled.sample.json`.
 
-The client refuses browser proving unless the preflight-reported `vk_hash`
-equals `deployment.verifierVkHash`.
+The client refuses browser proving unless the preflight-reported native
+`vk_hash` equals `deployment.proofVkHash`. The separate
+`deployment.verifierVkHash` is the Cardano wire-format VK hash embedded in
+`ReclaimGlobal`.
 
 ## Gotcha: chunk-manifest `base_url` needs a trailing slash
 

@@ -98,7 +98,7 @@ describe("claim build and submit guardrails", () => {
             out_ref: `${"a".repeat(64)}#0`,
             artifact: {
               circuit_id: "root-ownership-destination-v1/bls12-381/groth16",
-              vk_hash: deployment().verifierVkHash,
+              vk_hash: deployment().proofVkHash,
               cardano: {
                 proof_hex: "aa",
                 public_input_digest_hex: "bb",
@@ -153,6 +153,7 @@ function deployment(): ReclaimDeployment {
     paramsCurrencySymbol: "d".repeat(56),
     paramsTokenName: "5245434c41494d",
     verifierVkHash: "blake2b256:" + "e".repeat(64),
+    proofVkHash: "blake2b256:" + "f".repeat(64),
     reclaimGlobalProofSlotEncoding: "full-proof-plus-public-input-digest-v2",
     reclaimGlobalBatchTranscriptVkHash: "blake2b256:" + "e".repeat(64),
     contractVersion: "v1",

@@ -1,8 +1,8 @@
 # Runtime fault gates
 
-The runner defines five fail-closed outcome contracts: worker termination,
-served PK chunk corruption, aborted range fetch, reload/retry, and the
-4-core/8-GB memory-pressure profile.
+The runner defines six recovery/fail-closed outcome contracts: worker
+termination, served PK chunk corruption, recoverable and exhausted range
+fetches, reload/retry, and the 4-core/8-GB memory-pressure profile.
 
 ```sh
 node experiments/wasm-prover/fault/run.mjs --case reload-retry --opt-w2 --workers 8 --deadline-ms 180000
@@ -26,12 +26,37 @@ cumulative runtime options in both the result and proof trace.
 Chunk corruption changes one byte in an authenticated PK chunk and requires a
 `chunk-digest-mismatch` failure with a confirmed server hit, no CPU fallback,
 and no partial proof. With `--opt-w7`, this also proves corrupt bytes cannot be
-hidden by or inserted into the verified per-worker cache. Network
-abort terminates two range responses and returns a terminal error for the third
-attempt; the runtime must report the bounded `3/3` retry exhaustion and must not
-demote the authenticated-transport failure to CPU proving. Worker termination
-kills a worker after an MSM range dispatch and requires a structured
-`worker-terminated` failure with no hang or partial acceptance.
+hidden by or inserted into the verified per-worker cache. A transient chunk
+fetch gets one bounded same-chunk retry (two fetch attempts total) before the
+outer shard retry is considered; the worker unit gate covers both the retry
+and its candidate/production parity. Network recovery returns two retryable
+transport responses, then requires same-shard retries to complete and the
+final proof to verify locally. Network abort interrupts two responses and
+returns a terminal error for subsequent attempts; the runtime must report
+bounded `3/3` exhaustion and must not demote the authenticated-transport
+failure to CPU proving. A separate Worker unit gate requires rejected `fetch`
+promises to carry the retryable network error code; this avoids treating
+Chromium's transparent replay of idempotent GETs as runtime retry evidence.
+
+Worker termination injects the error event produced by a crashed Worker and
+then terminates it after an MSM range dispatch. The runtime must replace only
+that worker, retry the same shard, and locally verify the completed proof
+without CPU fallback. Programmatic `Worker.terminate()` is silent by browser
+definition, so the separate progress-aware watchdog tests cover silent
+disappearance and its bounded five-minute inactivity/20-minute absolute
+deadlines.
+
+The final bounded-recovery acceptance on 2026-07-31 exercised the changed
+paths with real browser proofs. `network-recover` returned two transient 503
+responses, observed one runtime same-shard retry, completed on the third server
+hit, and verified locally without CPU fallback or a partial proof.
+`worker-kill` replaced one worker, retried once, and verified locally.
+`chunk-corruption` failed closed on the first authenticated hit with
+`chunk-digest-mismatch` and no runtime retry. Persistent `network-abort`
+exhausted the declared `3/3` shard-attempt budget and failed closed with no CPU
+fallback or partial proof. Unit tests separately cover the healthy no-timer
+path, the local same-chunk retry, structured error allow-list, inactivity
+renewal, absolute deadline, and candidate/production worker parity.
 
 Reload/retry waits for a
 `prove` progress stage, reloads the same tab, requires that the in-flight
@@ -70,4 +95,4 @@ Accepted outcomes and exact error classes are declared in `cases.mjs`.
 Unsupported future controls remain fail-closed: they must produce
 `TODO_UNSUPPORTED`, never a skip or a recorded pass. Each W finding reruns the
 whole suite with its cumulative prerequisite flags enabled, and W1 additionally
-checks cancellation of all outstanding work after a killed queued job.
+checks bounded same-shard recovery without accepting a partial result.

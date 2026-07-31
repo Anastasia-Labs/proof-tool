@@ -7,6 +7,13 @@ const workerSource = await readFile(
   new URL("../web/worker.js", import.meta.url),
   "utf8",
 );
+const productionWorkerSource = await readFile(
+  new URL(
+    "../../../apps/ownership-proof-web/public/proof-runtime/msm-worker.js",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const legacyWorkerSource = await readFile(
   new URL("./fixtures/legacy-worker-no-w7.js", import.meta.url),
   "utf8",
@@ -17,14 +24,23 @@ function workerHarness(source = workerSource) {
   let fetchCount = 0;
   let activeFetches = 0;
   let maxActiveFetches = 0;
+  let timerCount = 0;
   let tick = 0;
+  const hostSetTimeout = setTimeout;
   const context = vm.createContext({
+    ArrayBuffer,
+    Atomics,
+    Int32Array,
+    SharedArrayBuffer,
     URL,
     Uint8Array,
     WebAssembly: {},
     importScripts() {},
     performance: { now: () => ++tick },
-    setTimeout,
+    setTimeout(callback, delay, ...args) {
+      timerCount++;
+      return hostSetTimeout(callback, delay, ...args);
+    },
     self: {
       __msmengineVerifyChunkBytes(raw) {
         if (raw[0] === 0) return "chunk sha256 mismatch";
@@ -36,18 +52,25 @@ function workerHarness(source = workerSource) {
       fetchCount++;
       activeFetches++;
       maxActiveFetches = Math.max(maxActiveFetches, activeFetches);
-      const queuedValue = queued.shift();
-      if (!queuedValue) throw new Error("unexpected fetch");
-      const bytes = await queuedValue;
-      const copy = Uint8Array.from(bytes);
-      activeFetches--;
-      return {
-        status: 200,
-        headers: { get: () => "identity" },
-        async arrayBuffer() {
-          return copy.buffer;
-        },
-      };
+      try {
+        const queuedValue = queued.shift();
+        if (!queuedValue) throw new Error("unexpected fetch");
+        if (queuedValue.kind === "network-error") throw queuedValue.error;
+        if (queuedValue.kind === "response") {
+          return queuedValue.response;
+        }
+        const bytes = await queuedValue;
+        const copy = Uint8Array.from(bytes);
+        return {
+          status: 200,
+          headers: { get: () => "identity" },
+          async arrayBuffer() {
+            return copy.buffer;
+          },
+        };
+      } finally {
+        activeFetches--;
+      }
     },
   });
   vm.runInContext(source, context, { filename: "worker.js" });
@@ -56,7 +79,28 @@ function workerHarness(source = workerSource) {
     queue(bytes) {
       queued.push(bytes);
     },
+    queueNetworkError(error = new Error("network unavailable")) {
+      queued.push({ kind: "network-error", error });
+    },
+    queueHTTP(status, retryAfter = "") {
+      queued.push({
+        kind: "response",
+        response: {
+          status,
+          headers: {
+            get(name) {
+              return name === "retry-after" ? retryAfter : "identity";
+            },
+          },
+          body: { async cancel() {} },
+          async arrayBuffer() {
+            return new Uint8Array(0).buffer;
+          },
+        },
+      });
+    },
     fetchCount: () => fetchCount,
+    timerCount: () => timerCount,
     maxActiveFetches: () => maxActiveFetches,
     cacheSize: () => vm.runInContext("verifiedChunkCache.size", context),
     telemetry: (enabled = false) => {
@@ -99,6 +143,26 @@ function workerHarness(source = workerSource) {
         scs: new ArrayBuffer(64),
       };
       return vm.runInContext("runSectionRange(testMessage)", context);
+    },
+    errorPayload: (code, retryable) => {
+      context.testCode = code;
+      context.testRetryable = retryable;
+      return vm.runInContext(
+        'workerErrorPayload(workerTaskError(testCode, "test failure", testRetryable, 1234))',
+        context,
+      );
+    },
+    markProgress: (requestID, messageID, completed) => {
+      const progress = new SharedArrayBuffer(8);
+      const view = new Int32Array(progress);
+      Atomics.store(view, 0, requestID);
+      context.testProgressMessage = { id: messageID, progress };
+      context.testCompleted = completed;
+      vm.runInContext(
+        "markWorkerProgress(workerProgressState(testProgressMessage), testCompleted)",
+        context,
+      );
+      return [Atomics.load(view, 0), Atomics.load(view, 1)];
     },
   };
 }
@@ -187,6 +251,8 @@ test("W7 reports fetched, hashed, and cache-hit bytes", async () => {
   });
   assert.equal(first.timings.cache_hits, 0);
   assert.equal(first.timings.cache_misses, 1);
+  assert.equal(first.timings.fetch_attempts, 1);
+  assert.equal(harness.timerCount(), 0);
 
   const second = await harness.fetchSection(plan);
   assert.deepEqual({ ...second.bytes }, {
@@ -198,7 +264,56 @@ test("W7 reports fetched, hashed, and cache-hit bytes", async () => {
   assert.equal(second.timings.hash_ms, 0);
   assert.equal(second.timings.cache_hits, 1);
   assert.equal(second.timings.cache_misses, 0);
+  assert.equal(second.timings.fetch_attempts, 0);
   assert.equal(harness.fetchCount(), 1);
+});
+
+test("candidate and production workers retry only the affected chunk", async () => {
+  for (const source of [workerSource, productionWorkerSource]) {
+    const harness = workerHarness(source);
+    const chunk = pinnedChunk();
+    harness.queueNetworkError();
+    harness.queue([2, 2, 3, 4]);
+
+    const result = await harness.fetchChunk(chunk, true);
+
+    assert.equal(result.attempts, 2);
+    assert.equal(harness.fetchCount(), 2);
+    assert.equal(harness.timerCount(), 1);
+    assert.equal(harness.cacheSize(), 1);
+    assert.equal(result.cacheHit, false);
+  }
+});
+
+test("a retryable HTTP response is retried, while a terminal status is not", async () => {
+  const recovered = workerHarness();
+  recovered.queueHTTP(503);
+  recovered.queue([2, 2, 3, 4]);
+  const result = await recovered.fetchChunk(pinnedChunk(), false);
+  assert.equal(result.attempts, 2);
+  assert.equal(recovered.fetchCount(), 2);
+  assert.equal(recovered.timerCount(), 1);
+
+  const terminal = workerHarness();
+  terminal.queueHTTP(404);
+  await assert.rejects(
+    terminal.fetchChunk(pinnedChunk(), false),
+    (error) => error?.workerCode === "chunk-fetch-http" && error?.retryable === false,
+  );
+  assert.equal(terminal.fetchCount(), 1);
+});
+
+test("persistent network failure remains bounded at the chunk retry budget", async () => {
+  const harness = workerHarness();
+  harness.queueNetworkError();
+  harness.queueNetworkError();
+  await assert.rejects(
+    harness.fetchChunk(pinnedChunk(), false),
+    (error) => error?.workerCode === "chunk-fetch-network" && error?.retryable === true,
+  );
+  assert.equal(harness.fetchCount(), 2);
+  assert.equal(harness.timerCount(), 1);
+  assert.equal(harness.cacheSize(), 0);
 });
 
 test("candidate worker telemetry reports Go heap, optional JS heap, and verified W7 cache bytes", async () => {
@@ -329,4 +444,32 @@ test("chunk prefetch window bounds concurrent verified requests", async () => {
   assert.equal(harness.maxActiveFetches(), 2);
   assert.equal(result.timings.fetch_requests, 4);
   assert.equal(result.timings.cache_misses, 4);
+});
+
+test("worker failures carry structured retry authority", () => {
+  const harness = workerHarness();
+  const retryable = harness.errorPayload("chunk-fetch-network", true);
+  assert.deepEqual({ ...retryable }, {
+    message: "test failure",
+    code: "chunk-fetch-network",
+    retryable: true,
+    retryAfterMS: 1234,
+  });
+  const terminal = harness.errorPayload("chunk-integrity", false);
+  assert.equal(terminal.code, "chunk-integrity");
+  assert.equal(terminal.retryable, false);
+});
+
+test("a rejected fetch is a structured retryable network failure", async () => {
+  const harness = workerHarness();
+  await assert.rejects(
+    harness.fetchChunk(pinnedChunk(), false),
+    (error) => error?.workerCode === "chunk-fetch-network" && error?.retryable === true,
+  );
+});
+
+test("progress counter advances only for its current request generation", () => {
+  const harness = workerHarness();
+  assert.deepEqual(harness.markProgress(41, 42, 3), [41, 0]);
+  assert.deepEqual(harness.markProgress(42, 42, 3), [42, 3]);
 });

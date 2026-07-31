@@ -149,6 +149,35 @@ func TestClassifySectionWorkerError(t *testing.T) {
 	}
 }
 
+func TestTypedSectionWorkerRetryPolicyIsAllowListed(t *testing.T) {
+	tests := []struct {
+		code                string
+		advertisedRetryable bool
+		class               string
+		retryable           bool
+		replace             bool
+	}{
+		{"chunk-fetch-network", true, "range-fetch-aborted", true, false},
+		{"chunk-fetch-http", true, "range-fetch-aborted", true, false},
+		{"chunk-fetch-http", false, "range-fetch-aborted", false, false},
+		{"worker-terminated", true, "worker-terminated", true, true},
+		{"chunk-integrity", true, "chunk-digest-mismatch", false, false},
+		{"worker-compute", true, "sharded-worker-error", false, false},
+		{"future-unknown-code", true, "sharded-worker-error", false, false},
+	}
+	for _, tc := range tests {
+		err := classifyTypedSectionWorkerError(tc.code, tc.advertisedRetryable, 0, errors.New("worker failure"))
+		var failClosedErr *FailClosedError
+		if !errors.As(err, &failClosedErr) || failClosedErr.Class != tc.class {
+			t.Fatalf("%s class = %v, want %s", tc.code, err, tc.class)
+		}
+		retryable, replace, _ := sectionWorkerRetry(err)
+		if retryable != tc.retryable || replace != tc.replace {
+			t.Fatalf("%s retry policy = (%t,%t), want (%t,%t)", tc.code, retryable, replace, tc.retryable, tc.replace)
+		}
+	}
+}
+
 func TestWorkerResultIntegrityErrorsDoNotDemote(t *testing.T) {
 	for _, primaryErr := range []error{
 		workerReplyIntegrityError(7, 3),

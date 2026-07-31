@@ -39,6 +39,7 @@ type asyncShardTask struct {
 	r              [2]int
 	requestID      int
 	affinityWorker int
+	attempt        int
 }
 
 type sectionScheduler struct {
@@ -58,7 +59,7 @@ func (s *shardedMSM) scheduler() *sectionScheduler {
 	if s.async == nil {
 		s.async = &sectionScheduler{
 			owner:   s,
-			busy:    make([]bool, len(s.pool.workers)),
+			busy:    make([]bool, s.pool.count()),
 			handles: make(map[*asyncSectionHandle]struct{}),
 			cancel:  make(chan struct{}),
 		}
@@ -121,7 +122,7 @@ func (s *shardedMSM) dispatchSection(g2 bool, plan *PKSectionPlan, section strin
 		}
 		q.queue = append(q.queue, asyncShardTask{
 			handle: h, index: i, r: r, requestID: q.nextRequestID,
-			affinityWorker: affinityWorker,
+			affinityWorker: affinityWorker, attempt: 1,
 		})
 	}
 	EmitTrace("measure", "async-msm-queue", map[string]any{
@@ -196,7 +197,11 @@ func (s *sectionScheduler) pumpLocked() {
 
 func (s *sectionScheduler) run(workerSlot int, task asyncShardTask) {
 	h := task.handle
-	w := s.owner.pool.workers[workerSlot]
+	w := s.owner.pool.worker(workerSlot)
+	if w == nil {
+		s.fail(workerSlot, failClosed("worker-terminated", errors.New("worker slot is unavailable")))
+		return
+	}
 	totalStart := time.Now()
 	scalarStart := time.Now()
 	scsBuf := marshalScalars(h.scalars[task.r[0]:task.r[1]])
@@ -217,6 +222,10 @@ func (s *sectionScheduler) run(workerSlot int, task asyncShardTask) {
 		"worker_turnaround_ms": workerMS, "worker_compute_ms": reply.computeMS,
 		"total_ms": elapsedMS(totalStart), "error": errorString(reply.err), "async_dispatch": true,
 	}
+	if task.attempt > 1 {
+		fields["attempt"] = task.attempt
+		fields["attempt_max"] = asyncShardMaxAttempts
+	}
 	addTraceFields(fields, reply.timings)
 	addByteTraceFields(fields, reply.bytes)
 	group, op := "g1", "DispatchG1Section"
@@ -225,6 +234,9 @@ func (s *sectionScheduler) run(workerSlot int, task asyncShardTask) {
 	}
 	emitShardTrace(op, group, task.index, w.id, task.r, h.n, fields)
 	if reply.err != nil {
+		if s.retry(workerSlot, w, task, reply.err) {
+			return
+		}
 		s.fail(workerSlot, reply.err)
 		return
 	}
@@ -248,6 +260,56 @@ func (s *sectionScheduler) run(workerSlot int, task asyncShardTask) {
 		h.mu.Unlock()
 	}
 	s.complete(workerSlot, task)
+}
+
+func (s *sectionScheduler) retry(workerSlot int, failedWorker *worker, task asyncShardTask, cause error) bool {
+	retryable, replace, retryAfter := sectionWorkerRetry(cause)
+	if !retryable || task.attempt >= asyncShardMaxAttempts {
+		return false
+	}
+	s.mu.Lock()
+	if s.terminal != nil {
+		s.mu.Unlock()
+		return true
+	}
+	s.mu.Unlock()
+	if replace {
+		if _, err := s.owner.pool.replace(workerSlot, failedWorker); err != nil {
+			s.fail(workerSlot, failClosed("worker-terminated", fmt.Errorf("replace worker slot %d: %w", workerSlot, err)))
+			return true
+		}
+	}
+	task.attempt++
+	s.mu.Lock()
+	if s.terminal != nil {
+		s.mu.Unlock()
+		return true
+	}
+	s.nextRequestID++
+	task.requestID = s.nextRequestID
+	s.mu.Unlock()
+	delay := asyncRetryBackoff(task.attempt, workerSlot)
+	if retryAfter > delay {
+		delay = retryAfter
+	}
+	EmitTrace("measure", "msm-shard-retry", map[string]any{
+		"section": task.handle.section, "shard_index": task.index,
+		"worker_id": failedWorker.id, "attempt": task.attempt,
+		"attempt_max": asyncShardMaxAttempts, "replace_worker": replace,
+		"backoff_ms": float64(delay) / float64(time.Millisecond),
+		"error":      cause.Error(),
+	})
+	go func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-s.cancel:
+			return
+		case <-timer.C:
+			s.run(workerSlot, task)
+		}
+	}()
+	return true
 }
 
 func (s *sectionScheduler) complete(workerSlot int, task asyncShardTask) {

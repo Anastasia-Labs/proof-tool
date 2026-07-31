@@ -14,7 +14,7 @@
     "script_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "rewarding_credential": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "params_currency_symbol": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-    "verifier_vk_hash": "blake2b256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "verifier_vk_hash": "blake2b256:1111111111111111111111111111111111111111111111111111111111111111",
     "proof_profile": "single-destination"
   },
   "params_utxo": {

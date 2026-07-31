@@ -14,6 +14,7 @@ import {
 
 const tempDirs = [];
 const verifierVkHash = "b".repeat(64);
+const onChainVerifierVkHash = "c".repeat(64);
 const impactedCredential = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
 const safeCredential = "2a".repeat(28);
 const safeAddress =
@@ -89,6 +90,8 @@ describe("destination-bound proof preprod stage", () => {
       provider: "desktop-helper",
       deploymentId: deployment().id,
       proofProfile: "single-destination",
+      proofVkHash: verifierVkHash,
+      onChainVerifierVkHash,
       helper: {
         helperUrl: "http://127.0.0.1:49152",
         token: "[redacted]",
@@ -411,7 +414,8 @@ function deployment() {
     id: "preprod:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:1234567890abcdef1234567890abcdef12345678",
     network: "Preprod",
     networkId: 0,
-    verifierVkHash,
+    verifierVkHash: onChainVerifierVkHash,
+    proofVkHash: verifierVkHash,
   };
 }
 

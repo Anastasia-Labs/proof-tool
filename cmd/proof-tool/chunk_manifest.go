@@ -102,6 +102,17 @@ func cmdGenerateChunkManifest(args []string) error {
 	}
 
 	vkPath := filepath.Join(*keysDir, "ownership.vk")
+	vkSourceDigest, err := proofassets.DigestFile(vkPath)
+	if err != nil {
+		return err
+	}
+	ccsSourceDigest, err := proofassets.DigestFile(*ccsPath)
+	if err != nil {
+		return err
+	}
+	if err := proofassets.ValidateKeyManifestAssetDigests(keyManifest, vkSourceDigest, ccsSourceDigest); err != nil {
+		return fmt.Errorf("release asset coherence: %w", err)
+	}
 	vk, err := prover.LoadVK(vkPath)
 	if err != nil {
 		return err

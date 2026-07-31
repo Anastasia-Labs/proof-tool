@@ -144,11 +144,7 @@ func terminateWorkers(workers []*worker) {
 		if w == nil {
 			continue
 		}
-		if !w.js.IsUndefined() {
-			w.js.Call("terminate")
-		}
-		w.onMsg.Release()
-		w.onErr.Release()
+		w.stop()
 	}
 }
 

@@ -194,14 +194,17 @@ but the browser-proving surface that **must** be committed together is:
        node apps/ownership-proof-web/scripts/verify-reclaim-manifest.mjs deployments/reclaim/preprod/live.local.json
 
 2. Record the identity values you will reuse: `deployment_id`, `network: Preprod`,
-   `network_id: 0`, and `reclaim_global.verifier_vk_hash` == `proof.vk_hash` ==
-   `blake2b256:6057da91…d430a`. Keep the existing `source_commit` for this
+   and `network_id: 0`. The native prover pin is `proof.vk_hash` ==
+   `blake2b256:6057da91…d430a`; the on-chain pin is
+   `reclaim_global.verifier_vk_hash` == `proof.cardano_vk_blake2b256` ==
+   `blake2b256:d35ce804…17acf`. Keep the existing `source_commit` for this
    on-chain deployment and verify it is an ancestor of the webapp release commit:
 
        git merge-base --is-ancestor "$(jq -r .source_commit deployments/reclaim/preprod/live.local.json)" HEAD
 
-The descriptor's browser-proving `vk_hash` chain must terminate at this
-`verifierVkHash` or the client refuses to prove.
+The descriptor's browser-proving `vk_hash` chain must terminate at
+`proofVkHash` (the native `proof.vk_hash`), not `verifierVkHash` (the Cardano
+wire-key hash embedded on-chain), or the client refuses to prove.
 
 ### Step 2 — Verify and maintain the ranged asset host (PK + CCS) — complete
 

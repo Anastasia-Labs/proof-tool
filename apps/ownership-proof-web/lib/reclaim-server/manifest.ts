@@ -647,13 +647,13 @@ export function validateReclaimDeploymentManifest(
   }
   if (
     manifest.reclaim_global.verifier_vk_hash &&
-    manifest.proof.vk_hash &&
-    manifest.reclaim_global.verifier_vk_hash !== manifest.proof.vk_hash
+    manifest.proof.cardano_vk_blake2b256 &&
+    normalizedHash(manifest.reclaim_global.verifier_vk_hash) !== normalizedHash(manifest.proof.cardano_vk_blake2b256)
   ) {
     errors.push({
       code: "verifier_hash_mismatch",
-      field: "proof.vk_hash",
-      message: "proof.vk_hash must equal reclaim_global.verifier_vk_hash.",
+      field: "reclaim_global.verifier_vk_hash",
+      message: "ReclaimGlobal verifier hash must equal proof.cardano_vk_blake2b256.",
     });
   }
   if (
@@ -799,6 +799,7 @@ export function deploymentFromManifest(manifest: ReclaimDeploymentManifest): Rec
     paramsCurrencySymbol: manifest.reclaim_global.params_currency_symbol,
     paramsTokenName: manifest.params_utxo.token_name,
     verifierVkHash: manifest.reclaim_global.verifier_vk_hash,
+    proofVkHash: manifest.proof.vk_hash,
     contractVersion: manifest.contract_version,
     sourceCommit: manifest.source_commit,
     reclaimGlobalRewardingCredential: manifest.reclaim_global.rewarding_credential,
@@ -886,7 +887,9 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
     envValue(env, FLAT_ENV_FIELDS.reclaimGlobalRewardingCredential) ||
     envValue(env, FLAT_ENV_FIELDS.reclaimBaseRequiredGlobalCredential);
   const paramsCurrencySymbol = envValue(env, FLAT_ENV_FIELDS.paramsCurrencySymbol);
-  const verifierVkHash = envValue(env, FLAT_ENV_FIELDS.verifierVkHash) || envValue(env, FLAT_ENV_FIELDS.proofVkHash);
+  const proofVkHash = envValue(env, FLAT_ENV_FIELDS.proofVkHash);
+  const cardanoVkHash = envValue(env, FLAT_ENV_FIELDS.proofCardanoVkHash);
+  const verifierVkHash = envValue(env, FLAT_ENV_FIELDS.verifierVkHash) || cardanoVkHash;
   const proofSlotEncoding = envValue(env, FLAT_ENV_FIELDS.reclaimGlobalProofSlotEncoding);
   const batchTranscriptVkHash = envValue(env, FLAT_ENV_FIELDS.reclaimGlobalBatchTranscriptVkHash);
   const distinctSevenOptIn = distinctSevenOptInFromEnv(env);
@@ -930,8 +933,8 @@ function manifestFromEnv(env: EnvMap): Record<string, unknown> {
       key_version: envValue(env, FLAT_ENV_FIELDS.proofKeyVersion) || DESTINATION_KEY_VERSION,
       destination_address_encoding:
         envValue(env, FLAT_ENV_FIELDS.destinationAddressEncoding) || DESTINATION_ADDRESS_ENCODING,
-      vk_hash: envValue(env, FLAT_ENV_FIELDS.proofVkHash) || verifierVkHash,
-      cardano_vk_blake2b256: envValue(env, FLAT_ENV_FIELDS.proofCardanoVkHash),
+      vk_hash: proofVkHash,
+      cardano_vk_blake2b256: cardanoVkHash,
     },
     batching: {
       default_utxo_count: parseEnvInteger(env, FLAT_ENV_FIELDS.defaultUtxoCount) ?? 4,
