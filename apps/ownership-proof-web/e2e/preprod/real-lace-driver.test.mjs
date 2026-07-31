@@ -240,6 +240,62 @@ describe("real Lace profile driver", () => {
     expect(driver.roleState("safe_claim_destination").signAttempts).toBe(1);
   });
 
+  it("accepts Lace closing the signing page after successful authentication", async () => {
+    const safe = deriveRoleState({
+      role: "safe_claim_destination",
+      mnemonic: words("delta", 12),
+      label: "safe_claim_dest",
+    });
+    const driver = new RealLaceProfileDriver({
+      browserChannel: "chromium",
+      extensionDir: "/tmp/lace",
+      extensionRoute: "expo/index.html",
+      manifestPath: "/tmp/lace/manifest.json",
+      providerId: "lace",
+      providerName: "Lace",
+      roleLabels: { safe_claim_destination: "safe_claim_dest" },
+      roleStates: new Map([["safe_claim_destination", safe]]),
+      userDataDir: "/tmp/profile",
+      walletPassword: "test-password",
+    });
+    const { context, clicks } = fakeLaceSignContext({ closeOnAuthentication: true });
+    driver.context = context;
+    driver.extensionId = "laceextensionid";
+
+    await driver.approveWalletSigning("safe_claim_destination", "claim");
+
+    expect(clicks).toEqual(["sign", "password:test-password", "authenticate:auto-waited", "page:closed"]);
+    expect(driver.roleState("safe_claim_destination").signAttempts).toBe(1);
+  });
+
+  it("fails closed when the signing authentication prompt remains open", async () => {
+    const safe = deriveRoleState({
+      role: "safe_claim_destination",
+      mnemonic: words("delta", 12),
+      label: "safe_claim_dest",
+    });
+    const driver = new RealLaceProfileDriver({
+      browserChannel: "chromium",
+      extensionDir: "/tmp/lace",
+      extensionRoute: "expo/index.html",
+      manifestPath: "/tmp/lace/manifest.json",
+      providerId: "lace",
+      providerName: "Lace",
+      roleLabels: { safe_claim_destination: "safe_claim_dest" },
+      roleStates: new Map([["safe_claim_destination", safe]]),
+      userDataDir: "/tmp/profile",
+      walletPassword: "wrong-password",
+    });
+    const { context } = fakeLaceSignContext({ rejectAuthentication: true });
+    driver.context = context;
+    driver.extensionId = "laceextensionid";
+
+    await expect(driver.approveWalletSigning("safe_claim_destination", "claim")).rejects.toMatchObject({
+      code: "lace_signing_authentication_failed",
+    });
+    expect(driver.roleState("safe_claim_destination").signAttempts ?? 0).toBe(0);
+  });
+
   it("selects the Lace 2.1.1 DApp account by label before authorizing", async () => {
     const compromised = deriveRoleState({
       role: "compromised_user",
@@ -490,10 +546,11 @@ function fakeLaceDappConnectContext(accountLabel, availableAccountLabels = [acco
   };
 }
 
-function fakeLaceSignContext() {
+function fakeLaceSignContext(options = {}) {
   const clicks = [];
   let signClicked = false;
   let authVisible = false;
+  let pageClosed = false;
 
   function makeLocator(kind) {
     const locator = {
@@ -517,11 +574,20 @@ function fakeLaceSignContext() {
           clicks.push("sign");
         }
         if (kind === "auth-confirm") {
-          authVisible = false;
+          if (pageOptions.rejectAuthentication !== true) {
+            authVisible = false;
+          }
           clicks.push(options?.force === true ? "authenticate:forced" : "authenticate:auto-waited");
+          if (pageOptions.closeOnAuthentication === true) {
+            pageClosed = true;
+            clicks.push("page:closed");
+          }
         }
       },
       async waitFor(options) {
+        if (pageClosed) {
+          throw new Error("signing page closed");
+        }
         if (kind === "auth-body" && options.state === "hidden" && !authVisible) {
           return;
         }
@@ -531,12 +597,13 @@ function fakeLaceSignContext() {
     return locator;
   }
 
+  const pageOptions = options;
   const page = {
     url() {
       return "chrome-extension://laceextensionid/expo/index.html#/cardano-sign-tx";
     },
     isClosed() {
-      return false;
+      return pageClosed;
     },
     locator(selector) {
       if (selector === 'body:has([data-testid="sign-tx-origin"]) [data-testid="dapp-connector-primary-button"]') {

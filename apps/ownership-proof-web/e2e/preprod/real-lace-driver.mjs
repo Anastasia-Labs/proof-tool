@@ -864,7 +864,7 @@ function normalizeDappOrigin(value) {
   }
 }
 
-async function submitVisibleLaceAuthentication(page, password) {
+async function submitVisibleLaceAuthentication(page, password, options = {}) {
   if (!page || page.isClosed()) {
     return false;
   }
@@ -902,11 +902,11 @@ async function submitVisibleLaceAuthentication(page, password) {
     .first()
     .waitFor({ state: "hidden", timeout: EXTENSION_TIMEOUT_MS })
     .then(() => true)
-    .catch(() => false);
+    .catch(() => options.allowPageClose === true && page.isClosed());
   if (!dismissed) {
     throw new PreprodRealLaceDriverError(
       "lace_signing_authentication_failed",
-      "Lace rejected the configured wallet password while signing.",
+      "Lace did not dismiss the signing authentication prompt after confirmation.",
     );
   }
   return true;
@@ -919,7 +919,7 @@ async function settleLaceSigningAuthentication(page, password) {
     if (!page || page.isClosed()) {
       return;
     }
-    if (await submitVisibleLaceAuthentication(page, password)) {
+    if (await submitVisibleLaceAuthentication(page, password, { allowPageClose: true })) {
       return;
     }
     const signingButton = page.locator(LACE_CARDANO_SIGN_SELECTOR).first();
