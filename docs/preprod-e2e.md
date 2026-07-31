@@ -228,6 +228,17 @@ The Next build and server stay in production mode. Only the
 separate fixture-funding driver drops production mode from its own process; it
 is not injected into the app and Lace remains the transaction-signing wallet.
 
+The default Lace state is the persistent local profile at
+`output/playwright/lace-e2e-preprod-profile-v2`, provisioned on 2026-07-31.
+Keep that directory and its mode-0600 `profile.env` together and reuse them for
+future runs. The validator and guarded claim lane never bootstrap a profile:
+they require the existing Chromium state, require `PW_USER_DATA_DIR` to point
+to the directory containing the selected `profile.env`, and fail before browser
+launch if the directory is missing or uninitialized. Restore this profile and
+its saved password if either is lost; do not create a replacement merely to
+make an E2E run proceed. Validate it without spending funds with
+`pnpm --dir apps/ownership-proof-web e2e:preprod:lace:validate-profile`.
+
 Before the app tab is created, the driver unlocks and selects the compromised
 test wallet so the extension can inject its real CIP-30 provider at document
 creation. It first removes any stale authorization for the exact local origin

@@ -38,6 +38,7 @@ describe("real Lace profile driver", () => {
     const userDataDir = path.join(repo, "lace-profile");
     const walletPath = path.join(repo, "wallets.local.json");
     mkdirSync(extensionDir, { recursive: true });
+    initializeLaceProfile(userDataDir);
     writeFileSync(path.join(extensionDir, "manifest.json"), JSON.stringify({ manifest_version: 3 }), "utf8");
     writeFileSync(walletPath, JSON.stringify(validWalletFile()), "utf8");
 
@@ -80,16 +81,18 @@ describe("real Lace profile driver", () => {
   it("keeps mnemonic material out of the public driver summary", async () => {
     const repo = tempDir();
     const extensionDir = path.join(repo, "lace-extension");
+    const userDataDir = path.join(repo, "lace-profile");
     const walletPath = path.join(repo, "wallets.local.json");
     const walletFile = validWalletFile();
     mkdirSync(extensionDir, { recursive: true });
+    initializeLaceProfile(userDataDir);
     writeFileSync(path.join(extensionDir, "manifest.json"), JSON.stringify({ manifest_version: 3 }), "utf8");
     writeFileSync(walletPath, JSON.stringify(walletFile), "utf8");
 
     const driver = await createRealLaceProfileDriverFromEnv({
       env: {
         [LACE_EXTENSION_DIR_ENV]: extensionDir,
-        PW_USER_DATA_DIR: path.join(repo, "lace-profile"),
+        PW_USER_DATA_DIR: userDataDir,
         PREPROD_TEST_WALLETS_FILE: walletPath,
       },
       cwd: repo,
@@ -101,6 +104,30 @@ describe("real Lace profile driver", () => {
     expect(summaryText).not.toContain(walletFile.reclaim_funder.mnemonic);
     expect(summaryText).toContain("reclaim_funder");
     expect(await driver.recoveryPhraseForBrowserUi("reclaim_funder")).toBe(walletFile.reclaim_funder.mnemonic);
+  });
+
+  it("refuses to let Chromium create a replacement profile from an empty directory", async () => {
+    const repo = tempDir();
+    const extensionDir = path.join(repo, "lace-extension");
+    const userDataDir = path.join(repo, "empty-profile");
+    const walletPath = path.join(repo, "wallets.local.json");
+    mkdirSync(extensionDir, { recursive: true });
+    mkdirSync(userDataDir, { recursive: true });
+    writeFileSync(path.join(extensionDir, "manifest.json"), JSON.stringify({ manifest_version: 3 }), "utf8");
+    writeFileSync(walletPath, JSON.stringify(validWalletFile()), "utf8");
+
+    await expect(
+      createRealLaceProfileDriverFromEnv({
+        env: {
+          [LACE_EXTENSION_DIR_ENV]: extensionDir,
+          PW_USER_DATA_DIR: userDataDir,
+          PREPROD_TEST_WALLETS_FILE: walletPath,
+        },
+        cwd: repo,
+        repoRoot: repo,
+        deriveRoleState,
+      }),
+    ).rejects.toMatchObject({ code: "pw_user_data_dir_uninitialized" });
   });
 
   it("refuses any signing request for the compromised role", async () => {
@@ -749,4 +776,11 @@ function tempDir() {
   const dir = mkdtempSync(path.join(tmpdir(), "proof-tool-real-lace-driver-"));
   tempDirs.push(dir);
   return dir;
+}
+
+function initializeLaceProfile(userDataDir) {
+  const defaultDir = path.join(userDataDir, "Default");
+  mkdirSync(path.join(defaultDir, "Local Extension Settings"), { recursive: true });
+  writeFileSync(path.join(userDataDir, "Local State"), "{}", "utf8");
+  writeFileSync(path.join(defaultDir, "Preferences"), "{}", "utf8");
 }

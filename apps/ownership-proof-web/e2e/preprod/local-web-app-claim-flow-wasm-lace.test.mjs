@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   assertLocalPrContext,
@@ -8,6 +9,7 @@ import {
   pinLocalDeploymentManifest,
   resolveOpenPullRequest,
 } from "./local-web-app-claim-flow-wasm-lace.mjs";
+import { assertPersistentLaceProfileSelection, loadPersistentLaceProfileEnv } from "./persistent-lace-profile.mjs";
 import {
   collectProofStallDiagnostic,
   disposePageRoutes,
@@ -101,6 +103,55 @@ describe("local production PR claim flow", () => {
     };
     expect(createLocalRunnerEnv(serverEnv)).toEqual({ RECLAIM_E2E_TARGET_MODE: "local-production" });
     expect(serverEnv.NODE_ENV).toBe("production");
+  });
+
+  it("pins the guarded lane to the persistent profile stored beside profile.env", () => {
+    const profileDir = path.resolve("/repo/output/playwright/lace-e2e-preprod-profile-v2");
+    const profileEnvFile = path.join(profileDir, "profile.env");
+    const env = {
+      PW_USER_DATA_DIR: profileDir,
+      RECLAIM_E2E_LACE_WALLET_PASSWORD: "test-only-password",
+    };
+    const initializedProfileExists = (candidate) =>
+      candidate === profileDir ||
+      candidate === path.join(profileDir, "Local State") ||
+      candidate === path.join(profileDir, "Default", "Preferences") ||
+      candidate === path.join(profileDir, "Default", "Local Extension Settings");
+
+    expect(
+      assertPersistentLaceProfileSelection({ env, profileEnvFile, fileExists: initializedProfileExists }),
+    ).toMatchObject({ name: "lace-e2e-preprod-profile-v2", profileDir });
+    expect(() =>
+      assertPersistentLaceProfileSelection({
+        env: { ...env, PW_USER_DATA_DIR: "/repo/output/playwright/replacement-profile" },
+        profileEnvFile,
+        fileExists: initializedProfileExists,
+      }),
+    ).toThrowError(expect.objectContaining({ code: "persistent_lace_profile_path_mismatch" }));
+    expect(() =>
+      assertPersistentLaceProfileSelection({
+        env: { ...env, RECLAIM_E2E_LACE_WALLET_PASSWORD: "" },
+        profileEnvFile,
+        fileExists: initializedProfileExists,
+      }),
+    ).toThrowError(expect.objectContaining({ code: "persistent_lace_profile_password_missing" }));
+
+    const staleShellEnv = {
+      PW_USER_DATA_DIR: "/repo/output/playwright/stale-profile",
+      RECLAIM_E2E_LACE_WALLET_PASSWORD: "stale-password",
+    };
+    expect(
+      loadPersistentLaceProfileEnv({
+        env: staleShellEnv,
+        profileEnvFile,
+        fileExists: (candidate) => candidate === profileEnvFile || initializedProfileExists(candidate),
+        readTextFile: () => `PW_USER_DATA_DIR=${profileDir}\nRECLAIM_E2E_LACE_WALLET_PASSWORD=persisted-password\n`,
+      }),
+    ).toMatchObject({ profileDir });
+    expect(staleShellEnv).toMatchObject({
+      PW_USER_DATA_DIR: profileDir,
+      RECLAIM_E2E_LACE_WALLET_PASSWORD: "persisted-password",
+    });
   });
 
   it("resets the local origin and initializes the compromised Lace role before page creation", async () => {

@@ -1,21 +1,34 @@
 #!/usr/bin/env node
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import {
+  LACE_PROFILE_ENV_FILE_ENV,
+  loadPersistentLaceProfileEnv,
+  persistentLaceProfileEnvFile,
+} from "./persistent-lace-profile.mjs";
 import { createRealLaceProfileDriverFromEnv } from "./real-lace-driver.mjs";
 
 const DEFAULT_OUTPUT_DIR = "output/preprod-e2e/lace-profile";
 
 async function main() {
   const env = process.env;
-  const outputDir = path.resolve(process.cwd(), env.RECLAIM_E2E_OUTPUT_DIR?.trim() || DEFAULT_OUTPUT_DIR);
-  mkdirSync(outputDir, { recursive: true });
-  const artifactPath = path.join(outputDir, "lace-profile-validation.json");
   let context = null;
   try {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+    const profileEnvFile = path.resolve(
+      env[LACE_PROFILE_ENV_FILE_ENV]?.trim() || persistentLaceProfileEnvFile(repoRoot),
+    );
+    const persistentProfile = loadPersistentLaceProfileEnv({ env, profileEnvFile });
+    console.log(`Validating persistent Lace profile ${persistentProfile.name}; this command never creates a profile.`);
+    const outputDir = path.resolve(process.cwd(), env.RECLAIM_E2E_OUTPUT_DIR?.trim() || DEFAULT_OUTPUT_DIR);
+    mkdirSync(outputDir, { recursive: true });
+    const artifactPath = path.join(outputDir, "lace-profile-validation.json");
     const driver = await createRealLaceProfileDriverFromEnv({
       env,
       cwd: process.cwd(),
+      repoRoot,
     });
     context = await driver.launchBrowserContext(chromium, { headless: false });
     const artifact = await driver.validateProfile();

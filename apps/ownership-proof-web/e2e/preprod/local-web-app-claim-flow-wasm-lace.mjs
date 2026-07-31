@@ -5,6 +5,11 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { waitForAppReady } from "./app-server.mjs";
+import {
+  LACE_PROFILE_ENV_FILE_ENV,
+  loadPersistentLaceProfileEnv,
+  persistentLaceProfileEnvFile,
+} from "./persistent-lace-profile.mjs";
 import { runWebAppClaimFlowWasmLace } from "./web-app-claim-flow-wasm-lace.mjs";
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -14,7 +19,6 @@ const DEFAULT_PROOF_ASSET_HOSTS = Object.freeze([
   "proof-assets-2m.reclaim-proof.com",
 ]);
 const LOCAL_ENV_FILE_ENV = "RECLAIM_E2E_LOCAL_ENV_FILE";
-const PROFILE_ENV_FILE_ENV = "RECLAIM_E2E_LACE_PROFILE_ENV_FILE";
 const LOCAL_MANIFEST_ENV = "RECLAIM_E2E_LOCAL_MANIFEST_PATH";
 
 export class LocalPrClaimFlowError extends Error {
@@ -57,21 +61,21 @@ export async function runLocalPrClaimFlow(options = {}) {
     LOCAL_ENV_FILE_ENV,
   );
   const profileEnvFile = resolveInputFile(
-    initialEnv[PROFILE_ENV_FILE_ENV],
-    [
-      path.join(repoRoot, "output", "playwright", "lace-e2e-preprod-profile-v2", "profile.env"),
-      path.join(sharedRoot, "output", "playwright", "lace-e2e-preprod-profile-v2", "profile.env"),
-    ],
-    PROFILE_ENV_FILE_ENV,
+    initialEnv[LACE_PROFILE_ENV_FILE_ENV],
+    [persistentLaceProfileEnvFile(repoRoot), persistentLaceProfileEnvFile(sharedRoot)],
+    LACE_PROFILE_ENV_FILE_ENV,
   );
   const loadEnvFile = options.loadEnvFile ?? ((file) => process.loadEnvFile(file));
   loadEnvFile(localEnvFile);
-  loadEnvFile(profileEnvFile);
 
-  const port = parsePort((options.env ?? process.env).RECLAIM_E2E_LOCAL_PORT ?? DEFAULT_PORT);
+  const runtimeEnv = options.env ?? process.env;
+  const persistentProfile = loadPersistentLaceProfileEnv({ env: runtimeEnv, profileEnvFile });
+  console.log(`Reusing persistent Lace profile ${persistentProfile.name}; automatic profile creation is disabled.`);
+
+  const port = parsePort(runtimeEnv.RECLAIM_E2E_LOCAL_PORT ?? DEFAULT_PORT);
   const baseUrl = `http://${DEFAULT_HOST}:${port}`;
   const flowEnv = createLocalVercelEmulationEnv({
-    baseEnv: { ...(options.env ?? process.env) },
+    baseEnv: { ...runtimeEnv },
     branch: git.branch,
     commitSha: git.commitSha,
     port,

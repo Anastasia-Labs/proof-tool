@@ -9,6 +9,7 @@ import {
   redactAddress,
   validatePreprodWalletFile,
 } from "./preflight.mjs";
+import { hasInitializedLaceProfileState } from "./persistent-lace-profile.mjs";
 
 export const LACE_EXTENSION_DIR_ENV = "RECLAIM_E2E_LACE_EXTENSION_DIR";
 export const LACE_WALLET_PASSWORD_ENV = "RECLAIM_E2E_LACE_WALLET_PASSWORD";
@@ -56,7 +57,7 @@ export async function createRealLaceProfileDriverFromEnv(options = {}) {
     );
   }
   const manifest = readLaceManifest(manifestPath, readTextFile);
-  const userDataDir = requiredString(env.PW_USER_DATA_DIR, "PW_USER_DATA_DIR");
+  const userDataDir = requiredInitializedLaceProfileDirectory(env.PW_USER_DATA_DIR, fileExists);
   const walletFile = loadWalletFile(env.PREPROD_TEST_WALLETS_FILE, { cwd, repoRoot, fileExists, readTextFile });
   const validation = validatePreprodWalletFile(walletFile);
   if (!validation.ok) {
@@ -614,6 +615,18 @@ function requiredExistingDirectory(value, field, fileExists) {
   const resolved = path.resolve(requiredString(value, field));
   if (!fileExists(resolved)) {
     throw new PreprodRealLaceDriverError(`${field.toLowerCase()}_missing`, `${field} does not exist.`);
+  }
+  return resolved;
+}
+
+function requiredInitializedLaceProfileDirectory(value, fileExists) {
+  const field = "PW_USER_DATA_DIR";
+  const resolved = requiredExistingDirectory(value, field, fileExists);
+  if (!hasInitializedLaceProfileState(resolved, fileExists)) {
+    throw new PreprodRealLaceDriverError(
+      "pw_user_data_dir_uninitialized",
+      "PW_USER_DATA_DIR is not the initialized persistent Lace test profile. Refusing to launch Chromium because that could create a replacement profile; restore the existing profile and profile.env instead.",
+    );
   }
   return resolved;
 }

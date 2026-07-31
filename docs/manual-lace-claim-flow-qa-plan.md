@@ -494,7 +494,9 @@ The command fails before browser startup unless:
   safety for the selected Git remote;
 - the ignored repository `.env.local` selects the canonical Preprod reclaim
   manifest; and
-- the ignored dedicated Lace `profile.env` exists with both required wallets.
+- the ignored persistent Lace `profile.env` and its already-initialized profile
+  directory exist with both required wallets. The lane must reuse this state
+  and must not bootstrap a replacement profile.
 
 Linked worktrees automatically look for those two ignored files in the primary
 checkout. They can instead be selected explicitly with
@@ -569,10 +571,12 @@ does not install a partial or unprovisioned hosted workflow.
 - `pnpm typecheck`, the Next production build, Node syntax checks, direct
   reclaim-manifest verification, and `git diff --check` pass for the reviewed
   executable tree.
-- A fresh ignored Lace 2.1.1 profile was built with only the repo-backed
+- The canonical persistent Lace 2.1.1 profile was built once on 2026-07-31
+  with only the repo-backed
   `compromised_user` and `safe_claim_destination` Preprod fixtures, a generated
   test-only password persisted in a mode-0600 ignored `profile.env`, and the
-  Testnet network selected. `pnpm e2e:preprod:lace:setup` then passed against
+  Testnet network selected. It is reused for future runs rather than recreated.
+  `pnpm e2e:preprod:lace:validate-profile` then passed against
   that profile and reported the two account-center labels and distinct redacted
   addresses. The driver selects each containing wallet card by label instead of
   using an array index; the fixture funder remains outside Lace.
