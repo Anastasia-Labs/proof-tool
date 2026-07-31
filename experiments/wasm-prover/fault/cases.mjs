@@ -38,8 +38,11 @@ export const faultCases = Object.freeze([
         outcome.retry_count > 0 &&
         Number.isSafeInteger(outcome.retry_max) &&
         outcome.retry_count <= outcome.retry_max &&
+        Number.isSafeInteger(outcome.chunk_retry_count) &&
+        outcome.chunk_retry_count > 0 &&
+        outcome.chunk_retry_count < outcome.retry_max &&
         Number.isSafeInteger(outcome.runtime_retry_count) &&
-        outcome.runtime_retry_count > 0 &&
+        outcome.runtime_retry_count >= 0 &&
         outcome.runtime_retry_count < outcome.retry_max &&
         outcome.cpu_fallback === false &&
         outcome.cpu_fallback_state === 'none' &&

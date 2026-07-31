@@ -48,6 +48,7 @@ const defaults = {
   optW8: null,
   artifactOverridesFile: "",
   artifactOverrides: null,
+  proverWorkerURL: "",
   privateInputsFile: "",
   privateInputs: null,
   acceptRemoteHarnessPrivateInputExposure: false,
@@ -315,21 +316,73 @@ async function runBrowserBenchmark(
         };
         const flowStarted = performance.now();
         const preparedStarted = performance.now();
-        const prepared = await globalThis.preflightProofAssets(
-          JSON.stringify({
-            artifacts: req.artifacts,
-            tuning: req.tuning,
-          }),
-        );
-        const preparedMS = performance.now() - preparedStarted;
-        const result = await globalThis.proveDestination(
-          JSON.stringify(req),
-          (progress) => {
-            const stage = document.getElementById("stage");
-            if (stage)
-              stage.textContent = `${testCase.name}: ${progress.stage}`;
-          },
-        );
+        let prepared;
+        let preparedMS;
+        let result;
+        if (testCase.prover_worker_url) {
+          const worker = new Worker(testCase.prover_worker_url);
+          let messageID = 0;
+          const callWorker = (type, payload = {}) =>
+            new Promise((resolve, reject) => {
+              const id = ++messageID;
+              const cleanup = () => {
+                worker.removeEventListener("message", onMessage);
+                worker.removeEventListener("error", onError);
+              };
+              const onMessage = (event) => {
+                const message = event.data || {};
+                if (message.id !== id || message.type === "progress") return;
+                cleanup();
+                if (message.type === "error") {
+                  reject(new Error(message.message || "prover worker failed"));
+                } else {
+                  resolve(message.result ?? message);
+                }
+              };
+              const onError = (event) => {
+                cleanup();
+                reject(event.error || new Error(event.message || "prover worker crashed"));
+              };
+              worker.addEventListener("message", onMessage);
+              worker.addEventListener("error", onError);
+              worker.postMessage({ id, type, ...payload });
+            });
+          try {
+            await callWorker("init", {
+              wasmUrl: req.artifacts.proof_wasm_url,
+              wasmExecUrl: new URL("/proof-runtime/wasm_exec.js", location.href).href,
+              msmWorkerWasmUrl: req.artifacts.msm_worker_wasm_url,
+              gogc: testCase.gogc,
+              gomemlimit: testCase.gomemlimit,
+            });
+            prepared = await callWorker("preflight", {
+              requestJson: JSON.stringify({
+                artifacts: req.artifacts,
+                tuning: req.tuning,
+              }),
+            });
+            preparedMS = performance.now() - preparedStarted;
+            result = await callWorker("prove", { requestJson: JSON.stringify(req) });
+          } finally {
+            worker.terminate();
+          }
+        } else {
+          prepared = await globalThis.preflightProofAssets(
+            JSON.stringify({
+              artifacts: req.artifacts,
+              tuning: req.tuning,
+            }),
+          );
+          preparedMS = performance.now() - preparedStarted;
+          result = await globalThis.proveDestination(
+            JSON.stringify(req),
+            (progress) => {
+              const stage = document.getElementById("stage");
+              if (stage)
+                stage.textContent = `${testCase.name}: ${progress.stage}`;
+            },
+          );
+        }
         const keyManifestRaw = await (
           await fetch(req.artifacts.manifest_url)
         ).text();
@@ -404,6 +457,9 @@ async function runBrowserBenchmark(
         name: options.caseName,
         tuning: runtimeTuning,
         artifacts: options.artifactOverrides,
+        prover_worker_url: options.proverWorkerURL,
+        gogc: options.gogc,
+        gomemlimit: options.gomemlimit,
       },
     );
 
@@ -569,6 +625,7 @@ function buildSummary({
       chunk_readahead: options.chunkReadahead,
       opt_w8: options.optW8,
       cache_mode: options.cacheMode,
+      prover_worker_url: options.proverWorkerURL || "",
       browser_profile_dir: options.browserProfileDir || "",
       gogc: options.gogc,
       gomemlimit: options.gomemlimit,
@@ -659,6 +716,11 @@ async function collectSample(phase, previousCPU, ownPids, options) {
   const externalProcesses = processes
     .filter((p) => !ownPids.has(p.pid))
     .filter((p) => !isSamplerProcess(p))
+    // ps %CPU is a lifetime average, so a stopped process can retain a large
+    // historical value even though it consumes no benchmark resources. Keep
+    // active processes under the existing strict thresholds and exclude only
+    // stopped/traced and zombie states.
+    .filter((p) => !/^[TZ]/.test(p.stat))
     .filter((p) => p.pcpu >= 1)
     .sort((a, b) => b.pcpu - a.pcpu)
     .slice(0, 10);
@@ -697,7 +759,7 @@ async function collectSample(phase, previousCPU, ownPids, options) {
 function isSamplerProcess(processInfo) {
   return (
     processInfo.comm === "ps" &&
-    processInfo.args === "ps -eo pid=,ppid=,pcpu=,comm=,args="
+    processInfo.args === "ps -eo pid=,ppid=,pcpu=,stat=,comm=,args="
   );
 }
 
@@ -766,21 +828,22 @@ async function descendantPIDs(rootPid) {
 async function readProcesses() {
   const stdout = await execFileText("ps", [
     "-eo",
-    "pid=,ppid=,pcpu=,comm=,args=",
+    "pid=,ppid=,pcpu=,stat=,comm=,args=",
   ]);
   return stdout
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const match = /^(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s*(.*)$/.exec(line);
+      const match = /^(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(\S+)\s*(.*)$/.exec(line);
       if (!match) return null;
       return {
         pid: Number(match[1]),
         ppid: Number(match[2]),
         pcpu: Number(match[3]),
-        comm: match[4],
-        args: match[5] || "",
+        stat: match[4],
+        comm: match[5],
+        args: match[6] || "",
       };
     })
     .filter(Boolean);
@@ -982,6 +1045,9 @@ function parseArgs(args, base) {
       case "--artifact-overrides":
         options.artifactOverridesFile = path.resolve(nextValue());
         break;
+      case "--prover-worker-url":
+        options.proverWorkerURL = nextValue();
+        break;
       case "--accept-remote-harness-private-input-exposure":
         options.acceptRemoteHarnessPrivateInputExposure = true;
         break;
@@ -1182,6 +1248,7 @@ Options:
   --chunk-readahead N                 Dispatch-order HTTP-cache warm lanes (0 disables, 1-4). Default: runtime default
   --opt-w8 / --no-opt-w8              Toggle computeH FFT workers (opt_w8). Default: runtime default
   --artifact-overrides FILE           Public artifact URL overrides JSON.
+  --prover-worker-url URL             Exercise the production outer worker protocol instead of direct Go calls.
   --private-inputs-file FILE          Local proof inputs injected into the harness page before navigation.
                                       Loopback harnesses only, unless the exposure flag below is passed.
   --accept-remote-harness-private-input-exposure

@@ -128,6 +128,27 @@ contamination observation. This qualifies the healthy path as
 performance-preserving; the small apparent improvements are benchmark noise,
 not an optimization claim.
 
+The HTTP-Range compatibility fix was held to the same ceiling before release.
+An initial Go/WASM fallback was rejected because an otherwise-dormant code
+change increased the guarded cold median from `39.101 s` to `41.363 s`
+(`+5.785%`). The accepted design instead leaves both proving WASM binaries
+byte-identical and intercepts only proving-key range requests in the outer
+`prover-worker.js`. A healthy HTTP 206 response is returned untouched with one
+native request; only an observed HTTP 200 cancels the full-object body and
+switches that operation to the signed, digest-verified 2 MiB chunks.
+
+The corrected production-worker A/B gate ran the pre-change and final workers
+through their real message protocol, three clean locally verified proofs per
+worker in each cache mode. Cold medians were `43.443 s` baseline and `41.969 s`
+candidate (`-3.393%`); warm medians were `42.144 s` and `40.216 s`
+(`-4.575%`). Median peak heap changed by `+0.177%` cold and `+0.118%` warm.
+All samples passed the unchanged contamination guards and the `0.5%` time /
+`1.0%` heap ceilings. The favorable time deltas are treated as benchmark noise,
+not as an optimization claim. Unit and browser fault gates additionally cover
+the no-extra-request 206 path, sticky 200-to-chunk recovery, signature and
+SHA-256 rejection, bounded retry recovery, abort, and chunk corruption without
+CPU fallback.
+
 These are browser-prover source defaults and proof-runtime measurements. They
 do not change claim batching by themselves. Until the statement-bound V2
 deployment is activated, the current Preprod V1 manifest remains authoritative

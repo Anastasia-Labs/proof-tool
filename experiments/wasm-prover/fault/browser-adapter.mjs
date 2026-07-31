@@ -125,6 +125,12 @@ export async function createFaultBrowserAdapter({
         return runWorkerKill(page, tuning);
       }
       if (testCase.id === 'chunk-corruption' || testCase.id === 'network-abort' || testCase.id === 'network-recover') {
+        // CDP's browser-cache clear does not clear the authenticated W7 LRU
+        // inside an already-running Worker. Isolate transport cases with a
+        // fresh page and Worker pool so a clean chunk cached by an earlier
+        // case cannot mask the injected response.
+        await page.close();
+        await loadFreshPage();
         return runTransportFault(page, baseURL, testCase.id, tuning);
       }
       if (testCase.id === 'memory-pressure') {
@@ -262,6 +268,7 @@ async function runTransportFault(page, baseURL, id, tuning = {}) {
   await resetFaultServer(baseURL);
   const expectedClass = id === 'chunk-corruption' ? 'chunk-digest-mismatch' : 'range-fetch-aborted';
   const runtimeRetryCount = countTraceEvents(result, 'msm-shard-retry');
+  const chunkRetryCount = countChunkFetchRetries(result);
   const fallback = result
     ? classifyCPUFallbackSuccess(result)
     : classifyCPUFallbackFailure(error);
@@ -274,6 +281,7 @@ async function runTransportFault(page, baseURL, id, tuning = {}) {
     error,
     retry_count: status.retry_count,
     retry_max: status.retry_max,
+    chunk_retry_count: chunkRetryCount,
     runtime_retry_count: runtimeRetryCount,
     cpu_fallback: fallback.state === 'observed' ? true : fallback.state === 'none' ? false : null,
     cpu_fallback_state: fallback.state,
@@ -291,6 +299,17 @@ async function resetFaultServer(baseURL) {
 function countTraceEvents(result, stage) {
   const events = Array.isArray(result?.trace?.events) ? result.trace.events : [];
   return events.filter((event) => event?.stage === stage).length;
+}
+
+function countChunkFetchRetries(result) {
+  const events = Array.isArray(result?.trace?.events) ? result.trace.events : [];
+  return events.reduce((total, event) => {
+    if (event?.stage !== 'shard' || event?.phase !== 'measure') return total;
+    const attempts = Number(event.fields?.fetch_attempts);
+    const requests = Number(event.fields?.fetch_requests);
+    if (!Number.isSafeInteger(attempts) || !Number.isSafeInteger(requests)) return total;
+    return total + Math.max(0, attempts - requests);
+  }, 0);
 }
 
 function startProof(page, tuning = {}) {

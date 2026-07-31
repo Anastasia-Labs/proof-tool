@@ -30,8 +30,9 @@ hidden by or inserted into the verified per-worker cache. A transient chunk
 fetch gets one bounded same-chunk retry (two fetch attempts total) before the
 outer shard retry is considered; the worker unit gate covers both the retry
 and its candidate/production parity. Network recovery returns two retryable
-transport responses, then requires same-shard retries to complete and the
-final proof to verify locally. Network abort interrupts two responses and
+transport responses, then requires chunk-local retries to complete and the
+final proof to verify locally without requiring an outer shard restart.
+Network abort interrupts two responses and
 returns a terminal error for subsequent attempts; the runtime must report
 bounded `3/3` exhaustion and must not demote the authenticated-transport
 failure to CPU proving. A separate Worker unit gate requires rejected `fetch`
@@ -48,8 +49,9 @@ deadlines.
 
 The final bounded-recovery acceptance on 2026-07-31 exercised the changed
 paths with real browser proofs. `network-recover` returned two transient 503
-responses, observed one runtime same-shard retry, completed on the third server
-hit, and verified locally without CPU fallback or a partial proof.
+responses, observed two chunk-local retries and zero outer shard restarts,
+completed on the third server hit, and verified locally without CPU fallback
+or a partial proof.
 `worker-kill` replaced one worker, retried once, and verified locally.
 `chunk-corruption` failed closed on the first authenticated hit with
 `chunk-digest-mismatch` and no runtime retry. Persistent `network-abort`

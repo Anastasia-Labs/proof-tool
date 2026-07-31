@@ -814,7 +814,11 @@ test("every fault outcome rejects each reviewed false-pass shape", () => {
     false,
   );
   assert.equal(
-    networkRecover.accept({ ...safe["network-recover"], runtime_retry_count: 0 }),
+    networkRecover.accept({ ...safe["network-recover"], chunk_retry_count: 0 }),
+    false,
+  );
+  assert.equal(
+    networkRecover.accept({ ...safe["network-recover"], runtime_retry_count: -1 }),
     false,
   );
   const network = faultCases.find((item) => item.id === "network-abort");
@@ -1012,7 +1016,8 @@ function safeFaultOutcomes() {
       verified_locally: true,
       retry_count: 2,
       retry_max: 3,
-      runtime_retry_count: 2,
+      chunk_retry_count: 2,
+      runtime_retry_count: 0,
       partial_proof: false,
       cpu_fallback: false,
       cpu_fallback_state: "none",

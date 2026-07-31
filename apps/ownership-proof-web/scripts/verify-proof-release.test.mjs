@@ -23,7 +23,7 @@ describe("proof release coherence verifier", () => {
     ).resolves.toMatchObject({
       ok: true,
       mode: "local",
-      release: "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-reclaim-744cc471-r1",
+      release: "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a-2m-range-fallback-r1",
     });
   });
 

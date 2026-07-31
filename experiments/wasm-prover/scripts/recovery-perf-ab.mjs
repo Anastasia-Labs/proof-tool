@@ -8,7 +8,7 @@
 // Both runtimes are served from prebuilt asset trees rather than rebuilt here,
 // so a run measures only the runtime delta. Build them with the staging
 // scripts and place them at <dir>/{baseline,candidate}-assets. The tree holds
-// real per-role msmworker.wasm / proof-destination.wasm / worker.js /
+// real per-role prover-worker.js / msmworker.wasm / proof-destination.wasm / worker.js /
 // chunk-manifest.{json,sig}; the heavy proving-key chunks are symlinks into
 // the shared release stage, so the two roles differ only by runtime.
 //
@@ -77,7 +77,7 @@ const acceptance = {
 };
 
 for (const [role, selected] of Object.entries(roles)) {
-  for (const required of ["chunk-manifest.json", "msmworker.wasm", "proof-destination.wasm", "worker.js"]) {
+  for (const required of ["chunk-manifest.json", "prover-worker.js", "msmworker.wasm", "proof-destination.wasm", "worker.js"]) {
     const candidatePath = path.join(selected.assets, required);
     if (!existsSync(candidatePath)) {
       throw new Error(`${role} asset tree is missing ${required} (${candidatePath})`);
@@ -202,6 +202,7 @@ for (const [role, repeat] of sequence) {
     "--rf", "2",
     "--chunk-prefetch-window", "2",
     "--artifact-overrides", selected.overrides,
+    "--prover-worker-url", `http://127.0.0.1:${selected.port}/proof-assets/prover-worker.js`,
     "--private-inputs-file", privateInputs,
     "--browser-profile-dir", selected.profile,
     "--cache-mode", mode,
