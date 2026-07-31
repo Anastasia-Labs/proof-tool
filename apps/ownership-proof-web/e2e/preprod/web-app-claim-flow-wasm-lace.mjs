@@ -30,6 +30,7 @@ const COMPROMISED_ROLE = "compromised_user";
 const SAFE_ROLE = "safe_claim_destination";
 const DEFAULT_UI_TIMEOUT_MS = 120_000;
 const PROOF_TIMEOUT_MS = 10 * 60_000;
+const PROOF_STALL_DIAGNOSTIC_MS = 90_000;
 const CONFIRMATION_TIMEOUT_MS = 5 * 60_000;
 const CONFIRMATION_POLL_MS = 5_000;
 
@@ -287,6 +288,12 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
       await page.getByLabel(`Recovery word ${index + 1}`, { exact: true }).fill(word);
     }
     await page.getByRole("button", { name: "Generate proofs", exact: true }).click();
+    const proofStartedAt = now();
+    run.journey.browserProof = {
+      startedAt: proofStartedAt.toISOString(),
+      historicalBaselineMilliseconds: 56_565,
+    };
+    persistRun(runPath, run);
     await page
       .getByText("Proof generation is running in this browser", { exact: false })
       .waitFor({ timeout: PROOF_TIMEOUT_MS });
@@ -294,7 +301,15 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     recoveryPhraseEgressGuard.assertClear();
     await capture("13-proofs-generating.png", page, "create-proofs-generating");
 
-    await expectHeading(page, "Proofs ready", PROOF_TIMEOUT_MS);
+    const cancelStallDiagnostic = scheduleProofStallDiagnostic({ page, proofStartedAt, run, runPath });
+    try {
+      await expectHeading(page, "Proofs ready", PROOF_TIMEOUT_MS);
+    } finally {
+      cancelStallDiagnostic();
+    }
+    run.journey.browserProof.completedAt = now().toISOString();
+    run.journey.browserProof.durationMilliseconds = Math.max(0, now().getTime() - proofStartedAt.getTime());
+    persistRun(runPath, run);
     recoveryPhraseEgressGuard.assertClear();
     await capture("14-proofs-ready.png", page, "create-proofs-complete");
     await page.getByRole("button", { name: "Continue to current batch", exact: true }).click();
@@ -410,6 +425,86 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     artifacts,
     result: run.result,
   };
+}
+
+export function scheduleProofStallDiagnostic({
+  page,
+  proofStartedAt,
+  run,
+  runPath,
+  delayMs = PROOF_STALL_DIAGNOSTIC_MS,
+}) {
+  let cancelled = false;
+  const timeout = setTimeout(async () => {
+    if (cancelled) return;
+    const diagnostic = await collectProofStallDiagnostic(page, proofStartedAt).catch(() => ({
+      collected: false,
+      elapsedMilliseconds: Math.max(0, Date.now() - proofStartedAt.getTime()),
+    }));
+    if (cancelled) return;
+    run.journey.browserProof.stallDiagnostic = diagnostic;
+    persistRun(runPath, run);
+  }, delayMs);
+  return () => {
+    cancelled = true;
+    clearTimeout(timeout);
+  };
+}
+
+export async function collectProofStallDiagnostic(page, proofStartedAt) {
+  const workers = await Promise.all(
+    page.workers().map(async (worker) => {
+      const state = await worker
+        .evaluate(() => ({
+          crossOriginIsolated: globalThis.crossOriginIsolated === true,
+          wasmProverReady: globalThis.__wasmProverReady === true,
+          discoverEntrypoint: typeof globalThis.discoverCredentialPaths === "function",
+          preflightEntrypoint: typeof globalThis.preflightProofAssets === "function",
+          proveEntrypoint: typeof globalThis.proveDestination === "function",
+          resourceCount: performance.getEntriesByType("resource").length,
+        }))
+        .catch(() => ({ evaluationUnavailable: true }));
+      return {
+        url: safeDiagnosticUrl(worker.url()),
+        ...state,
+      };
+    }),
+  );
+  const pageState = await page
+    .evaluate(() => ({
+      online: navigator.onLine,
+      headings: [...document.querySelectorAll("h1, h2, h3")]
+        .filter((heading) => {
+          const style = getComputedStyle(heading);
+          return style.display !== "none" && style.visibility !== "hidden";
+        })
+        .map((heading) => String(heading.textContent ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 12),
+      progress: [...document.querySelectorAll('[role="progressbar"]')]
+        .map((element) => ({
+          now: element.getAttribute("aria-valuenow"),
+          min: element.getAttribute("aria-valuemin"),
+          max: element.getAttribute("aria-valuemax"),
+        }))
+        .slice(0, 4),
+    }))
+    .catch(() => ({ evaluationUnavailable: true }));
+  return {
+    collected: true,
+    elapsedMilliseconds: Math.max(0, Date.now() - proofStartedAt.getTime()),
+    page: pageState,
+    workers,
+  };
+}
+
+function safeDiagnosticUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return "unavailable";
+  }
 }
 
 export async function disposePageRoutes(page) {

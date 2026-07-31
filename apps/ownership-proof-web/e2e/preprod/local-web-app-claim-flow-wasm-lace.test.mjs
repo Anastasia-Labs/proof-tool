@@ -9,6 +9,7 @@ import {
   resolveOpenPullRequest,
 } from "./local-web-app-claim-flow-wasm-lace.mjs";
 import {
+  collectProofStallDiagnostic,
   disposePageRoutes,
   isolatePreparedClaimResponse,
   prepareLaceRoleBeforeNavigation,
@@ -136,6 +137,41 @@ describe("local production PR claim flow", () => {
         },
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it("collects only secret-free worker readiness after a proof stall", async () => {
+    const diagnostic = await collectProofStallDiagnostic(
+      {
+        workers: () => [
+          {
+            url: () => "http://127.0.0.1:3917/proof-runtime/prover-worker.js?secret=must-not-survive",
+            evaluate: async () => ({
+              crossOriginIsolated: true,
+              discoverEntrypoint: true,
+              preflightEntrypoint: true,
+              proveEntrypoint: true,
+              resourceCount: 4,
+              wasmProverReady: true,
+            }),
+          },
+        ],
+        evaluate: async () => ({ headings: ["Create proofs"], online: true, progress: [] }),
+      },
+      new Date(Date.now() - 100),
+    );
+
+    expect(diagnostic).toMatchObject({
+      collected: true,
+      page: { headings: ["Create proofs"], online: true, progress: [] },
+      workers: [
+        {
+          url: "http://127.0.0.1:3917/proof-runtime/prover-worker.js",
+          wasmProverReady: true,
+          discoverEntrypoint: true,
+        },
+      ],
+    });
+    expect(JSON.stringify(diagnostic)).not.toContain("must-not-survive");
   });
 
   it("isolates the prepared claim when the Lace wallet has other valid claims", () => {
