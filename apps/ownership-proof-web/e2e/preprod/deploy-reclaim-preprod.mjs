@@ -159,6 +159,10 @@ export async function deployReclaimPreprod(options = {}) {
     .complete({
       canonical: true,
       changeAddress: deployerAddress,
+      // Lucid's bundled evaluator does not yet parse the PV11 builtin set
+      // (including dropList). Evaluate against the configured Preprod
+      // provider's ledger-current cost model and builtin implementation.
+      localUPLCEval: false,
       presetWalletInputs: deployerUtxos,
     });
 
