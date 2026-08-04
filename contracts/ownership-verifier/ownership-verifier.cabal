@@ -5,7 +5,17 @@ synopsis:      Plutus V3 ownership proof verifier for proof-tool artifacts
 license:       Apache-2.0
 
 common common-lang
-  ghc-options:      -Wall -Wno-unused-packages
+  ghc-options:
+    -Wall
+    -Wno-unused-packages
+    -fno-ignore-interface-pragmas
+    -fno-omit-interface-pragmas
+    -fno-full-laziness
+    -fno-spec-constr
+    -fno-specialise
+    -fno-strictness
+    -fno-unbox-strict-fields
+    -fno-unbox-small-strict-fields
   default-language: Haskell2010
 
 library
@@ -20,13 +30,17 @@ library
     Ownership.Verify
   build-depends:
     , base              >= 4.17 && < 5
-    , plutus-ledger-api >= 1.30 && < 2
-    , plutus-tx         >= 1.30 && < 2
-    , plutus-tx-plugin  >= 1.30 && < 2
-    , plutus-core       >= 1.30 && < 2
+    , plutus-ledger-api == 1.66.0.0
+    , plutus-tx         == 1.66.0.0
+    , plutus-tx-plugin  == 1.66.0.0
+    , plutus-core       == 1.66.0.0
   ghc-options:
-    -fplugin PlutusTx.Plugin
-    -fplugin-opt PlutusTx.Plugin:remove-trace
+    -fplugin Plinth.Plugin
+    -fplugin-opt Plinth.Plugin:datatypes=BuiltinCasing
+    -fplugin-opt Plinth.Plugin:target-version=1.1.0
+    -fplugin-opt Plinth.Plugin:inline-callsite-growth=300
+    -fplugin-opt Plinth.Plugin:no-preserve-logging
+    -fplugin-opt Plinth.Plugin:remove-trace
 
 test-suite ownership-verifier-test
   import:         common-lang
@@ -47,10 +61,10 @@ test-suite ownership-verifier-test
     , cryptonite          >= 0.30
     , directory           >= 1.3
     , ownership-verifier
-    , plutus-core         >= 1.30 && < 2
-    , plutus-ledger-api   >= 1.30 && < 2
-    , plutus-tx           >= 1.30 && < 2
-    , plutus-tx-plugin    >= 1.30 && < 2
+    , plutus-core         == 1.66.0.0
+    , plutus-ledger-api   == 1.66.0.0
+    , plutus-tx           == 1.66.0.0
+    , plutus-tx-plugin    == 1.66.0.0
     , process             >= 1.6
     , QuickCheck          >= 2.14
     , tasty               >= 1.4
@@ -77,16 +91,20 @@ benchmark ownership-verifier-bench
     , bytestring          >= 0.11
     , cryptonite          >= 0.30
     , ownership-verifier
-    , plutus-core         >= 1.30 && < 2
-    , plutus-ledger-api   >= 1.30 && < 2
-    , plutus-tx           >= 1.30 && < 2
-    , plutus-tx-plugin    >= 1.30 && < 2
+    , plutus-core         == 1.66.0.0
+    , plutus-ledger-api   == 1.66.0.0
+    , plutus-tx           == 1.66.0.0
+    , plutus-tx-plugin    == 1.66.0.0
     , process             >= 1.6
     , text                >= 2.0
     , transformers        >= 0.6
   ghc-options:
-    -fplugin PlutusTx.Plugin
-    -fplugin-opt PlutusTx.Plugin:remove-trace
+    -fplugin Plinth.Plugin
+    -fplugin-opt Plinth.Plugin:datatypes=BuiltinCasing
+    -fplugin-opt Plinth.Plugin:target-version=1.1.0
+    -fplugin-opt Plinth.Plugin:inline-callsite-growth=300
+    -fplugin-opt Plinth.Plugin:no-preserve-logging
+    -fplugin-opt Plinth.Plugin:remove-trace
 
 benchmark ownership-verifier-v4-profile
   import:         common-lang
@@ -96,17 +114,28 @@ benchmark ownership-verifier-v4-profile
     bench
     test-support
   other-modules:
+    Protocol11Snapshot
     ScriptContextBuilder
   build-depends:
+    , aeson               >= 2.0
     , base                >= 4.17 && < 5
+    , bytestring          >= 0.11
+    , cryptonite          >= 0.30
     , ownership-verifier
-    , plutus-core         >= 1.30 && < 2
-    , plutus-ledger-api   >= 1.30 && < 2
-    , plutus-tx           >= 1.30 && < 2
-    , plutus-tx-plugin    >= 1.30 && < 2
+    , plutus-core         == 1.66.0.0
+    , plutus-ledger-api   == 1.66.0.0
+    , plutus-tx           == 1.66.0.0
+    , plutus-tx-plugin    == 1.66.0.0
+    , process             >= 1.6
+    , text                >= 2.0
+    , transformers        >= 0.6
   ghc-options:
-    -fplugin PlutusTx.Plugin
-    -fplugin-opt PlutusTx.Plugin:remove-trace
+    -fplugin Plinth.Plugin
+    -fplugin-opt Plinth.Plugin:datatypes=BuiltinCasing
+    -fplugin-opt Plinth.Plugin:target-version=1.1.0
+    -fplugin-opt Plinth.Plugin:inline-callsite-growth=300
+    -fplugin-opt Plinth.Plugin:no-preserve-logging
+    -fplugin-opt Plinth.Plugin:remove-trace
 
 executable reclaim-scripts-export
   import:          common-lang
@@ -117,12 +146,16 @@ executable reclaim-scripts-export
     , base                >= 4.17 && < 5
     , bytestring          >= 0.11
     , ownership-verifier
-    , plutus-ledger-api   >= 1.30 && < 2
-    , plutus-tx           >= 1.30 && < 2
-    , plutus-tx-plugin    >= 1.30 && < 2
+    , plutus-ledger-api   == 1.66.0.0
+    , plutus-tx           == 1.66.0.0
+    , plutus-tx-plugin    == 1.66.0.0
   ghc-options:
-    -fplugin PlutusTx.Plugin
-    -fplugin-opt PlutusTx.Plugin:remove-trace
+    -fplugin Plinth.Plugin
+    -fplugin-opt Plinth.Plugin:datatypes=BuiltinCasing
+    -fplugin-opt Plinth.Plugin:target-version=1.1.0
+    -fplugin-opt Plinth.Plugin:inline-callsite-growth=300
+    -fplugin-opt Plinth.Plugin:no-preserve-logging
+    -fplugin-opt Plinth.Plugin:remove-trace
 
 executable verify-destination-proof
   import:          common-lang
@@ -131,8 +164,12 @@ executable verify-destination-proof
   build-depends:
     , base                >= 4.17 && < 5
     , ownership-verifier
-    , plutus-tx           >= 1.30 && < 2
-    , plutus-tx-plugin    >= 1.30 && < 2
+    , plutus-tx           == 1.66.0.0
+    , plutus-tx-plugin    == 1.66.0.0
   ghc-options:
-    -fplugin PlutusTx.Plugin
-    -fplugin-opt PlutusTx.Plugin:remove-trace
+    -fplugin Plinth.Plugin
+    -fplugin-opt Plinth.Plugin:datatypes=BuiltinCasing
+    -fplugin-opt Plinth.Plugin:target-version=1.1.0
+    -fplugin-opt Plinth.Plugin:inline-callsite-growth=300
+    -fplugin-opt Plinth.Plugin:no-preserve-logging
+    -fplugin-opt Plinth.Plugin:remove-trace

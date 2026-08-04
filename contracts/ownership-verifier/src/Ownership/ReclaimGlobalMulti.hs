@@ -34,13 +34,11 @@ import PlutusLedgerApi.V3
   ( CurrencySymbol (CurrencySymbol)
   , ScriptHash (ScriptHash)
   , TokenName (TokenName)
-  , Value
   )
 import PlutusTx (CompiledCode)
 import qualified PlutusTx
 import PlutusTx.Builtins (ByteOrder (BigEndian))
 import PlutusTx.Prelude
-import qualified PlutusLedgerApi.V1.Value as Value
 import qualified PlutusTx.Builtins as B
 import qualified PlutusTx.Builtins.Internal as BI
 
@@ -62,7 +60,7 @@ data ReclaimGlobalMultiRedeemer = ReclaimGlobalMultiRedeemer
   , reclaimProof :: BuiltinByteString
   }
 
-type MultiReclaimScan = (Integer, BuiltinByteString, Value)
+type MultiReclaimScan = (Integer, BuiltinByteString, BI.BuiltinValue)
 
 {-# INLINABLE reclaimGlobalMultiParamsData #-}
 reclaimGlobalMultiParamsData :: ScriptHash -> BuiltinData
@@ -90,30 +88,6 @@ reclaimGlobalMultiRedeemerData paramsIdx destinationOutIdx proof =
         )
     )
 
-{-# INLINABLE builtinIf #-}
-builtinIf :: BI.BuiltinBool -> a -> a -> a
-builtinIf condition trueBranch falseBranch =
-  BI.ifThenElse
-    condition
-    (\_ -> trueBranch)
-    (\_ -> falseBranch)
-    BI.unitval
-
-{-# INLINABLE builtinAnd #-}
-builtinAnd :: BI.BuiltinBool -> BI.BuiltinBool -> BI.BuiltinBool
-builtinAnd left right =
-  builtinIf left right BI.false
-
-{-# INLINABLE boolToBuiltin #-}
-boolToBuiltin :: Bool -> BI.BuiltinBool
-boolToBuiltin condition =
-  if condition then BI.true else BI.false
-
-{-# INLINABLE builtinToBool #-}
-builtinToBool :: BI.BuiltinBool -> Bool
-builtinToBool condition =
-  builtinIf condition True False
-
 {-# INLINABLE constrTag #-}
 constrTag :: BuiltinData -> Integer
 constrTag datum =
@@ -132,65 +106,39 @@ field0 =
 {-# INLINABLE field1 #-}
 field1 :: BI.BuiltinList BuiltinData -> BuiltinData
 field1 fields =
-  BI.head (BI.tail fields)
+  BI.head (BI.drop 1 fields)
 
 {-# INLINABLE field2 #-}
 field2 :: BI.BuiltinList BuiltinData -> BuiltinData
 field2 fields =
-  BI.head (BI.tail (BI.tail fields))
+  BI.head (BI.drop 2 fields)
 
 {-# INLINABLE findDataAt #-}
-findDataAt :: BuiltinString -> Integer -> BI.BuiltinList BuiltinData -> BuiltinData
-findDataAt errorMessage idx values =
-  if idx < 0
-    then traceError errorMessage
-    else go idx values
-  where
-    go !n !remaining =
-      B.caseList
-        (\() -> traceError errorMessage)
-        ( \value rest ->
-            builtinIf
-              (BI.equalsInteger n 0)
-              value
-              (go (n - 1) rest)
-        )
-        remaining
+findDataAt :: Integer -> BI.BuiltinList BuiltinData -> BuiltinData
+findDataAt idx values =
+  BI.head (BI.drop idx values)
 
 {-# INLINABLE findReferenceInputAtData #-}
 findReferenceInputAtData :: Integer -> BI.BuiltinList BuiltinData -> BuiltinData
 findReferenceInputAtData =
-  findDataAt "invalid parameter ref index"
+  findDataAt
 
 {-# INLINABLE dropDataAt #-}
-dropDataAt :: BuiltinString -> Integer -> BI.BuiltinList BuiltinData -> BI.BuiltinList BuiltinData
-dropDataAt errorMessage idx values =
-  if idx < 0
-    then traceError errorMessage
-    else go idx values
-  where
-    go !n !remaining =
-      B.caseList
-        (\() -> traceError errorMessage)
-        ( \_ rest ->
-            builtinIf
-              (BI.equalsInteger n 0)
-              remaining
-              (go (n - 1) rest)
-        )
-        remaining
+dropDataAt :: Integer -> BI.BuiltinList BuiltinData -> BI.BuiltinList BuiltinData
+dropDataAt =
+  BI.drop
 
 {-# INLINABLE hasExactlyOneParamToken #-}
-hasExactlyOneParamToken :: BuiltinByteString -> BuiltinByteString -> BuiltinData -> BI.BuiltinBool
+hasExactlyOneParamToken :: BuiltinByteString -> BuiltinByteString -> BuiltinData -> Bool
 hasExactlyOneParamToken paramsCurrencySymbol paramsTokenName txOut =
   let !valueEntries = BI.unsafeDataAsMap txOutValueData
-      !nonAdaEntries = BI.tail valueEntries
+      !nonAdaEntries = BI.drop 1 valueEntries
    in B.caseList
-        (\() -> BI.false)
+        (\() -> False)
         ( \paramEntry morePolicies ->
             B.caseList
               (\() -> exactParamEntry paramEntry)
-              (\_ _ -> BI.false)
+              (\_ _ -> False)
               morePolicies
         )
         nonAdaEntries
@@ -200,18 +148,18 @@ hasExactlyOneParamToken paramsCurrencySymbol paramsTokenName txOut =
 
     exactParamEntry !paramEntry =
       BI.equalsByteString (BI.unsafeDataAsB (BI.fst paramEntry)) paramsCurrencySymbol
-        `builtinAnd` hasExactToken (BI.unsafeDataAsMap (BI.snd paramEntry))
+        && hasExactToken (BI.unsafeDataAsMap (BI.snd paramEntry))
 
     hasExactToken !tokens =
       B.caseList
-        (\() -> BI.false)
+        (\() -> False)
         ( \token moreTokens ->
             B.caseList
               ( \() ->
                   BI.equalsByteString (BI.unsafeDataAsB (BI.fst token)) paramsTokenName
-                    `builtinAnd` BI.equalsInteger (BI.unsafeDataAsI (BI.snd token)) 1
+                    && BI.equalsInteger (BI.unsafeDataAsI (BI.snd token)) 1
               )
-              (\_ _ -> BI.false)
+              (\_ _ -> False)
               moreTokens
         )
         tokens
@@ -222,9 +170,9 @@ txInResolved txIn =
   field1 (constrFields txIn)
 
 {-# INLINABLE txOutValueFromData #-}
-txOutValueFromData :: BuiltinData -> Value
+txOutValueFromData :: BuiltinData -> BI.BuiltinValue
 txOutValueFromData txOut =
-  PlutusTx.unsafeFromBuiltinData (field1 (constrFields txOut))
+  BI.unsafeDataAsValue (field1 (constrFields txOut))
 
 {-# INLINABLE txOutAddressFromData #-}
 txOutAddressFromData :: BuiltinData -> BuiltinData
@@ -247,7 +195,7 @@ decodeParamsScriptHash paramsOut =
    in BI.unsafeDataAsB (BI.head (BI.snd paramsConstr))
 
 {-# INLINABLE isReclaimBaseInput #-}
-isReclaimBaseInput :: BuiltinByteString -> BuiltinData -> BI.BuiltinBool
+isReclaimBaseInput :: BuiltinByteString -> BuiltinData -> Bool
 isReclaimBaseInput baseScriptHash txIn =
   let !resolved = txInResolved txIn
       !txOutFields = constrFields resolved
@@ -255,10 +203,11 @@ isReclaimBaseInput baseScriptHash txIn =
       !addressFields = constrFields address
       !credential = field0 addressFields
       !credentialConstr = BI.unsafeDataAsConstr credential
-   in builtinIf
-        (BI.equalsInteger (BI.fst credentialConstr) 1)
-        (BI.equalsByteString (BI.unsafeDataAsB (BI.head (BI.snd credentialConstr))) baseScriptHash)
-        BI.false
+   in B.caseInteger
+        (BI.fst credentialConstr)
+        [ False
+        , BI.equalsByteString (BI.unsafeDataAsB (BI.head (BI.snd credentialConstr))) baseScriptHash
+        ]
 
 {-# INLINABLE decodeBasePaymentKeyHash #-}
 decodeBasePaymentKeyHash :: BuiltinData -> BuiltinByteString
@@ -270,20 +219,35 @@ decodeBasePaymentKeyHash txOut =
 {-# INLINABLE scanMultiReclaimInputs #-}
 scanMultiReclaimInputs :: BuiltinByteString -> BI.BuiltinList BuiltinData -> MultiReclaimScan
 scanMultiReclaimInputs baseScriptHash inputs =
-  go inputs 0 emptyByteString mempty BI.false
+  first inputs
   where
-    go !remainingInputs !credentialCount !credentialBytes !requiredValue !sawBase =
+    first !remainingInputs =
       B.caseList
-        ( \() ->
-            builtinIf
-              sawBase
-              (credentialCount, credentialBytes, requiredValue)
-              (traceError "no reclaim base inputs")
-        )
+        (\() -> traceError "no reclaim base inputs")
         ( \txIn rest ->
-            builtinIf
-              (isReclaimBaseInput baseScriptHash txIn)
-              ( let !resolved = txInResolved txIn
+            if isReclaimBaseInput baseScriptHash txIn
+              then
+                let !resolved = txInResolved txIn
+                    !paymentKeyHash = decodeBasePaymentKeyHash resolved
+                 in if lengthOfByteString paymentKeyHash == 28
+                      then
+                        go
+                          rest
+                          1
+                          paymentKeyHash
+                          (txOutValueFromData resolved)
+                      else traceError "reclaim payment key hash must be 28 bytes"
+              else first rest
+        )
+        remainingInputs
+
+    go !remainingInputs !credentialCount !credentialBytes !requiredValue =
+      B.caseList
+        (\() -> (credentialCount, credentialBytes, requiredValue))
+        ( \txIn rest ->
+            if isReclaimBaseInput baseScriptHash txIn
+              then
+                let !resolved = txInResolved txIn
                     !paymentKeyHash = decodeBasePaymentKeyHash resolved
                  in if lengthOfByteString paymentKeyHash == 28
                       then
@@ -291,11 +255,9 @@ scanMultiReclaimInputs baseScriptHash inputs =
                           rest
                           (credentialCount + 1)
                           (credentialBytes <> paymentKeyHash)
-                          (requiredValue <> txOutValueFromData resolved)
-                          BI.true
+                          (BI.unionValue requiredValue (txOutValueFromData resolved))
                       else traceError "reclaim payment key hash must be 28 bytes"
-              )
-              (go rest credentialCount credentialBytes requiredValue sawBase)
+              else go rest credentialCount credentialBytes requiredValue
         )
         remainingInputs
 
@@ -313,9 +275,11 @@ credentialHashBytes credential =
 credentialWireTag :: BuiltinData -> BuiltinByteString
 credentialWireTag credential =
   let !credentialTag = constrTag credential
-   in if credentialTag == 0
-        then consByteString 1 emptyByteString
-        else consByteString 2 emptyByteString
+   in B.caseInteger
+        credentialTag
+        [ consByteString 1 emptyByteString
+        , consByteString 2 emptyByteString
+        ]
 
 {-# INLINABLE credentialAddressBytes #-}
 credentialAddressBytes :: BuiltinData -> BuiltinByteString
@@ -324,26 +288,22 @@ credentialAddressBytes credential =
 
 {-# INLINABLE zeroCredentialHash #-}
 zeroCredentialHash :: BuiltinByteString
-zeroCredentialHash =
-  go (28 :: Integer) emptyByteString
-  where
-    go :: Integer -> BuiltinByteString -> BuiltinByteString
-    go !remaining !acc =
-      if remaining == 0
-        then acc
-        else go (remaining - 1) (consByteString 0 acc)
+zeroCredentialHash = B.replicateByte 28 0
 
 {-# INLINABLE stakeAddressBytes #-}
 stakeAddressBytes :: BuiltinData -> BuiltinByteString
 stakeAddressBytes stakingCredentialMaybe =
   let !maybeTag = constrTag stakingCredentialMaybe
-   in if maybeTag == 1
-        then consByteString 0 zeroCredentialHash
-        else
-          let !stakingCredential = BI.head (constrFields stakingCredentialMaybe)
-           in if constrTag stakingCredential == 0
-                then credentialAddressBytes (BI.head (constrFields stakingCredential))
-                else traceError "staking pointers are unsupported"
+   in B.caseInteger
+        maybeTag
+        [ let !stakingCredential = BI.head (constrFields stakingCredentialMaybe)
+           in B.caseInteger
+                (constrTag stakingCredential)
+                [ credentialAddressBytes (BI.head (constrFields stakingCredential))
+                , traceError "staking pointers are unsupported"
+                ]
+        , consByteString 0 zeroCredentialHash
+        ]
 
 {-# INLINABLE destinationAddressV1FromTxOutData #-}
 destinationAddressV1FromTxOutData :: BuiltinData -> BuiltinByteString
@@ -394,7 +354,7 @@ verifyMultiOwnershipWithParsedVK parsedVerifierKey proof credentialCount credent
     (Scalar (multiCredentialPublicInputDigest credentialCount credentialBytes destinationBytes))
 
 {-# INLINABLE scanDestinationOutputs #-}
-scanDestinationOutputs :: BI.BuiltinList BuiltinData -> (BuiltinByteString, Value)
+scanDestinationOutputs :: BI.BuiltinList BuiltinData -> (BuiltinByteString, BI.BuiltinValue)
 scanDestinationOutputs outputs =
   B.caseList
     (\() -> traceError "invalid destination output index")
@@ -411,7 +371,7 @@ scanDestinationOutputs outputs =
     outputs
 
 {-# INLINABLE accumulateDestinationValue #-}
-accumulateDestinationValue :: BuiltinData -> Value -> BI.BuiltinList BuiltinData -> Value
+accumulateDestinationValue :: BuiltinData -> BI.BuiltinValue -> BI.BuiltinList BuiltinData -> BI.BuiltinValue
 accumulateDestinationValue destinationAddress initialValue outputs =
   go initialValue outputs
   where
@@ -419,10 +379,9 @@ accumulateDestinationValue destinationAddress initialValue outputs =
       B.caseList
         (\() -> acc)
         ( \txOut rest ->
-            builtinIf
-              (BI.equalsData (txOutAddressFromData txOut) destinationAddress)
-              (go (acc <> txOutValueFromData txOut) rest)
-              acc
+            if BI.equalsData (txOutAddressFromData txOut) destinationAddress
+              then go (BI.unionValue acc (txOutValueFromData txOut)) rest
+              else acc
         )
         remaining
 
@@ -433,27 +392,23 @@ validateMultiReclaimInputs ::
   BuiltinByteString ->
   BI.BuiltinList BuiltinData ->
   BI.BuiltinList BuiltinData ->
-  BI.BuiltinBool
+  Bool
 validateMultiReclaimInputs baseScriptHash parsedVerifierKey proof destinationOutputs inputs =
   let !(!credentialCount, !credentialBytes, !requiredValue) =
         scanMultiReclaimInputs baseScriptHash inputs
       !(!destinationBytes, !destinationValue) =
         scanDestinationOutputs destinationOutputs
-   in builtinIf
-        ( boolToBuiltin $
-            verifyMultiOwnershipWithParsedVK
-              parsedVerifierKey
-              proof
-              credentialCount
-              credentialBytes
-              destinationBytes
-        )
-        ( builtinIf
-            (boolToBuiltin (requiredValue `Value.leq` destinationValue))
-            BI.true
-            (traceError "destination output underpays reclaim inputs")
-        )
-        (traceError "multi reclaim proof validation failed")
+   in if verifyMultiOwnershipWithParsedVK
+          parsedVerifierKey
+          proof
+          credentialCount
+          credentialBytes
+          destinationBytes
+        then
+          if BI.valueContains destinationValue requiredValue
+            then True
+            else traceError "destination output underpays reclaim inputs"
+        else traceError "multi reclaim proof validation failed"
 
 validateMultiReclaimInputsWithProofCheck ::
   (Integer -> BuiltinByteString -> BuiltinByteString -> Bool) ->
@@ -462,30 +417,26 @@ validateMultiReclaimInputsWithProofCheck ::
   BI.BuiltinList BuiltinData ->
   Bool
 validateMultiReclaimInputsWithProofCheck proofCheck baseScriptHash destinationOutputs inputs =
-  builtinToBool $
-    let !(!credentialCount, !credentialBytes, !requiredValue) =
-          scanMultiReclaimInputs baseScriptHash inputs
-        !(!destinationBytes, !destinationValue) =
-          scanDestinationOutputs destinationOutputs
-     in builtinIf
-          (boolToBuiltin (proofCheck credentialCount credentialBytes destinationBytes))
-          ( builtinIf
-              (boolToBuiltin (requiredValue `Value.leq` destinationValue))
-              BI.true
-              (traceError "destination output underpays reclaim inputs")
-          )
-          (traceError "multi reclaim proof validation failed")
+  let !(!credentialCount, !credentialBytes, !requiredValue) =
+        scanMultiReclaimInputs baseScriptHash inputs
+      !(!destinationBytes, !destinationValue) =
+        scanDestinationOutputs destinationOutputs
+   in if proofCheck credentialCount credentialBytes destinationBytes
+        then
+          if BI.valueContains destinationValue requiredValue
+            then True
+            else traceError "destination output underpays reclaim inputs"
+        else traceError "multi reclaim proof validation failed"
 
 {-# INLINABLE validateParams #-}
-validateParams :: BuiltinByteString -> BuiltinByteString -> BuiltinData -> BI.BuiltinBool
+validateParams :: BuiltinByteString -> BuiltinByteString -> BuiltinData -> Bool
 validateParams paramsCurrencySymbol paramsTokenName paramsOut =
   hasExactlyOneParamToken paramsCurrencySymbol paramsTokenName paramsOut
 
 {-# INLINABLE mkMultiReclaimGlobal #-}
 mkMultiReclaimGlobal :: CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinData -> Bool
 mkMultiReclaimGlobal (CurrencySymbol paramsCurrencySymbol) (TokenName paramsTokenName) verifierKey ctx =
-  builtinToBool $
-    isRewarding `builtinAnd` validateGlobal
+  isRewarding && validateGlobal
   where
     !ctxFields = constrFields ctx
     !txInfo = field0 ctxFields
@@ -503,16 +454,18 @@ mkMultiReclaimGlobal (CurrencySymbol paramsCurrencySymbol) (TokenName paramsToke
     !parsedVerifierKey = parseVerifyingKey verifierKey
 
     isRewarding =
-      BI.equalsInteger (constrTag scriptInfo) 2
+      B.caseInteger
+        (constrTag scriptInfo)
+        [False, False, True, False, False, False]
 
     validateGlobal =
       let !paramsInput = findReferenceInputAtData paramsRefIdx (BI.unsafeDataAsList txInfoReferenceInputs)
           !paramsOut = txInResolved paramsInput
           !baseScriptHash = decodeParamsScriptHash paramsOut
           !destinationOutputs =
-            dropDataAt "invalid destination output index" destinationOutIdx (BI.unsafeDataAsList txInfoOutputs)
+            dropDataAt destinationOutIdx (BI.unsafeDataAsList txInfoOutputs)
        in validateParams paramsCurrencySymbol paramsTokenName paramsOut
-            `builtinAnd` validateMultiReclaimInputs
+            && validateMultiReclaimInputs
               baseScriptHash
               parsedVerifierKey
               proof

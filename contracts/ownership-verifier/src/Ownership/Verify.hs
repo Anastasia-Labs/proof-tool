@@ -12,6 +12,7 @@ module Ownership.Verify
   , Scalar (..)
   , batchCoefficientUsesUnscaledAlpha
   , coefficientFirstVkX
+  , coefficientFirstVkXSumOne
   , expandMsgXmd48
   , blsBaseFieldOrder
   , blsScalarFieldOrder
@@ -23,9 +24,11 @@ module Ownership.Verify
   , ownershipDomain
   , ownershipProofBatchChallenge
   , ownershipProofBatchChallengeV2
+  , ownershipProofBatchChallengeFromDigestV2
   , ownershipProofBatchDomainV2
   , ownershipProofBatchMergeChallenge
   , ownershipProofBatchMergeChallengeV2
+  , ownershipProofBatchMergeChallengeFromDigestV2
   , ownershipPublicInputDigest
   , parseVerifyingKey
   , parseVerifyingKeyBatch
@@ -40,9 +43,10 @@ module Ownership.Verify
   , verifyOwnershipWithParsedVKKnown28NoPok
   , verifyCommittedProofGrothBatch
   , verifyCommittedProofGrothBatchBuiltin
-  , verifyCommittedProofMergedBatchWithBatchVK
+  , verifyCommittedProofMergedBatchWithScaledPokBatchVK
+  , verifyCommittedProofMergedBatchSumOneWithScaledPokBatchVK
   , verifyCommittedProofMergedWithVK
-  , committedProofMergedBatchSidesWithBatchVK
+  , committedProofMergedBatchSidesWithScaledPokBatchVK
   , committedProofMergedSidesWithVK
   , verifyCommittedProofPokBatch
   , verifyCommittedProofPokBatchWithBatchVK
@@ -58,16 +62,6 @@ module Ownership.Verify
 import PlutusTx.Prelude
 import PlutusTx.Builtins (ByteOrder (BigEndian, LittleEndian), modInteger)
 import qualified PlutusTx.Builtins.Internal as BI
-
-{-# INLINABLE builtinIf #-}
-builtinIf :: BI.BuiltinBool -> a -> a -> a
-builtinIf condition trueBranch falseBranch =
-  BI.ifThenElse condition (\_ -> trueBranch) (\_ -> falseBranch) BI.unitval
-
-{-# INLINABLE builtinToBool #-}
-builtinToBool :: BI.BuiltinBool -> Bool
-builtinToBool condition =
-  builtinIf condition True False
 
 newtype VerifyingKey = VerifyingKey BuiltinByteString
 newtype Proof = Proof BuiltinByteString
@@ -165,9 +159,14 @@ ownershipProofBatchChallenge proofBytes =
 {-# INLINABLE ownershipProofBatchChallengeV2 #-}
 ownershipProofBatchChallengeV2 :: BuiltinByteString -> Integer
 ownershipProofBatchChallengeV2 transcript =
-  1 + (byteStringToInteger BigEndian (blake2b_256 transcript) `modInteger` (blsScalarFieldOrder - 1))
+  ownershipProofBatchChallengeFromDigestV2 (blake2b_256 transcript)
 
--- | Frozen V2 benchmark-only merge challenge. The suffix follows the complete
+{-# INLINABLE ownershipProofBatchChallengeFromDigestV2 #-}
+ownershipProofBatchChallengeFromDigestV2 :: BuiltinByteString -> Integer
+ownershipProofBatchChallengeFromDigestV2 transcriptDigest =
+  1 + (byteStringToInteger BigEndian transcriptDigest `modInteger` (blsScalarFieldOrder - 1))
+
+-- | Frozen legacy merge challenge. The suffix follows the complete
 -- marker-expanded proof transcript and is not caller controlled.
 {-# INLINABLE ownershipProofBatchMergeChallenge #-}
 ownershipProofBatchMergeChallenge :: BuiltinByteString -> Integer
@@ -179,15 +178,21 @@ ownershipProofBatchMergeChallenge proofBytes =
           `modInteger` (blsScalarFieldOrder - 1)
       )
 
--- | Suffix-separate the optional second challenge from the same complete v2
--- transcript; no alternate framing is permitted.
+-- | Commit the complete transcript once, then suffix-separate the merge
+-- challenge from that digest. The batch challenge consumes the digest
+-- directly, while this independent random-oracle query consumes digest || 1.
 {-# INLINABLE ownershipProofBatchMergeChallengeV2 #-}
 ownershipProofBatchMergeChallengeV2 :: BuiltinByteString -> Integer
 ownershipProofBatchMergeChallengeV2 transcript =
+  ownershipProofBatchMergeChallengeFromDigestV2 (blake2b_256 transcript)
+
+{-# INLINABLE ownershipProofBatchMergeChallengeFromDigestV2 #-}
+ownershipProofBatchMergeChallengeFromDigestV2 :: BuiltinByteString -> Integer
+ownershipProofBatchMergeChallengeFromDigestV2 transcriptDigest =
   1
     + ( byteStringToInteger
           BigEndian
-          (blake2b_256 (transcript <> consByteString 1 emptyByteString))
+          (blake2b_256 (transcriptDigest <> consByteString 1 emptyByteString))
           `modInteger` (blsScalarFieldOrder - 1)
       )
 
@@ -197,7 +202,9 @@ ownershipProofBatchMergeChallengeV2 transcript =
 {-# INLINABLE verifyOwnershipWithVK #-}
 verifyOwnershipWithVK :: BuiltinByteString -> BuiltinByteString -> BuiltinByteString -> Bool
 verifyOwnershipWithVK vk proof paymentKeyHash =
-  verifyOwnershipWithParsedVK (parseVerifyingKey vk) proof paymentKeyHash
+  if lengthOfByteString paymentKeyHash == 28
+    then verifyOwnershipWithParsedVKKnown28 (parseVerifyingKey vk) proof paymentKeyHash
+    else False
 
 {-# INLINABLE verifyOwnershipDestinationWithVK #-}
 verifyOwnershipDestinationWithVK :: BuiltinByteString -> BuiltinByteString -> BuiltinByteString -> BuiltinByteString -> Bool
@@ -230,9 +237,8 @@ parseVerifyingKey vk =
 {-# INLINABLE parseVerifyingKeyBatch #-}
 parseVerifyingKeyBatch :: BuiltinByteString -> ParsedBatchVerifyingKey
 parseVerifyingKeyBatch vk =
-  builtinIf
-    (BI.equalsInteger (lengthOfByteString vk) 672)
-    (
+  if BI.equalsInteger (lengthOfByteString vk) 672
+    then
       let alpha = bls12_381_G1_uncompress (sliceByteString 0   48 vk)
           beta  = bls12_381_G2_uncompress (sliceByteString 48  96 vk)
        in ParsedBatchVerifyingKey
@@ -246,8 +252,7 @@ parseVerifyingKeyBatch vk =
             , parsedBatchCkG   = bls12_381_G2_uncompress (sliceByteString 480 96 vk)
             , parsedBatchCkGSN = bls12_381_G2_uncompress (sliceByteString 576 96 vk)
             }
-    )
-    (traceError "verifying key must be 672 bytes")
+    else traceError "verifying key must be 672 bytes"
 
 {-# INLINABLE verifyOwnershipWithParsedVK #-}
 verifyOwnershipWithParsedVK :: ParsedVerifyingKey -> BuiltinByteString -> BuiltinByteString -> Bool
@@ -455,8 +460,7 @@ verifyCommittedProofGrothBatch
   foldedLhs
   foldedVkX
   foldedC =
-  builtinToBool
-    (verifyCommittedProofGrothBatchBuiltin parsedVk batchCoefficientSum foldedLhs foldedVkX foldedC)
+  verifyCommittedProofGrothBatchBuiltin parsedVk batchCoefficientSum foldedLhs foldedVkX foldedC
 
 {-# INLINABLE verifyCommittedProofGrothBatchBuiltin #-}
 verifyCommittedProofGrothBatchBuiltin ::
@@ -465,7 +469,7 @@ verifyCommittedProofGrothBatchBuiltin ::
   BuiltinBLS12_381_MlResult ->
   BuiltinBLS12_381_G1_Element ->
   BuiltinBLS12_381_G1_Element ->
-  BI.BuiltinBool
+  Bool
 verifyCommittedProofGrothBatchBuiltin
   (ParsedBatchVerifyingKey alpha beta gamma delta _ _ _ _ _)
   batchCoefficientSum
@@ -485,10 +489,12 @@ verifyCommittedProofGrothBatchBuiltin
           `bls12_381_mulMlResult` bls12_381_millerLoop foldedC delta
    in BI.bls12_381_finalVerify foldedLhs rhs
 
--- | Benchmark-only V2 merge of the folded Groth16 and BSB22 PoK equations.
--- The production validators continue to call the two independent checks.
-{-# INLINABLE verifyCommittedProofMergedBatchWithBatchVK #-}
-verifyCommittedProofMergedBatchWithBatchVK ::
+-- | Production V2 merge of the folded Groth16 and BSB22 PoK equations. The
+-- caller has already multiplied the folded PoK column by the merge challenge,
+-- allowing large batches to fuse that multiplication into one native MSM.
+-- The challenge is derived from the complete statement-bound V2 transcript.
+{-# INLINABLE verifyCommittedProofMergedBatchWithScaledPokBatchVK #-}
+verifyCommittedProofMergedBatchWithScaledPokBatchVK ::
   ParsedBatchVerifyingKey ->
   Integer ->
   BuiltinBLS12_381_MlResult ->
@@ -498,32 +504,63 @@ verifyCommittedProofMergedBatchWithBatchVK ::
   BuiltinBLS12_381_G1_Element ->
   Integer ->
   Bool
-verifyCommittedProofMergedBatchWithBatchVK
+verifyCommittedProofMergedBatchWithScaledPokBatchVK
   parsedVk
   batchCoefficientSum
   foldedGrothLhs
   foldedVkX
   foldedC
   foldedCommitment
-  foldedPok
+  scaledFoldedPok
   mergeChallenge =
     let !(!lhs, !rhs) =
-          committedProofMergedBatchSidesWithBatchVK
+          committedProofMergedBatchSidesWithScaledPokBatchVK
             parsedVk
             batchCoefficientSum
             foldedGrothLhs
             foldedVkX
             foldedC
             foldedCommitment
-            foldedPok
+            scaledFoldedPok
             mergeChallenge
      in bls12_381_finalVerify lhs rhs
 
--- | The two exact Miller-product sides consumed by the benchmark-only V2
--- batch verifier. Exposed so the immutable matrix can compare each side to an
--- independently constructed old-G times s-weighted-PoK oracle.
-{-# INLINABLE committedProofMergedBatchSidesWithBatchVK #-}
-committedProofMergedBatchSidesWithBatchVK ::
+-- | Production specialization for an affine batch whose coefficients are
+-- proven by construction to sum to one. This removes the generic alpha
+-- coefficient branch and scalar multiplication entirely.
+{-# INLINABLE verifyCommittedProofMergedBatchSumOneWithScaledPokBatchVK #-}
+verifyCommittedProofMergedBatchSumOneWithScaledPokBatchVK ::
+  ParsedBatchVerifyingKey ->
+  BuiltinBLS12_381_MlResult ->
+  BuiltinBLS12_381_G1_Element ->
+  BuiltinBLS12_381_G1_Element ->
+  BuiltinBLS12_381_G1_Element ->
+  BuiltinBLS12_381_G1_Element ->
+  Integer ->
+  Bool
+verifyCommittedProofMergedBatchSumOneWithScaledPokBatchVK
+  (ParsedBatchVerifyingKey alpha beta gamma delta _ _ _ ckG ckGSN)
+  foldedGrothLhs
+  foldedVkX
+  foldedC
+  foldedCommitment
+  scaledFoldedPok
+  mergeChallenge =
+    let !scaledCommitment = mergeChallenge `bls12_381_G1_scalarMul` foldedCommitment
+        !lhs =
+          foldedGrothLhs
+            `bls12_381_mulMlResult` bls12_381_millerLoop scaledFoldedPok ckG
+        !rhs =
+          bls12_381_millerLoop alpha beta
+            `bls12_381_mulMlResult` bls12_381_millerLoop foldedVkX gamma
+            `bls12_381_mulMlResult` bls12_381_millerLoop foldedC delta
+            `bls12_381_mulMlResult` bls12_381_millerLoop (bls12_381_G1_neg scaledCommitment) ckGSN
+     in bls12_381_finalVerify lhs rhs
+
+-- | The two exact Miller-product sides consumed by the production V2 batch
+-- verifier. The PoK column is already merge-challenge-scaled by the caller.
+{-# INLINABLE committedProofMergedBatchSidesWithScaledPokBatchVK #-}
+committedProofMergedBatchSidesWithScaledPokBatchVK ::
   ParsedBatchVerifyingKey ->
   Integer ->
   BuiltinBLS12_381_MlResult ->
@@ -533,14 +570,14 @@ committedProofMergedBatchSidesWithBatchVK ::
   BuiltinBLS12_381_G1_Element ->
   Integer ->
   (BuiltinBLS12_381_MlResult, BuiltinBLS12_381_MlResult)
-committedProofMergedBatchSidesWithBatchVK
+committedProofMergedBatchSidesWithScaledPokBatchVK
   (ParsedBatchVerifyingKey alpha beta gamma delta _ _ _ ckG ckGSN)
   batchCoefficientSum
   foldedGrothLhs
   foldedVkX
   foldedC
   foldedCommitment
-  foldedPok
+  scaledFoldedPok
   mergeChallenge =
     let !batchAlpha =
           BI.ifThenElse
@@ -548,11 +585,10 @@ committedProofMergedBatchSidesWithBatchVK
             (\_ -> alpha)
             (\_ -> batchCoefficientSum `bls12_381_G1_scalarMul` alpha)
             BI.unitval
-        !scaledPok = mergeChallenge `bls12_381_G1_scalarMul` foldedPok
         !scaledCommitment = mergeChallenge `bls12_381_G1_scalarMul` foldedCommitment
         !lhs =
           foldedGrothLhs
-            `bls12_381_mulMlResult` bls12_381_millerLoop scaledPok ckG
+            `bls12_381_mulMlResult` bls12_381_millerLoop scaledFoldedPok ckG
         !rhs =
           bls12_381_millerLoop batchAlpha beta
             `bls12_381_mulMlResult` bls12_381_millerLoop foldedVkX gamma
@@ -653,8 +689,27 @@ coefficientFirstVkX
           `bls12_381_G1_add` (foldedECmt `bls12_381_G1_scalarMul` k2)
           `bls12_381_G1_add` foldedCommitment
 
+-- | Production specialization of 'coefficientFirstVkX' for an affine batch
+-- whose coefficient sum is exactly one.
+{-# INLINABLE coefficientFirstVkXSumOne #-}
+coefficientFirstVkXSumOne ::
+  ParsedBatchVerifyingKey ->
+  Integer ->
+  Integer ->
+  BuiltinBLS12_381_G1_Element ->
+  BuiltinBLS12_381_G1_Element
+coefficientFirstVkXSumOne
+  (ParsedBatchVerifyingKey _ _ _ _ ic0 ic1 k2 _ _)
+  foldedPub
+  foldedECmt
+  foldedCommitment =
+    ic0
+      `bls12_381_G1_add` (foldedPub `bls12_381_G1_scalarMul` ic1)
+      `bls12_381_G1_add` (foldedECmt `bls12_381_G1_scalarMul` k2)
+      `bls12_381_G1_add` foldedCommitment
+
 {-# INLINABLE batchCoefficientUsesUnscaledAlpha #-}
-batchCoefficientUsesUnscaledAlpha :: Integer -> BI.BuiltinBool
+batchCoefficientUsesUnscaledAlpha :: Integer -> Bool
 batchCoefficientUsesUnscaledAlpha batchCoefficientSum =
   BI.equalsInteger batchCoefficientSum 1
 
@@ -682,15 +737,14 @@ verifyCommittedProofPokBatchWithBatchVK
   parsedVk
   foldedCommitment
   foldedPok =
-  builtinToBool
-    (verifyCommittedProofPokBatchWithBatchVKBuiltin parsedVk foldedCommitment foldedPok)
+  verifyCommittedProofPokBatchWithBatchVKBuiltin parsedVk foldedCommitment foldedPok
 
 {-# INLINABLE verifyCommittedProofPokBatchWithBatchVKBuiltin #-}
 verifyCommittedProofPokBatchWithBatchVKBuiltin ::
   ParsedBatchVerifyingKey ->
   BuiltinBLS12_381_G1_Element ->
   BuiltinBLS12_381_G1_Element ->
-  BI.BuiltinBool
+  Bool
 verifyCommittedProofPokBatchWithBatchVKBuiltin
   (ParsedBatchVerifyingKey _ _ _ _ _ _ _ ckG ckGSN)
   foldedCommitment
@@ -701,28 +755,28 @@ verifyCommittedProofPokBatchWithBatchVKBuiltin
 
 {-# INLINABLE groth16VerifyCommittedParsedBatchNoPok #-}
 groth16VerifyCommittedParsedBatchNoPok :: ParsedBatchVerifyingKey -> Proof -> Scalar -> BatchCommittedProofCheck
+-- The returned integer representatives are consumed only as native group
+-- scalars. Keeping them unreduced avoids duplicate modular reductions; the
+-- BLS group operations apply the same reduction modulo the group order.
 groth16VerifyCommittedParsedBatchNoPok
   (ParsedBatchVerifyingKey _ _ _ _ _ _ _ _ _)
   (Proof p)
   (Scalar pubBytes) =
-  builtinIf
-    (BI.equalsInteger (lengthOfByteString p) 336)
-    (
+  if BI.equalsInteger (lengthOfByteString p) 336
+    then
       let yBytes = sliceByteString 240 48 p
           yInt = byteStringToInteger BigEndian yBytes
-       in builtinIf
-            (BI.lessThanInteger yInt blsBaseFieldOrder)
-            (
+       in if BI.lessThanInteger yInt blsBaseFieldOrder
+            then
               let a = bls12_381_G1_uncompress (sliceByteString 0   48 p)
                   b = bls12_381_G2_uncompress (sliceByteString 48  96 p)
                   c = bls12_381_G1_uncompress (sliceByteString 144 48 p)
 
                   cmtUncompressed = sliceByteString 192 96 p
                   sortBit =
-                    builtinIf
-                      (BI.lessThanInteger blsBaseFieldOrder (2 * yInt))
-                      32
-                      0
+                    if BI.lessThanInteger blsBaseFieldOrder (2 * yInt)
+                      then 32
+                      else 0
                   comp0  = indexByteString p 192 + 128 + sortBit
                   comp   = consByteString comp0 (sliceByteString 193 47 p)
 
@@ -730,13 +784,10 @@ groth16VerifyCommittedParsedBatchNoPok
                   pok        = bls12_381_G1_uncompress (sliceByteString 288 48 p)
 
                   eCmt = byteStringToInteger BigEndian (expandMsgXmd48 cmtUncompressed)
-                           `modInteger` blsScalarFieldOrder
-                  pub  = byteStringToInteger LittleEndian pubBytes `modInteger` blsScalarFieldOrder
+                  pub  = byteStringToInteger LittleEndian pubBytes
                in BatchCommittedProofCheck commitment pok a b c pub eCmt
-            )
-            (traceError "commitment Y must be canonical")
-    )
-    (traceError "proof must be 336 bytes")
+            else traceError "commitment Y must be canonical"
+    else traceError "proof must be 336 bytes"
 
 {-# INLINABLE groth16VerifyCommittedParsedBatchLegacyNoPok #-}
 groth16VerifyCommittedParsedBatchLegacyNoPok :: ParsedBatchVerifyingKey -> Proof -> Scalar -> CommittedProofCheck

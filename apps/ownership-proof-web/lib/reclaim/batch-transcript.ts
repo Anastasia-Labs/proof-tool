@@ -62,9 +62,10 @@ export function batchTranscriptChallengeV2(transcript: Uint8Array): bigint {
 }
 
 export function batchTranscriptMergeChallengeV2(transcript: Uint8Array): bigint {
-  const suffixSeparated = new Uint8Array(transcript.length + 1);
-  suffixSeparated.set(transcript);
-  suffixSeparated[transcript.length] = 0x01;
+  const transcriptDigest = blake2b(transcript, { dkLen: 32 });
+  const suffixSeparated = new Uint8Array(transcriptDigest.length + 1);
+  suffixSeparated.set(transcriptDigest);
+  suffixSeparated[transcriptDigest.length] = 0x01;
   return hashToNonzeroScalar(suffixSeparated);
 }
 

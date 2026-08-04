@@ -5,13 +5,14 @@ repository cardano-haskell-packages
 with-compiler: ghc-9.6.6
 
 index-state:
-  , hackage.haskell.org 2025-01-15T00:00:00Z
-  , cardano-haskell-packages 2025-01-15T00:00:00Z
+  , hackage.haskell.org 2026-07-23T19:49:14Z
+  , cardano-haskell-packages 2026-07-20T14:49:58Z
+
+active-repositories:
+  , :rest
+  , cardano-haskell-packages:override
 
 packages: .
 
 program-options
   ghc-options: -Wno-unused-packages
-
-package plutus-tx-plugin
-  flags: +use-ghc-stub
