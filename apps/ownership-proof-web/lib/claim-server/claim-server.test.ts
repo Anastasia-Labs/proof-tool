@@ -475,11 +475,11 @@ describe("claim build and submit fail closed", () => {
     expect(getUtxos).toHaveBeenCalledTimes(1);
     expect(getUtxosByOutRef).toHaveBeenCalledTimes(1);
     expect(getUtxosByOutRef.mock.calls[0]?.[0]).toHaveLength(CLAIM_HARD_BATCH_CAP + 3);
-    expect(evaluateTx).toHaveBeenCalledTimes(2);
+    expect(evaluateTx).not.toHaveBeenCalled();
   });
 
-  it("fails closed when final provider evaluation differs from transaction completion", async () => {
-    vi.stubEnv("RECLAIM_REVIEW_TOKEN_SECRET", "v2-evaluation-change-test-secret");
+  it("builds with local Scalus evaluation when provider evaluation is unavailable", async () => {
+    vi.stubEnv("RECLAIM_REVIEW_TOKEN_SECRET", "v2-local-evaluation-test-secret");
     const deployment = deploymentWithReferenceScripts({
       ...STATEMENT_BOUND_V2_DEPLOYMENT,
       reclaimGlobalRewardingCredential: RECLAIM_GLOBAL_SCRIPT,
@@ -498,32 +498,24 @@ describe("claim build and submit fail closed", () => {
       safeWalletAddresses: [SAFE_ADDRESS],
       selectedOutrefs: selected.map(outRefToString),
     });
-    const measured = await provider.evaluateTx("00", []);
-    const changed = measured.map((redeemer, index) =>
-      index === 0
-        ? {
-            ...redeemer,
-            ex_units: { ...redeemer.ex_units, steps: redeemer.ex_units.steps + 1 },
-          }
-        : redeemer,
-    );
-    vi.spyOn(provider, "evaluateTx").mockResolvedValueOnce(measured).mockResolvedValueOnce(changed);
+    const evaluateTx = vi.spyOn(provider, "evaluateTx").mockRejectedValue(new Error("provider eval unavailable"));
 
-    await expect(
-      buildClaimTx(provider, deployment, {
-        deploymentId: deployment.id,
-        networkId: 0,
-        draftId: draft.draftId,
-        selectedOutrefs: draft.orderedInputs.map((input) => input.outRefId),
-        safeWalletChangeAddress: SAFE_ADDRESS,
-        safeWalletAddresses: [SAFE_ADDRESS],
-        proofArtifacts: draft.orderedInputs.map((_, index) => {
-          const artifact = proofArtifactForDraft(draft, index);
-          artifact.artifact.cardano.proof_hex = "ab".repeat(336);
-          return artifact;
-        }),
+    const built = await buildClaimTx(provider, deployment, {
+      deploymentId: deployment.id,
+      networkId: 0,
+      draftId: draft.draftId,
+      selectedOutrefs: draft.orderedInputs.map((input) => input.outRefId),
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      proofArtifacts: draft.orderedInputs.map((_, index) => {
+        const artifact = proofArtifactForDraft(draft, index);
+        artifact.artifact.cardano.proof_hex = "ab".repeat(336);
+        return artifact;
       }),
-    ).rejects.toMatchObject({ code: "claim_evaluation_changed" });
+    });
+
+    expect(built.evaluation.redeemers).toHaveLength(2);
+    expect(evaluateTx).not.toHaveBeenCalled();
   });
 
   it("enforces V2's measured 90/80 margins", () => {

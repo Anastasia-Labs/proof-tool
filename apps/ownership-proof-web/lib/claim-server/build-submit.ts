@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { blake2b } from "@noble/hashes/blake2b";
 import * as LucidExports from "@lucid-evolution/lucid";
+import { createScalusEvaluator } from "@lucid-evolution/scalus-uplc";
 import {
   CML,
   Constr,
@@ -12,13 +13,7 @@ import {
   type Provider,
   type UTxO,
 } from "@lucid-evolution/lucid";
-import type {
-  BuildTxWithRedeemer,
-  EvalRedeemer,
-  EvaluationInput,
-  EvaluatorAdapter,
-  ProtocolParameters,
-} from "@lucid-evolution/core-types";
+import type { BuildTxWithRedeemer, EvalRedeemer, ProtocolParameters } from "@lucid-evolution/core-types";
 import type { ReclaimDeployment, ReclaimReferenceScriptDeployment } from "../reclaim/types";
 import {
   DESTINATION_ADDRESS_V1_ENCODING,
@@ -170,12 +165,9 @@ export async function buildClaimTx(
     destinationOutputStartIndex,
   });
 
-  // Lucid completes to a fee/collateral fixed point and may evaluate the same
-  // scripts several times. Reuse the first provider measurement during that
-  // loop, then accept the build only if a fresh evaluation of the final CBOR
-  // exactly matches both the reused result and the embedded execution budgets.
-  const completionEvaluator = singleProviderEvaluation(provider);
+  const evaluator = createScalusEvaluator();
   const lucid = await Lucid(provider, deployment.network, {
+    evaluator,
     presetProtocolParameters: snapshot.protocol,
   });
   lucid.selectWallet.fromAddress(safeWalletChangeAddress, buildInputs.safeWalletUtxos);
@@ -194,7 +186,6 @@ export async function buildClaimTx(
     canonical: true,
     changeAddress: safeWalletChangeAddress,
     localUPLCEval: true,
-    evaluator: completionEvaluator.adapter,
     presetWalletInputs: buildInputs.safeWalletUtxos,
   });
   const txCbor = signBuilder.toCBOR({ canonical: true });
@@ -204,29 +195,17 @@ export async function buildClaimTx(
     throw new ClaimValidationError("claim_build_tx_hash_mismatch", "Built claim transaction hash is inconsistent.");
   }
 
-  const completionRedeemers = completionEvaluator.result();
-  const evaluationRedeemers = await provider.evaluateTx(
-    txCbor,
-    dedupeUtxos([
-      ...buildInputs.safeWalletUtxos,
-      ...orderedReclaimUtxos,
-      buildInputs.paramsUtxo,
-      ...buildInputs.referenceScriptUtxos,
-    ]),
+  const evaluationRedeemers = normalizeEvaluation(
+    transactionEvaluationRedeemers(txCbor),
+    "claim_evaluation_unavailable",
+    "Scalus did not return valid execution units for the claim transaction.",
   );
-  if (!Array.isArray(evaluationRedeemers) || evaluationRedeemers.length === 0) {
+  if (evaluationRedeemers.length === 0) {
     throw new ClaimValidationError(
       "claim_evaluation_unavailable",
-      "Provider did not return measured execution units for the claim transaction.",
+      "Scalus did not return measured execution units for the claim transaction.",
     );
   }
-  assertSameEvaluation(
-    completionRedeemers,
-    evaluationRedeemers,
-    "claim_evaluation_changed",
-    "Final provider evaluation changed after transaction completion.",
-  );
-  assertTransactionEvaluationBudgets(txCbor, evaluationRedeemers);
   const evaluation = summarizeEvaluation(evaluationRedeemers, snapshot.protocol);
   assertMeasuredEvaluationWithinDeploymentMargin(deployment, evaluation);
 
@@ -1068,65 +1047,6 @@ function assetsFromStringMap(value: Record<string, string>): Assets {
   return assets;
 }
 
-function singleProviderEvaluation(provider: Provider): {
-  adapter: EvaluatorAdapter;
-  result: () => EvalRedeemer[];
-} {
-  let pending: Promise<EvalRedeemer[]> | null = null;
-  let cached: EvalRedeemer[] | null = null;
-  const evaluate = async ({ tx, additionalUTxOs }: EvaluationInput): Promise<EvalRedeemer[]> => {
-    pending ??= provider.evaluateTx(tx, additionalUTxOs).then((redeemers) => {
-      if (!Array.isArray(redeemers)) {
-        throw new ClaimValidationError(
-          "claim_evaluation_unavailable",
-          "Provider did not return measured execution units for transaction completion.",
-        );
-      }
-      cached = normalizeEvaluation(
-        redeemers,
-        "claim_evaluation_unavailable",
-        "Provider returned invalid measured execution units for transaction completion.",
-      );
-      return cached;
-    });
-    return cloneEvaluation(await pending);
-  };
-  return {
-    adapter: {
-      name: "claim-provider-snapshot",
-      evaluate,
-    },
-    result: () => {
-      if (!cached) {
-        throw new ClaimValidationError(
-          "claim_evaluation_unavailable",
-          "Transaction completion did not measure claim execution units.",
-        );
-      }
-      return cloneEvaluation(cached);
-    },
-  };
-}
-
-function cloneEvaluation(redeemers: EvalRedeemer[]): EvalRedeemer[] {
-  return redeemers.map((redeemer) => ({
-    redeemer_tag: redeemer.redeemer_tag,
-    redeemer_index: redeemer.redeemer_index,
-    ex_units: {
-      mem: redeemer.ex_units.mem,
-      steps: redeemer.ex_units.steps,
-    },
-  }));
-}
-
-function assertSameEvaluation(expected: EvalRedeemer[], actual: EvalRedeemer[], code: string, message: string): void {
-  const normalizedExpected = normalizeEvaluation(expected, code, message);
-  const normalizedActual = normalizeEvaluation(actual, code, message);
-  if (stableStringify(normalizedExpected) !== stableStringify(normalizedActual)) {
-    throw new ClaimValidationError(code, message);
-  }
-}
-
 function normalizeEvaluation(redeemers: EvalRedeemer[], code: string, message: string): EvalRedeemer[] {
   const seen = new Set<string>();
   const normalized = redeemers.map((redeemer) => {
@@ -1173,27 +1093,6 @@ function isEvaluationTag(value: unknown): value is EvalRedeemer["redeemer_tag"] 
     value === "withdraw" ||
     value === "vote" ||
     value === "propose"
-  );
-}
-
-function assertTransactionEvaluationBudgets(txCbor: string, evaluated: EvalRedeemer[]): void {
-  let embedded: EvalRedeemer[];
-  try {
-    embedded = transactionEvaluationRedeemers(txCbor);
-  } catch (error) {
-    if (error instanceof ClaimValidationError) {
-      throw error;
-    }
-    throw new ClaimValidationError(
-      "claim_evaluation_tx_budget_mismatch",
-      "Built claim transaction execution budgets could not be inspected.",
-    );
-  }
-  assertSameEvaluation(
-    evaluated,
-    embedded,
-    "claim_evaluation_tx_budget_mismatch",
-    "Built claim transaction execution budgets do not match final provider measurements.",
   );
 }
 

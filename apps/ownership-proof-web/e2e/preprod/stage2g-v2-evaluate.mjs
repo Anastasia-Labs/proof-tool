@@ -55,6 +55,7 @@ import {
   validatorToAddress,
   validatorToScriptHash,
 } from "@lucid-evolution/lucid";
+import { createScalusEvaluator } from "@lucid-evolution/scalus-uplc";
 
 const execFileAsync = promisify(execFile);
 
@@ -99,8 +100,8 @@ export class Stage2gV2EvaluationError extends Error {
 }
 
 /**
- * Builds an unsigned, synthetic-input transaction and asks the configured
- * provider for the sole execution-unit measurement. No signing, submission,
+ * Builds an unsigned, synthetic-input transaction and measures execution units
+ * locally with Scalus. No signing, submission,
  * funding, minting, registration, deployment, or deployment-record write is
  * performed by this stage.
  */
@@ -122,28 +123,26 @@ export async function evaluateStage2gV2(options = {}) {
   assertAttachedV2Scripts(scripts, material);
 
   const bootstrapBuilder = options.bootstrapBuilder ?? buildSyntheticAttachedTx;
-  const built = await bootstrapBuilder({
-    provider,
-    material,
-    scripts,
-    lucidFactory: options.lucidFactory ?? Lucid,
-  });
-  assertBuiltTransaction(built);
-
+  let built = null;
   let evaluation;
   try {
-    // This is intentionally the only execution-unit measurement in this file.
-    const redeemers = await provider.evaluateTx(built.txCbor, built.additionalUtxos);
+    built = await bootstrapBuilder({
+      provider,
+      material,
+      scripts,
+      lucidFactory: options.lucidFactory ?? Lucid,
+    });
+    assertBuiltTransaction(built);
     const protocolParameters =
       options.protocolParameters ?? built.protocolParameters ?? (await provider.getProtocolParameters());
-    evaluation = summarizeProviderEvaluation(redeemers, protocolParameters);
+    evaluation = summarizeLocalEvaluation(built.redeemers, protocolParameters);
     assertMeasuredV2Margin(evaluation, material.policy);
 
     const evidence = buildEvidence({
       materialPath,
       material,
       scripts,
-      txCbor: built.txCbor,
+      txCbor: built?.txCbor ?? null,
       evaluation,
       outcome: "evaluated",
     });
@@ -162,7 +161,7 @@ export async function evaluateStage2gV2(options = {}) {
       materialPath,
       material,
       scripts,
-      txCbor: built.txCbor,
+      txCbor: built?.txCbor ?? null,
       evaluation,
       outcome: "rejected",
       failure,
@@ -182,7 +181,7 @@ export function assertEvaluationGate(env) {
   if ((env[LIVE_GATE_ENV] ?? "").trim() !== "1") {
     throw new Stage2gV2EvaluationError(
       "live_preprod_gate_missing",
-      `${LIVE_GATE_ENV}=1 is required before the Stage 2g Preprod benchmark can call a provider.`,
+      `${LIVE_GATE_ENV}=1 is required before the Stage 2g Preprod benchmark can load current protocol parameters.`,
     );
   }
   if ((env[EVALUATE_GATE_ENV] ?? "").trim() !== "1") {
@@ -493,14 +492,13 @@ function assertAttachedV2Scripts(scripts, material) {
   }
 }
 
-/**
- * The local evaluator below intentionally supplies bounded placeholder units
- * only so Lucid can produce a transaction body. It is never used as a cost
- * measurement; evaluateStage2gV2 subsequently calls provider.evaluateTx.
- */
 export async function buildSyntheticAttachedTx({ provider, material, scripts, lucidFactory = Lucid }) {
   const synthetic = buildSyntheticUtxos(material, scripts);
-  const lucid = await lucidFactory(provider, NETWORK);
+  const protocolParameters = await provider.getProtocolParameters();
+  const lucid = await lucidFactory(provider, NETWORK, {
+    evaluator: createScalusEvaluator(),
+    presetProtocolParameters: protocolParameters,
+  });
   lucid.selectWallet.fromAddress(material.bootstrap.address, synthetic.bootstrapUtxos);
 
   const baseOutRefs = new Set(synthetic.baseUtxos.map(outRefId));
@@ -549,11 +547,13 @@ export async function buildSyntheticAttachedTx({ provider, material, scripts, lu
     changeAddress: material.bootstrap.address,
     presetWalletInputs: synthetic.bootstrapUtxos,
     localUPLCEval: true,
-    evaluator: makeBoundedSerializationEvaluator(),
   });
+  const txCbor = signBuilder.toCBOR({ canonical: true });
   return {
-    txCbor: signBuilder.toCBOR({ canonical: true }),
+    txCbor,
     additionalUtxos: [synthetic.paramsUtxo, ...synthetic.baseUtxos, ...synthetic.bootstrapUtxos],
+    protocolParameters,
+    redeemers: redeemerKeysFromCbor(txCbor),
     attachment: "direct",
   };
 }
@@ -584,31 +584,6 @@ export function buildSyntheticUtxos(material, scripts) {
   return { paramsUtxo, baseUtxos, bootstrapUtxos };
 }
 
-export function makeBoundedSerializationEvaluator() {
-  return {
-    name: "stage2g-v2-bounded-serialization-only",
-    async evaluate({ tx, context }) {
-      const redeemers = redeemerKeysFromCbor(tx);
-      const spendCount = redeemers.filter((redeemer) => redeemer.redeemer_tag === "spend").length;
-      const withdrawalCount = redeemers.filter((redeemer) => redeemer.redeemer_tag === "withdraw").length;
-      if (redeemers.length !== 8 || spendCount !== 7 || withdrawalCount !== 1) {
-        throw new Stage2gV2EvaluationError(
-          "stage2g_serialization_redeemers",
-          "Stage 2g serialization transaction must contain seven spends and one script withdrawal.",
-        );
-      }
-      const maxMem = BigInt(context.protocolParameters.maxTxExMem);
-      const maxSteps = BigInt(context.protocolParameters.maxTxExSteps);
-      const perRedeemerMem = boundedUnits(maxMem);
-      const perRedeemerSteps = boundedUnits(maxSteps);
-      return redeemers.map((redeemer) => ({
-        ...redeemer,
-        ex_units: { mem: perRedeemerMem, steps: perRedeemerSteps },
-      }));
-    },
-  };
-}
-
 function redeemerKeysFromCbor(txCbor) {
   const transaction = CML.Transaction.from_cbor_hex(txCbor);
   const redeemers = transaction.witness_set().redeemers();
@@ -622,6 +597,7 @@ function redeemerKeysFromCbor(txCbor) {
       return {
         redeemer_tag: cmlRedeemerTag(redeemer.tag()),
         redeemer_index: safeRedeemerIndex(redeemer.index()),
+        ex_units: executionUnits(redeemer.ex_units()),
       };
     });
   }
@@ -632,11 +608,31 @@ function redeemerKeysFromCbor(txCbor) {
   const keys = map.keys();
   return Array.from({ length: keys.len() }, (_, index) => {
     const key = keys.get(index);
+    const value = map.get(key);
+    if (!value) {
+      throw new Stage2gV2EvaluationError("stage2g_serialization_redeemers", "Lucid produced an invalid redeemer map.");
+    }
     return {
       redeemer_tag: cmlRedeemerTag(key.tag()),
       redeemer_index: safeRedeemerIndex(key.index()),
+      ex_units: executionUnits(value.ex_units()),
     };
   });
+}
+
+function executionUnits(units) {
+  return {
+    mem: safeExecutionUnit(units.mem()),
+    steps: safeExecutionUnit(units.steps()),
+  };
+}
+
+function safeExecutionUnit(value) {
+  const unit = Number(value);
+  if (!Number.isSafeInteger(unit) || unit < 0) {
+    throw new Stage2gV2EvaluationError("stage2g_serialization_redeemers", "Lucid produced invalid execution units.");
+  }
+  return unit;
 }
 
 function cmlRedeemerTag(tag) {
@@ -663,28 +659,11 @@ function safeRedeemerIndex(value) {
   return index;
 }
 
-function boundedUnits(maximum) {
-  if (maximum <= 0n) {
-    throw new Stage2gV2EvaluationError(
-      "stage2g_protocol_limits",
-      "Provider protocol limits are unavailable for bounded serialization units.",
-    );
-  }
-  const unit = maximum / 64n;
-  if (unit > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Stage2gV2EvaluationError(
-      "stage2g_protocol_limits",
-      "Provider protocol limit cannot be represented by Lucid's evaluator adapter.",
-    );
-  }
-  return Math.max(1, Number(unit));
-}
-
-export function summarizeProviderEvaluation(redeemers, protocolParameters) {
+export function summarizeLocalEvaluation(redeemers, protocolParameters) {
   if (!Array.isArray(redeemers) || redeemers.length === 0) {
     throw new Stage2gV2EvaluationError(
       "stage2g_evaluation_unavailable",
-      "Provider did not return measured execution units for the Stage 2g transaction.",
+      "Scalus did not return measured execution units for the Stage 2g transaction.",
     );
   }
   const maxMemory = BigInt(protocolParameters?.maxTxExMem ?? 0n);
@@ -692,7 +671,7 @@ export function summarizeProviderEvaluation(redeemers, protocolParameters) {
   if (maxMemory <= 0n || maxSteps <= 0n) {
     throw new Stage2gV2EvaluationError(
       "stage2g_protocol_limits",
-      "Provider did not return usable transaction execution limits.",
+      "Current protocol parameters did not include usable transaction execution limits.",
     );
   }
   let totalMemory = 0n;
@@ -714,7 +693,7 @@ export function summarizeProviderEvaluation(redeemers, protocolParameters) {
   if (normalizedRedeemers.length !== 8 || spendCount !== 7 || withdrawalCount !== 1) {
     throw new Stage2gV2EvaluationError(
       "stage2g_evaluation_redeemers",
-      "Provider measurement must cover seven ReclaimBase spends and one ReclaimGlobal withdrawal.",
+      "Scalus measurement must cover seven ReclaimBase spends and one ReclaimGlobal withdrawal.",
     );
   }
   return {
@@ -730,13 +709,13 @@ export function assertMeasuredV2Margin(evaluation, policy) {
   if (evaluation.memoryPercent > policy.maxTxMemPercent) {
     throw new Stage2gV2EvaluationError(
       "stage2g_memory_margin_exceeded",
-      `Provider-measured memory is ${evaluation.memoryPercent}%, above the V2 benchmark ceiling of ${policy.maxTxMemPercent}%.`,
+      `Scalus-measured memory is ${evaluation.memoryPercent}%, above the V2 benchmark ceiling of ${policy.maxTxMemPercent}%.`,
     );
   }
   if (evaluation.cpuPercent > policy.maxTxCpuPercent) {
     throw new Stage2gV2EvaluationError(
       "stage2g_cpu_margin_exceeded",
-      `Provider-measured CPU is ${evaluation.cpuPercent}%, above the V2 benchmark ceiling of ${policy.maxTxCpuPercent}%.`,
+      `Scalus-measured CPU is ${evaluation.cpuPercent}%, above the V2 benchmark ceiling of ${policy.maxTxCpuPercent}%.`,
     );
   }
 }
@@ -756,7 +735,7 @@ function assertBuiltTransaction(built) {
   if (!Array.isArray(built.additionalUtxos) || built.additionalUtxos.length < 10) {
     throw new Stage2gV2EvaluationError(
       "stage2g_additional_utxos",
-      "Stage 2g must provide synthetic params, seven base, and bootstrap UTxOs to provider evaluation.",
+      "Stage 2g must retain synthetic params, seven base, and bootstrap UTxOs for local evaluation provenance.",
     );
   }
   if (built.attachment !== "direct") {
@@ -780,10 +759,10 @@ export function createPreprodProvider(env) {
 }
 
 function assertProvider(provider) {
-  if (!provider || typeof provider.evaluateTx !== "function" || typeof provider.getProtocolParameters !== "function") {
+  if (!provider || typeof provider.getProtocolParameters !== "function") {
     throw new Stage2gV2EvaluationError(
       "stage2g_provider_invalid",
-      "Stage 2g requires a provider with evaluateTx and getProtocolParameters.",
+      "Stage 2g requires a provider for current protocol parameters.",
     );
   }
 }
@@ -885,11 +864,12 @@ function buildEvidence({ materialPath, material, scripts, txCbor, evaluation, ou
     transaction: {
       unsigned: true,
       tx_cbor_written: false,
-      tx_cbor_bytes: txCbor.length / 2,
-      tx_fingerprint: `sha256:${createHash("sha256").update(txCbor, "hex").digest("hex")}`,
+      tx_built: txCbor !== null,
+      tx_cbor_bytes: txCbor?.length ? txCbor.length / 2 : 0,
+      ...(txCbor ? { tx_fingerprint: `sha256:${createHash("sha256").update(txCbor, "hex").digest("hex")}` } : {}),
       synthetic_inputs: true,
       reference_scripts: false,
-      provider_measurement_only: true,
+      local_scalus_evaluation: true,
     },
     safety: {
       signing: false,
@@ -1020,10 +1000,10 @@ function stageFailure(error) {
   ) {
     return new Stage2gV2EvaluationError(
       "synthetic_stake_state_rejected",
-      "Provider rejected the synthetic script reward-account state. This stage intentionally does not register stake state; use an evaluator that accepts the supplied synthetic state or stop here.",
+      "Scalus rejected the synthetic script reward-account state. This stage intentionally does not register stake state; stop here.",
     );
   }
-  return new Stage2gV2EvaluationError("stage2g_provider_evaluation_failed", `Provider evaluation failed: ${message}.`);
+  return new Stage2gV2EvaluationError("stage2g_local_evaluation_failed", `Scalus evaluation failed: ${message}.`);
 }
 
 function normalizeAssets(raw, field) {

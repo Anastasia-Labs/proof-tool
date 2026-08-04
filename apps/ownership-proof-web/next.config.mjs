@@ -5,6 +5,7 @@ const nextConfig = {
     "@anastasia-labs/cardano-multiplatform-lib-nodejs",
     "@lucid-evolution/lucid",
     "@lucid-evolution/provider",
+    "@lucid-evolution/scalus-uplc",
   ],
   async headers() {
     return [
