@@ -13,6 +13,8 @@ module Ownership.OneShotNFT
 
 import PlutusTx (CompiledCode)
 import qualified PlutusTx
+import qualified PlutusTx.Builtins as B
+import qualified PlutusTx.Builtins.Internal as BI
 import PlutusLedgerApi.V3
   ( ScriptContext
   , TxInInfo (txInInfoOutRef)
@@ -51,21 +53,83 @@ mintsExactlyOneOwnToken ctx =
 {-# INLINABLE oneShotNFTPolicy #-}
 oneShotNFTPolicy :: TxOutRef -> ScriptContext -> Bool
 oneShotNFTPolicy seedRef ctx =
-  traceIfFalse "seed utxo not spent" seedSpent
-    && traceIfFalse "expected exactly one own token" mintedOneOwnToken
+  seedSpent && mintedOneOwnToken
   where
     txInfo = scriptContextTxInfo ctx
     seedSpent = spendsTxOutRef seedRef txInfo
     mintedOneOwnToken = mintsExactlyOneOwnToken ctx
 
-{-# INLINABLE oneShotNFTPolicyUntyped #-}
-oneShotNFTPolicyUntyped :: TxOutRef -> BuiltinData -> BuiltinUnit
-oneShotNFTPolicyUntyped seedRef ctx =
-  check $
-    oneShotNFTPolicy
-      seedRef
-      (unsafeFromBuiltinData ctx)
+-- | The ledger constructs the V3 context, TxInfo, TxInInfo, ScriptInfo, and
+-- MintValue encodings. Project only the fields this policy needs instead of
+-- decoding the complete V3 ScriptContext. In plutus-ledger-api-1.66.0.0 the
+-- context fields are TxInfo, redeemer, and ScriptInfo; TxInfo fields 0 and 4
+-- are inputs and mint; a minting ScriptInfo has constructor 0 with the own
+-- currency symbol as its sole field; and a TxInInfo has its out-ref at field
+-- 0. Compiled-context tests below the typed policy pin these dependencies.
+{-# INLINABLE contextFields #-}
+contextFields :: BuiltinData -> BI.BuiltinList BuiltinData
+contextFields ctx =
+  BI.snd (BI.unsafeDataAsConstr ctx)
 
-oneShotNFTPolicyCode :: CompiledCode (TxOutRef -> BuiltinData -> BuiltinUnit)
+{-# INLINABLE txInfoFields #-}
+txInfoFields :: BI.BuiltinList BuiltinData -> BI.BuiltinList BuiltinData
+txInfoFields ctxFields =
+  BI.snd (BI.unsafeDataAsConstr (BI.head ctxFields))
+
+{-# INLINABLE spendsTxOutRefData #-}
+spendsTxOutRefData :: BuiltinData -> BI.BuiltinList BuiltinData -> Bool
+spendsTxOutRefData seedRefData inputs =
+  B.caseList
+    (\() -> False)
+    ( \txIn remainingInputs ->
+        let txInFields = BI.snd (BI.unsafeDataAsConstr txIn)
+         in if BI.equalsData seedRefData (BI.head txInFields)
+              then True
+              else spendsTxOutRefData seedRefData remainingInputs
+    )
+    inputs
+
+{-# INLINABLE singleTokenQuantityIsOne #-}
+singleTokenQuantityIsOne :: BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> Bool
+singleTokenQuantityIsOne tokens =
+  B.caseList
+    (\() -> False)
+    ( \token remainingTokens ->
+        B.caseList
+          (\() -> BI.equalsInteger (BI.unsafeDataAsI (BI.snd token)) 1)
+          (\_ _ -> False)
+          remainingTokens
+    )
+    tokens
+
+{-# INLINABLE ownPolicyMintsSingleToken #-}
+ownPolicyMintsSingleToken ::
+  BuiltinData ->
+  BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) ->
+  Bool
+ownPolicyMintsSingleToken ownSymbolData mintedPolicies =
+  B.caseList
+    (\() -> False)
+    ( \mintedPolicy remainingPolicies ->
+        if BI.equalsData ownSymbolData (BI.fst mintedPolicy)
+          then singleTokenQuantityIsOne (BI.unsafeDataAsMap (BI.snd mintedPolicy))
+          else ownPolicyMintsSingleToken ownSymbolData remainingPolicies
+    )
+    mintedPolicies
+
+{-# INLINABLE oneShotNFTPolicyUntyped #-}
+oneShotNFTPolicyUntyped :: BuiltinData -> BuiltinData -> BuiltinUnit
+oneShotNFTPolicyUntyped seedRefData ctx =
+  let ctxFields = contextFields ctx
+      infoFields = txInfoFields ctxFields
+      inputs = BI.unsafeDataAsList (BI.head infoFields)
+      mint = BI.unsafeDataAsMap (BI.head (BI.drop 4 infoFields))
+      scriptInfo = BI.head (BI.drop 2 ctxFields)
+      ownSymbolData = BI.head (BI.snd (BI.unsafeDataAsConstr scriptInfo))
+   in check $
+        spendsTxOutRefData seedRefData inputs
+          && ownPolicyMintsSingleToken ownSymbolData mint
+
+oneShotNFTPolicyCode :: CompiledCode (BuiltinData -> BuiltinData -> BuiltinUnit)
 oneShotNFTPolicyCode =
   $$(PlutusTx.compile [||oneShotNFTPolicyUntyped||])

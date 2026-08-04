@@ -35,7 +35,7 @@ main = do
       let seedRef = V3.TxOutRef (V3.TxId (bytesToBuiltin seedTxHash)) (toInteger seedOutputIndex)
           script =
             oneShotNFTPolicyCode
-              `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef seedRef
+              `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.toBuiltinData seedRef)
       printScript "one-shot-params-nft" script
     ["global-v2", paramsPolicyIdHex, paramsTokenNameHex, verifierKeyHex, verifierKeyHashHex] -> do
       paramsPolicyId <- expectHexBytes "params policy id" 28 paramsPolicyIdHex
