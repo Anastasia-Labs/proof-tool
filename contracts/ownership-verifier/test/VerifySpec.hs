@@ -6,7 +6,7 @@ module Main (main) where
 import Control.Exception (SomeException, evaluate, try)
 import Control.Monad (forM_)
 import Data.Char (digitToInt, isHexDigit)
-import Data.List (nubBy, zipWith4)
+import Data.List (foldl', nubBy, zipWith4)
 
 import qualified PlutusCore as PLC
 import PlutusCore.Evaluation.Machine.ExBudget
@@ -65,9 +65,11 @@ import Ownership.Verify
   , ownershipDestinationPublicInputDigest
   , ownershipDomain
   , ownershipProofBatchChallenge
+  , ownershipProofBatchChallengeFromDigestV2
   , ownershipProofBatchChallengeV2
   , ownershipProofBatchDomainV2
   , ownershipProofBatchMergeChallengeV2
+  , ownershipProofBatchMergeChallengeFromDigestV2
   , ownershipPublicInputDigest
   , parseVerifyingKey
   , parseVerifyingKeyBatch
@@ -130,9 +132,28 @@ flipFirstBit bytes =
       flipped = if even firstByte then firstByte + 1 else firstByte - 1
    in B.consByteString flipped (B.sliceByteString 1 (B.lengthOfByteString bytes - 1) bytes)
 
+replaceByteRange :: Integer -> Integer -> BuiltinByteString -> BuiltinByteString -> BuiltinByteString
+replaceByteRange offset width replacement bytes =
+  B.sliceByteString 0 offset bytes
+    <> B.sliceByteString 0 width replacement
+    <> B.sliceByteString
+      (offset + width)
+      (B.lengthOfByteString bytes - offset - width)
+      bytes
+
 batchPowers :: Integer -> Int -> [Integer]
 batchPowers challenge count =
   take count (iterate nextPower 1)
+  where
+    nextPower power = (power * challenge) `B.modInteger` blsScalarFieldOrder
+
+affineBatchCoefficients :: Integer -> Int -> [Integer]
+affineBatchCoefficients _ count | count <= 0 = []
+affineBatchCoefficients _ 1 = [1]
+affineBatchCoefficients challenge count =
+  let rawPowers = take (count - 1) (tail (iterate nextPower 1))
+      finalCoefficient = 1 - sum rawPowers
+   in rawPowers <> [finalCoefficient]
   where
     nextPower power = (power * challenge) `B.modInteger` blsScalarFieldOrder
 
@@ -278,17 +299,13 @@ assertCoefficientFirstMatchesLegacy verifierKey fixtures = do
 
   forM_ (zip fixtures checks) $ \(DistinctOwnershipFixture credential proof, check) -> do
     batchCommittedProofPub check
-      @?= ( B.byteStringToInteger
-              LittleEndian
-              (ownershipDestinationPublicInputDigest credential destinationAddressBytes)
-              `B.modInteger` blsScalarFieldOrder
-          )
+      @?= B.byteStringToInteger
+        LittleEndian
+        (ownershipDestinationPublicInputDigest credential destinationAddressBytes)
     batchCommittedProofECmt check
-      @?= ( B.byteStringToInteger
-              BigEndian
-              (expandMsgXmd48 (B.sliceByteString 192 96 proof))
-              `B.modInteger` blsScalarFieldOrder
-          )
+      @?= B.byteStringToInteger
+        BigEndian
+        (expandMsgXmd48 (B.sliceByteString 192 96 proof))
 
   B.bls12_381_G1_compress coefficientFirstPoint
     @?= B.bls12_381_G1_compress legacyPoint
@@ -307,9 +324,9 @@ safeBool value = do
     Left (_ :: SomeException) -> False
     Right ok                  -> ok
 
-builtinBoolToBool :: BI.BuiltinBool -> Bool
+builtinBoolToBool :: Bool -> Bool
 builtinBoolToBool condition =
-  BI.ifThenElse condition (\_ -> True) (\_ -> False) BI.unitval
+  condition
 
 runReclaimGlobalStatementV2 :: BuiltinByteString -> BuiltinByteString -> V3.ScriptContext -> Bool
 runReclaimGlobalStatementV2 verifierKey verifierKeyHash ctx =
@@ -379,8 +396,12 @@ evaluateCompiledScript script ctx =
         (Cek.restricting (ExRestrictingBudget unlimitedBudget))
         Cek.logEmitter
         namedTerm of
-        (Right _, _, logs) -> (True, null logs)
-        (Left _, _, logs)  -> (False, null logs)
+        Cek.CekReport result _ logs ->
+          ( case result of
+              Cek.CekFailure _ -> False
+              _ -> True
+          , null logs
+          )
 
 applyContextArgument :: Script -> V3.ScriptContext -> Script
 applyContextArgument (UPLC.Program ann version term) ctx =
@@ -451,19 +472,104 @@ main = do
         , testCase "V6 alpha and V8 IC0 fast paths compare exact 1, not 1+q" $ do
             builtinBoolToBool (batchCoefficientUsesUnscaledAlpha 1) @?= True
             builtinBoolToBool (batchCoefficientUsesUnscaledAlpha (1 + blsScalarFieldOrder)) @?= False
-        , testCase "two distinct proofs produce sum 1+r and do not take the batch alpha fast path" $ do
+        , testCase "two distinct proofs use transcript-dependent affine coefficients summing to one" $ do
             assertBool "distinct fixtures must carry different proof bytes" (firstDistinctProof /= secondDistinctProof)
             let r = ownershipProofBatchChallenge (firstDistinctProof <> secondDistinctProof)
-                coefficientSum = (1 + r) `B.modInteger` blsScalarFieldOrder
+                firstCoefficient = StatementV2.affineBatchCoefficient False 0 r
+                finalCoefficient = StatementV2.affineBatchCoefficient True firstCoefficient r
+                coefficientSum = firstCoefficient + finalCoefficient
             assertBool "batch challenge must be nonzero" (r >= 1)
-            assertBool "two-distinct coefficient sum must not equal one" (coefficientSum /= 1)
-            builtinBoolToBool (batchCoefficientUsesUnscaledAlpha coefficientSum) @?= False
+            firstCoefficient @?= r
+            coefficientSum @?= 1
+            builtinBoolToBool (batchCoefficientUsesUnscaledAlpha coefficientSum) @?= True
+        , testCase "affine N=1..9 coefficients sum exactly to one" $ do
+            let challenge = 17
+            forM_ [1 .. 9] $ \inputCount -> do
+              let coefficients = affineBatchCoefficients challenge inputCount
+              length coefficients @?= inputCount
+              assertBool "non-final powers must be canonical field elements" $
+                all (\coefficient -> coefficient >= 0 && coefficient < blsScalarFieldOrder) (init coefficients)
+              sum coefficients @?= 1
+              case inputCount of
+                1 -> coefficients @?= [1]
+                _ -> head coefficients @?= challenge
+        , testCase "affine folded error has the claimed degree-(N-1) polynomial form" $ do
+            let challenge = 19
+            forM_ [2 .. 9] $ \inputCount -> do
+              let coefficients = affineBatchCoefficients challenge inputCount
+                  errors = take inputCount [3 ..]
+                  finalError = last errors
+                  rawPowers = take (inputCount - 1) coefficients
+                  expected =
+                    ( finalError
+                        + sum
+                          [ power * (proofError - finalError)
+                          | (power, proofError) <- zip rawPowers (init errors)
+                          ]
+                    )
+                      `B.modInteger` blsScalarFieldOrder
+              foldScalarProducts (zip coefficients errors) @?= expected
         , testGroup "V8 coefficient-first vkX equals legacy point-first folding" $
             [ testCase ("P1/P7 frozen distinct N=" <> show inputCount) $ do
                 let fixtures = take inputCount distinctFixtures
                 v8ComputedScalars destinationVk fixtures @?= (v8FrozenOracle !! (inputCount - 1))
                 assertCoefficientFirstMatchesLegacy destinationVk fixtures
             | inputCount <- [1 .. 8]
+            ]
+        , testGroup "PV11 hybrid G1 column fold equals individual scalar folding" $
+            [ testCase ("N=" <> show inputCount) $ do
+                let points =
+                      [ B.bls12_381_G1_uncompress
+                          (B.sliceByteString 144 48 (distinctFixtureProof fixture))
+                      | fixture <- take inputCount distinctFixtures
+                      ]
+                    coefficients = fmap toInteger [1 .. inputCount]
+                case points of
+                  [] -> assertFailure "distinct fixture file has no proof points"
+                  firstPoint : tailPoints -> do
+                    let expected =
+                          foldl'
+                            ( \foldedPoint (coefficient, point) ->
+                                foldedPoint
+                                  `B.bls12_381_G1_add` (coefficient `B.bls12_381_G1_scalarMul` point)
+                            )
+                            (head coefficients `B.bls12_381_G1_scalarMul` firstPoint)
+                            (zip (tail coefficients) tailPoints)
+                        actual =
+                          StatementV2.finishBatchG1Column
+                            coefficients
+                            points
+                    B.bls12_381_G1_equals actual expected @?= True
+            | inputCount <- [1 .. 9]
+            ]
+        , testGroup "production merged PoK column equals challenge-scaled individual folding" $
+            [ testCase ("N=" <> show inputCount) $ do
+                let points =
+                      [ B.bls12_381_G1_uncompress
+                          (B.sliceByteString 288 48 (distinctFixtureProof fixture))
+                      | fixture <- take inputCount distinctFixtures
+                      ]
+                    coefficients = fmap toInteger [1 .. inputCount]
+                    mergeChallenge = blsScalarFieldOrder - 17
+                case points of
+                  [] -> assertFailure "distinct fixture file has no proof points"
+                  firstPoint : tailPoints -> do
+                    let individuallyFolded =
+                          foldl'
+                            ( \foldedPoint (coefficient, point) ->
+                                foldedPoint
+                                  `B.bls12_381_G1_add` (coefficient `B.bls12_381_G1_scalarMul` point)
+                            )
+                            (head coefficients `B.bls12_381_G1_scalarMul` firstPoint)
+                            (zip (tail coefficients) tailPoints)
+                        expected = mergeChallenge `B.bls12_381_G1_scalarMul` individuallyFolded
+                        actual =
+                          StatementV2.finishMergedPokColumn
+                            mergeChallenge
+                            coefficients
+                            points
+                    B.bls12_381_G1_equals actual expected @?= True
+            | inputCount <- [1 .. 9]
             ]
         , testCase "V8 coefficient folding preserves proof/public-input order algebraically" $ do
             case take 2 distinctFixtures of
@@ -701,7 +807,7 @@ main = do
                 , ("ProposingScript", PurposeProposing)
                 ]
             ]
-        , testCase "plutus-ledger-api 1.38 fixed TxInfo projection selects txInfoWdrl field 6" $ do
+        , testCase "plutus-ledger-api 1.66 fixed TxInfo projection selects txInfoWdrl field 6" $ do
             let ctx =
                   reclaimBaseContext
                     (Just validBaseDatum)
@@ -739,7 +845,11 @@ main = do
             ownershipProofBatchChallengeV2 transcript
               @?= 908503580536723318674402094080487594791423671977714076978685087528917946307
             ownershipProofBatchMergeChallengeV2 transcript
-              @?= 44262786702551963121691503326809832232322836267413292930891251623326440559893
+              @?= 34063081111690209999304250913506070493531270191825513569282824362369408353035
+            ownershipProofBatchChallengeFromDigestV2 (B.blake2b_256 transcript)
+              @?= ownershipProofBatchChallengeV2 transcript
+            ownershipProofBatchMergeChallengeFromDigestV2 (B.blake2b_256 transcript)
+              @?= 34063081111690209999304250913506070493531270191825513569282824362369408353035
         , testCase "golden all-distinct, repeated-full, and multi slots stay source-backed" $ do
             case take 2 distinctFixtures of
               [firstFixture, secondFixture] -> do
@@ -758,19 +868,19 @@ main = do
                 ownershipProofBatchChallengeV2 distinctTranscript
                   @?= 37830787132813288007666968507575178910493244800430188426869315086352656648082
                 ownershipProofBatchMergeChallengeV2 distinctTranscript
-                  @?= 38698140857556389275494025163187574286523348578132235522359358935216587054255
+                  @?= 28772972778430295974856056661432346628312312501165107676666954654243920682449
                 B.blake2b_256 repeatedTranscript
                   @?= bytesToBuiltin (decodeHex "6d50762f7c6916531a4b11abf0b326b4a1d63bedf7013a2c6a791d48cd0e25bc")
                 ownershipProofBatchChallengeV2 repeatedTranscript
                   @?= 49444263947046676257477883784954335478091752096716344371034914418851304056253
                 ownershipProofBatchMergeChallengeV2 repeatedTranscript
-                  @?= 47121016413796753695864927528822041120076087371690331019547667634862789403
+                  @?= 50955098907232757198906282024376426027673075215991910085938781393497916078174
                 B.blake2b_256 multiTranscript
                   @?= bytesToBuiltin (decodeHex "59b22d408d6c4965eb78632c959557811f00d99969b28ccddfba0012753cff71")
                 ownershipProofBatchChallengeV2 multiTranscript
                   @?= 40570654620357032943455514758320935667228665531329494875443015168245154774898
                 ownershipProofBatchMergeChallengeV2 multiTranscript
-                  @?= 8636757789949591304714306246332989594687787538241662237540073471059061109757
+                  @?= 40064708601075951454543535970521462014723160755037628349288067322570300150009
               _ -> assertFailure "distinct fixture file has fewer than two rows"
         , testCase "transcript framing trusts the deployment-checked verifier-key-hash width" $ do
             let transcriptProof = destinationProof
@@ -880,12 +990,15 @@ main = do
                     [reclaimBaseInput]
                     [paramInputWithValue value]
                     [singleDestinationOutput]
+                ledgerAda = V3.singleton V3.adaSymbol V3.adaToken 2000000
                 samePolicyExtra =
-                  V3.singleton paramCurrencySymbol paramTokenName 1
+                  ledgerAda
+                    <> V3.singleton paramCurrencySymbol paramTokenName 1
                     <> V3.singleton paramCurrencySymbol otherTokenName 1
                 otherPolicyExtra =
-                  V3.singleton paramCurrencySymbol paramTokenName 1
+                  ledgerAda
                     <> V3.singleton otherSymbol otherTokenName 1
+                    <> V3.singleton paramCurrencySymbol paramTokenName 1
             samePolicyAccepted <- safeBool $
               runReclaimGlobalStatementV2 destinationVk verifierKeyHash (context samePolicyExtra)
             otherPolicyAccepted <- safeBool $
@@ -963,6 +1076,26 @@ main = do
               runReclaimGlobalStatementV2 destinationVk verifierKeyHash $
                 reclaimGlobalStatementV2ContextWithOutputs [] [] 0 [] [paramInput] []
             zeroSlot @?= False
+            negativeParamsIdx <- safeBool $
+              runReclaimGlobalStatementV2 destinationVk verifierKeyHash $
+                reclaimGlobalStatementV2ContextWithOutputs
+                  [destinationProof]
+                  [digest]
+                  (-1)
+                  [reclaimBaseInput]
+                  [paramInput]
+                  [singleDestinationOutput]
+            outOfBoundsParamsIdx <- safeBool $
+              runReclaimGlobalStatementV2 destinationVk verifierKeyHash $
+                reclaimGlobalStatementV2ContextWithOutputs
+                  [destinationProof]
+                  [digest]
+                  1
+                  [reclaimBaseInput]
+                  [paramInput]
+                  [singleDestinationOutput]
+            negativeParamsIdx @?= True
+            outOfBoundsParamsIdx @?= False
             case take 2 distinctFixtures of
               [firstFixture, secondFixture] -> do
                 let fixtures = [firstFixture, secondFixture]
@@ -1127,6 +1260,54 @@ main = do
               destinationVk
               (B.blake2b_256 destinationVk)
               (reclaimGlobalStatementV2ContextWithOutputs [] [] 0 [] [paramInput] [])
+        , testCase "compiled production V2 accepts N=9 and rejects isolated Groth16-C and PoK substitutions" $ do
+            let fixtures = take 9 distinctFixtures
+                proofs = fmap distinctFixtureProof fixtures
+                digests =
+                  [ ownershipDestinationPublicInputDigest
+                      (distinctFixtureCredential fixture)
+                      destinationAddressBytes
+                  | fixture <- fixtures
+                  ]
+                inputs =
+                  [ reclaimBaseInputAtWithDatum
+                      (B.consByteString (toInteger index) "production-merged-n9")
+                      (toInteger index)
+                      (ReclaimBaseDatum (distinctFixtureCredential fixture))
+                  | (index, fixture) <- zip [0 :: Int ..] fixtures
+                  ]
+                outputs = replicate 9 singleDestinationOutput
+                verifierKeyHash = B.blake2b_256 destinationVk
+                script = compiledReclaimGlobalStatementV2Script destinationVk verifierKeyHash
+                context candidateProofs =
+                  reclaimGlobalStatementV2ContextWithOutputs
+                    candidateProofs
+                    digests
+                    0
+                    inputs
+                    [paramInput]
+                    outputs
+            case proofs of
+              firstProof : secondProof : moreProofs -> do
+                let cSubstituted =
+                      replaceByteRange
+                        144
+                        48
+                        (B.sliceByteString 144 48 secondProof)
+                        firstProof
+                    pokSubstituted =
+                      replaceByteRange
+                        288
+                        48
+                        (B.sliceByteString 288 48 secondProof)
+                        firstProof
+                    (valid, _) = evaluateCompiledScript script (context proofs)
+                    (invalidC, _) = evaluateCompiledScript script (context (cSubstituted : secondProof : moreProofs))
+                    (invalidPok, _) = evaluateCompiledScript script (context (pokSubstituted : secondProof : moreProofs))
+                valid @?= True
+                invalidC @?= False
+                invalidPok @?= False
+              _ -> assertFailure "distinct fixture file has fewer than nine rows"
         ]
     , testGroup "Ownership.ReclaimGlobalMulti"
         [ testCase "encodes the fixed-byte multi public input digest" $
@@ -1273,18 +1454,40 @@ main = do
                   [exactDestinationOutput])
             firstSelected @?= True
             secondSelected @?= True
+        , testCase "multi validator aliases a negative parameter index to zero and rejects an out-of-bounds index" $ do
+            negative <- safeBool $
+              runReclaimGlobalMulti
+                multiVk
+                (reclaimGlobalMultiContext multiProof (-1) 0
+                  [reclaimBaseInput, differentOwnerReclaimBaseInput]
+                  [paramInput]
+                  [exactDestinationOutput])
+            outOfBounds <- safeBool $
+              runReclaimGlobalMulti
+                multiVk
+                (reclaimGlobalMultiContext multiProof 1 0
+                  [reclaimBaseInput, differentOwnerReclaimBaseInput]
+                  [paramInput]
+                  [exactDestinationOutput])
+            negative @?= True
+            outOfBounds @?= False
         , testCase "rejects an out-of-bounds destination output index" $ do
             ok <- safeBool $
               runReclaimGlobalMulti
                 vk
                 (reclaimGlobalMultiContext proof 0 1 [reclaimBaseInput, differentOwnerReclaimBaseInput] [paramInput] [exactDestinationOutput])
             ok @?= False
-        , testCase "rejects a negative destination output index" $ do
-            ok <- safeBool $
+        , testCase "aliases a negative destination output index to zero" $ do
+            zero <- safeBool $
               runReclaimGlobalMulti
-                vk
-                (reclaimGlobalMultiContext proof 0 (-1) [reclaimBaseInput, differentOwnerReclaimBaseInput] [paramInput] [exactDestinationOutput])
-            ok @?= False
+                multiVk
+                (reclaimGlobalMultiContext multiProof 0 0 [reclaimBaseInput, differentOwnerReclaimBaseInput] [paramInput] [exactDestinationOutput])
+            negative <- safeBool $
+              runReclaimGlobalMulti
+                multiVk
+                (reclaimGlobalMultiContext multiProof 0 (-1) [reclaimBaseInput, differentOwnerReclaimBaseInput] [paramInput] [exactDestinationOutput])
+            zero @?= True
+            negative @?= zero
         , testCase "allows duplicate credentials when every matching input is represented in order" $ do
             ok <- safeBool $
               validateMultiReclaimInputsWithProofCheck

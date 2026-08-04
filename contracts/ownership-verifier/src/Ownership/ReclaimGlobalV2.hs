@@ -12,8 +12,10 @@
 module Ownership.ReclaimGlobalV2
   ( ReclaimBaseDatum (..)
   , ReclaimGlobalParams (..)
+  , affineBatchCoefficient
   , findReferenceInputAt
-  , foldBatchScalarState
+  , finishBatchG1Column
+  , finishMergedPokColumn
   , hasExactlyOneParamToken
   , hasExactlyOneParamTokenCheckCode
   , reclaimGlobalParamsData
@@ -46,14 +48,14 @@ import Ownership.Verify
   , Proof (Proof)
   , Scalar (Scalar)
   , blsScalarFieldOrder
-  , coefficientFirstVkX
+  , coefficientFirstVkXSumOne
   , groth16VerifyCommittedParsedBatchNoPok
   , ownershipDestinationPublicInputDigest
-  , ownershipProofBatchChallengeV2
+  , ownershipProofBatchChallengeFromDigestV2
   , ownershipProofBatchDomainV2
+  , ownershipProofBatchMergeChallengeFromDigestV2
   , parseVerifyingKeyBatch
-  , verifyCommittedProofGrothBatchBuiltin
-  , verifyCommittedProofPokBatchWithBatchVKBuiltin
+  , verifyCommittedProofMergedBatchSumOneWithScaledPokBatchVK
   )
 
 data ReclaimGlobalParams = ReclaimGlobalParams
@@ -68,7 +70,7 @@ v2VerifierKeyParametersMatch :: BuiltinByteString -> BuiltinByteString -> Bool
 v2VerifierKeyParametersMatch verifierKey verifierKeyHash =
   lengthOfByteString verifierKey == 672
     && lengthOfByteString verifierKeyHash == 32
-    && builtinToBool (BI.equalsByteString (B.blake2b_256 verifierKey) verifierKeyHash)
+    && BI.equalsByteString (B.blake2b_256 verifierKey) verifierKeyHash
 
 {-# INLINABLE reclaimGlobalParamsData #-}
 reclaimGlobalParamsData :: ScriptHash -> BuiltinData
@@ -106,25 +108,6 @@ reclaimGlobalRedeemerDataV2 paramsIdx destinationOutStartIdx proofs publicInputD
     byteStringListData (entry : remainingEntries) =
       BI.mkCons (BI.mkB entry) (byteStringListData remainingEntries)
 
-{-# INLINABLE builtinIf #-}
-builtinIf :: BI.BuiltinBool -> a -> a -> a
-builtinIf condition trueBranch falseBranch =
-  BI.ifThenElse
-    condition
-    (\_ -> trueBranch)
-    (\_ -> falseBranch)
-    BI.unitval
-
-{-# INLINABLE builtinAnd #-}
-builtinAnd :: BI.BuiltinBool -> BI.BuiltinBool -> BI.BuiltinBool
-builtinAnd left right =
-  builtinIf left right BI.false
-
-{-# INLINABLE builtinToBool #-}
-builtinToBool :: BI.BuiltinBool -> Bool
-builtinToBool condition =
-  builtinIf condition True False
-
 {-# INLINABLE constrFields #-}
 constrFields :: BuiltinData -> BI.BuiltinList BuiltinData
 constrFields datum =
@@ -145,91 +128,67 @@ field2 :: BI.BuiltinList BuiltinData -> BuiltinData
 field2 fields =
   BI.head (BI.tail (BI.tail fields))
 
-{-# INLINABLE field3 #-}
-field3 :: BI.BuiltinList BuiltinData -> BuiltinData
-field3 fields =
-  BI.head (BI.tail (BI.tail (BI.tail fields)))
+{-# INLINABLE firstThree #-}
+firstThree :: BI.BuiltinList BuiltinData -> (BuiltinData, BuiltinData, BuiltinData)
+firstThree fields =
+  B.caseList
+    (\() -> traceError "missing data field")
+    ( \a afterA ->
+        B.caseList
+          (\() -> traceError "missing data field")
+          ( \b afterB ->
+              B.caseList
+                (\() -> traceError "missing data field")
+                (\c _ -> (a, b, c))
+                afterB
+          )
+          afterA
+    )
+    fields
+
+{-# INLINABLE firstFour #-}
+firstFour :: BI.BuiltinList BuiltinData -> (BuiltinData, BuiltinData, BuiltinData, BuiltinData)
+firstFour fields =
+  B.caseList
+    (\() -> traceError "missing data field")
+    ( \a afterA ->
+        B.caseList
+          (\() -> traceError "missing data field")
+          ( \b afterB ->
+              B.caseList
+                (\() -> traceError "missing data field")
+                ( \c afterC ->
+                    B.caseList
+                      (\() -> traceError "missing data field")
+                      (\d _ -> (a, b, c, d))
+                      afterC
+                )
+                afterB
+          )
+          afterA
+    )
+    fields
 
 {-# INLINABLE constrTag #-}
 constrTag :: BuiltinData -> Integer
 constrTag datum =
   BI.fst (BI.unsafeDataAsConstr datum)
 
-{-# INLINABLE findDataAt #-}
-findDataAt :: BuiltinString -> Integer -> BI.BuiltinList BuiltinData -> BuiltinData
-findDataAt errorMessage idx values =
-  go idx values
-  where
-    go !n !remaining =
-      B.caseList
-        (\() -> traceError errorMessage)
-        ( \value rest ->
-            builtinIf
-              (BI.equalsInteger n 0)
-              value
-              (go (n - 1) rest)
-        )
-        remaining
-
-{-# INLINABLE dropAtData #-}
-dropAtData :: BuiltinString -> Integer -> BI.BuiltinList BuiltinData -> BI.BuiltinList BuiltinData
-dropAtData errorMessage idx values =
-  go idx values
-  where
-    go !n !remaining =
-      builtinIf
-        (BI.equalsInteger n 0)
-        remaining
-        (
-          B.caseList
-            (\() -> traceError errorMessage)
-            (\_ rest -> go (n - 1) rest)
-            remaining
-        )
-
-{-# INLINABLE findReferenceInputAtData #-}
-findReferenceInputAtData :: Integer -> BI.BuiltinList BuiltinData -> BuiltinData
-findReferenceInputAtData =
-  findDataAt "invalid parameter ref index"
-
 {-# INLINABLE findReferenceInputAt #-}
 findReferenceInputAt :: Integer -> BI.BuiltinList BuiltinData -> BuiltinData
-findReferenceInputAt =
-  findReferenceInputAtData
+findReferenceInputAt idx values =
+  BI.head (BI.drop idx values)
 
 {-# INLINABLE hasExactlyOneParamTokenFromFields #-}
-hasExactlyOneParamTokenFromFields :: BuiltinByteString -> BuiltinByteString -> BI.BuiltinList BuiltinData -> BI.BuiltinBool
+hasExactlyOneParamTokenFromFields :: BuiltinByteString -> BuiltinByteString -> BI.BuiltinList BuiltinData -> Bool
 hasExactlyOneParamTokenFromFields paramsCurrencySymbol paramsTokenName txOutFields =
   let !txOutValueData = field1 txOutFields
-      !valueEntries = BI.unsafeDataAsMap txOutValueData
-   in findPolicy valueEntries
-  where
-    findPolicy !remainingPolicies =
-      B.caseList
-        (\() -> BI.false)
-        ( \policyEntry morePolicies ->
-            let !policyId = BI.unsafeDataAsB (BI.fst policyEntry)
-             in builtinIf
-                  (BI.equalsByteString policyId paramsCurrencySymbol)
-                  (findToken (BI.unsafeDataAsMap (BI.snd policyEntry)))
-                  (findPolicy morePolicies)
-        )
-        remainingPolicies
-
-    findToken !remainingTokens =
-      B.caseList
-        (\() -> BI.false)
-        ( \tokenEntry moreTokens ->
-            let !tokenName = BI.unsafeDataAsB (BI.fst tokenEntry)
-             in builtinIf
-                  (BI.equalsByteString tokenName paramsTokenName)
-                  (BI.equalsInteger (BI.unsafeDataAsI (BI.snd tokenEntry)) 1)
-                  (findToken moreTokens)
-        )
-        remainingTokens
+   in BI.equalsInteger
+        (BI.lookupCoin paramsCurrencySymbol paramsTokenName (BI.unsafeDataAsValue txOutValueData))
+        1
 
 {-# INLINABLE hasExactlyOneParamToken #-}
-hasExactlyOneParamToken :: BuiltinByteString -> BuiltinByteString -> BuiltinData -> BI.BuiltinBool
+hasExactlyOneParamToken :: BuiltinByteString -> BuiltinByteString -> BuiltinData -> Bool
 hasExactlyOneParamToken paramsCurrencySymbol paramsTokenName txOut =
   hasExactlyOneParamTokenFromFields paramsCurrencySymbol paramsTokenName (constrFields txOut)
 
@@ -238,10 +197,9 @@ hasExactlyOneParamToken paramsCurrencySymbol paramsTokenName txOut =
 {-# INLINABLE hasExactlyOneParamTokenCheck #-}
 hasExactlyOneParamTokenCheck :: BuiltinByteString -> BuiltinByteString -> BuiltinData -> BuiltinUnit
 hasExactlyOneParamTokenCheck paramsCurrencySymbol paramsTokenName txOut =
-  builtinIf
-    (hasExactlyOneParamToken paramsCurrencySymbol paramsTokenName txOut)
-    BI.unitval
-    (traceError "formal helper predicate failed")
+  if hasExactlyOneParamToken paramsCurrencySymbol paramsTokenName txOut
+    then BI.unitval
+    else traceError "formal helper predicate failed"
 
 hasExactlyOneParamTokenCheckCode ::
   CompiledCode (BuiltinByteString -> BuiltinByteString -> BuiltinData -> BuiltinUnit)
@@ -253,105 +211,41 @@ txInResolved :: BuiltinData -> BuiltinData
 txInResolved txIn =
   field1 (constrFields txIn)
 
--- Both values passed by ReclaimGlobal are raw Value fields taken directly from
--- ledger-built TxOuts in the ScriptContext. They are never redeemer, datum, or
--- validator-created values. The ledger guarantees unique, lexicographically
--- ordered policy and token maps, with only positive represented quantities, so
--- compare them directly without decoding BuiltinData to Value or re-validating
--- those ledger invariants here.
+-- Both values are canonical positive Value fields from ledger-built TxOuts.
+-- Convert them with the PV11 Value builtin and ask whether the paid value (the
+-- first argument) contains the required value.
 {-# INLINABLE valueCoversData #-}
-valueCoversData :: BuiltinData -> BuiltinData -> BI.BuiltinBool
+valueCoversData :: BuiltinData -> BuiltinData -> Bool
 valueCoversData requiredValueData paidValueData =
-  builtinIf
-    (BI.equalsData requiredValueData paidValueData)
-    BI.true
-    ( let !requiredPolicies = BI.unsafeDataAsMap requiredValueData
-          !paidPolicies = BI.unsafeDataAsMap paidValueData
-       in ledgerValueCovers requiredPolicies paidPolicies
-    )
-
--- | Linear componentwise coverage for ledger-normalized TxOut Values. A
--- required key that sorts before the current paid key is absent and therefore
--- fails; an earlier paid key is an allowed extra asset and is skipped.
-{-# INLINABLE ledgerValueCovers #-}
-ledgerValueCovers :: BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> BI.BuiltinBool
-ledgerValueCovers requiredPolicies paidPolicies =
-  B.caseList
-    (\() -> BI.true)
-    ( \requiredPolicy moreRequiredPolicies ->
-        B.caseList
-          (\() -> BI.false)
-          ( \paidPolicy morePaidPolicies ->
-              let !requiredPolicyId = BI.unsafeDataAsB (BI.fst requiredPolicy)
-                  !paidPolicyId = BI.unsafeDataAsB (BI.fst paidPolicy)
-               in builtinIf
-                    (BI.equalsByteString requiredPolicyId paidPolicyId)
-                    ( ledgerTokenValueCovers
-                        (BI.unsafeDataAsMap (BI.snd requiredPolicy))
-                        (BI.unsafeDataAsMap (BI.snd paidPolicy))
-                        `builtinAnd` ledgerValueCovers moreRequiredPolicies morePaidPolicies
-                    )
-                    ( builtinIf
-                        (BI.lessThanByteString requiredPolicyId paidPolicyId)
-                        BI.false
-                        (ledgerValueCovers requiredPolicies morePaidPolicies)
-                    )
-          )
-          paidPolicies
-    )
-    requiredPolicies
-
-{-# INLINABLE ledgerTokenValueCovers #-}
-ledgerTokenValueCovers :: BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> BI.BuiltinBool
-ledgerTokenValueCovers requiredTokens paidTokens =
-  B.caseList
-    (\() -> BI.true)
-    ( \requiredToken moreRequiredTokens ->
-        B.caseList
-          (\() -> BI.false)
-          ( \paidToken morePaidTokens ->
-              let !requiredTokenName = BI.unsafeDataAsB (BI.fst requiredToken)
-                  !paidTokenName = BI.unsafeDataAsB (BI.fst paidToken)
-               in builtinIf
-                    (BI.equalsByteString requiredTokenName paidTokenName)
-                    ( BI.lessThanEqualsInteger (BI.unsafeDataAsI (BI.snd requiredToken)) (BI.unsafeDataAsI (BI.snd paidToken))
-                        `builtinAnd` ledgerTokenValueCovers moreRequiredTokens morePaidTokens
-                    )
-                    ( builtinIf
-                        (BI.lessThanByteString requiredTokenName paidTokenName)
-                        BI.false
-                        (ledgerTokenValueCovers requiredTokens morePaidTokens)
-                    )
-          )
-          paidTokens
-    )
-    requiredTokens
+  BI.valueContains
+    (BI.unsafeDataAsValue paidValueData)
+    (BI.unsafeDataAsValue requiredValueData)
 
 {-# INLINABLE decodeValidatedParams #-}
 decodeValidatedParams :: BuiltinByteString -> BuiltinByteString -> BuiltinData -> BuiltinByteString
 decodeValidatedParams paramsCurrencySymbol paramsTokenName paramsOut =
   let !paramsOutFields = constrFields paramsOut
-   in builtinIf
-        (hasExactlyOneParamTokenFromFields paramsCurrencySymbol paramsTokenName paramsOutFields)
-        ( let !outputDatum = field2 paramsOutFields
+   in if hasExactlyOneParamTokenFromFields paramsCurrencySymbol paramsTokenName paramsOutFields
+        then
+          let !outputDatum = field2 paramsOutFields
               !datumConstr = BI.unsafeDataAsConstr outputDatum
               !paramsDatum = BI.head (BI.snd datumConstr)
               !paramsConstr = BI.unsafeDataAsConstr paramsDatum
            in BI.unsafeDataAsB (BI.head (BI.snd paramsConstr))
-        )
-        (traceError "parameter NFT invalid")
+        else traceError "parameter NFT invalid"
 
 {-# INLINABLE isReclaimBaseInput #-}
-isReclaimBaseInput :: BuiltinByteString -> BI.BuiltinList BuiltinData -> BI.BuiltinBool
+isReclaimBaseInput :: BuiltinByteString -> BI.BuiltinList BuiltinData -> Bool
 isReclaimBaseInput baseScriptHash txOutFields =
   let !address = field0 txOutFields
       !addressFields = constrFields address
       !credential = field0 addressFields
       !credentialConstr = BI.unsafeDataAsConstr credential
-   in builtinIf
-        (BI.equalsInteger (BI.fst credentialConstr) 1)
-        (BI.equalsByteString (BI.unsafeDataAsB (BI.head (BI.snd credentialConstr))) baseScriptHash)
-        BI.false
+   in B.caseInteger
+        (BI.fst credentialConstr)
+        [ False
+        , BI.equalsByteString (BI.unsafeDataAsB (BI.head (BI.snd credentialConstr))) baseScriptHash
+        ]
 
 -- | The exact v2 framing is domain || embedded key hash || u16 count || the
 -- ordered concatenation of full proof/digest pairs. This is deliberately the
@@ -380,18 +274,16 @@ reclaimBatchTranscriptV2 verifierKeyHash proofs publicInputDigests =
               ( \digestData moreDigests ->
                   let !proof = BI.unsafeDataAsB proofData
                       !digest = BI.unsafeDataAsB digestData
-                   in builtinIf
-                        ( BI.equalsInteger (lengthOfByteString proof) 336
-                            `builtinAnd` BI.equalsInteger (lengthOfByteString digest) 32
-                        )
-                        ( if count < 65535
+                   in if lengthOfByteString proof == 336
+                          && lengthOfByteString digest == 32
+                        then
+                          if count < 65535
                             then
                               let !item = proof <> digest
                                   !(!finalCount, !remainingItems) = go (count + 1) moreProofs moreDigests
                                in (finalCount, item <> remainingItems)
                             else traceError "reclaim batch count exceeds u16"
-                        )
-                        (traceError "invalid reclaim proof or digest width")
+                        else traceError "invalid reclaim proof or digest width"
               )
               remainingDigests
         )
@@ -424,13 +316,9 @@ reclaimBatchTranscriptKnownWidthsV2 verifierKeyHash proofs publicInputDigests =
               ( \digestData moreDigests ->
                   let !proof = BI.unsafeDataAsB proofData
                       !digest = BI.unsafeDataAsB digestData
-                   in builtinIf
-                        (BI.lessThanInteger count 65535)
-                        ( let !item = proof <> digest
-                              !(!finalCount, !remainingItems) = go (count + 1) moreProofs moreDigests
-                           in (finalCount, item <> remainingItems)
-                        )
-                        (traceError "reclaim batch count exceeds u16")
+                      !item = proof <> digest
+                      !(!finalCount, !remainingItems) = go (count + 1) moreProofs moreDigests
+                   in (finalCount, item <> remainingItems)
               )
               remainingDigests
         )
@@ -456,10 +344,11 @@ credentialAddressBytes credential =
   let !credentialConstr = BI.unsafeDataAsConstr credential
       !credentialTag = BI.fst credentialConstr
       !wireTag =
-        builtinIf
-          (BI.equalsInteger credentialTag 0)
-          (consByteString 1 emptyByteString)
-          (consByteString 2 emptyByteString)
+        B.caseInteger
+          credentialTag
+          [ consByteString 1 emptyByteString
+          , consByteString 2 emptyByteString
+          ]
       !credentialHash = BI.unsafeDataAsB (BI.head (BI.snd credentialConstr))
    in wireTag <> credentialHash
 
@@ -472,17 +361,17 @@ stakeAddressBytes :: BuiltinData -> BuiltinByteString
 stakeAddressBytes stakingCredentialMaybe =
   let !maybeConstr = BI.unsafeDataAsConstr stakingCredentialMaybe
       !maybeTag = BI.fst maybeConstr
-   in builtinIf
-        (BI.equalsInteger maybeTag 1)
-        (consByteString 0 zeroCredentialHash)
-        (
-          let !stakingCredential = BI.head (BI.snd maybeConstr)
+   in B.caseInteger
+        maybeTag
+        [ let !stakingCredential = BI.head (BI.snd maybeConstr)
               !stakingCredentialConstr = BI.unsafeDataAsConstr stakingCredential
-           in builtinIf
-                (BI.equalsInteger (BI.fst stakingCredentialConstr) 0)
-                (credentialAddressBytes (BI.head (BI.snd stakingCredentialConstr)))
-                (traceError "staking pointers are unsupported")
-        )
+           in B.caseInteger
+                (BI.fst stakingCredentialConstr)
+                [ credentialAddressBytes (BI.head (BI.snd stakingCredentialConstr))
+                , traceError "staking pointers are unsupported"
+                ]
+        , consByteString 0 zeroCredentialHash
+        ]
 
 {-# INLINABLE destinationAddressV1FromTxOutFields #-}
 destinationAddressV1FromTxOutFields :: BI.BuiltinList BuiltinData -> BuiltinByteString
@@ -495,7 +384,8 @@ destinationAddressV1FromTxOutFields txOutFields =
 -- | V2 has already authenticated this digest against the current
 -- payment-key hash and destination output before parsing the proof. Reusing
 -- those exact 32 bytes avoids hashing the same statement a second time while
--- preserving the proof parser and scalar reduction unchanged.
+-- preserving the proof parser. Scalar representatives stay unreduced until
+-- native group multiplication, which already interprets them modulo q.
 {-# INLINABLE validateFreshBatchReclaimProofWithDigest #-}
 validateFreshBatchReclaimProofWithDigest ::
   ParsedBatchVerifyingKey ->
@@ -504,62 +394,148 @@ validateFreshBatchReclaimProofWithDigest ::
   BuiltinByteString ->
   BatchCommittedProofCheck
 validateFreshBatchReclaimProofWithDigest parsedVerifierKey paymentKeyHash publicInputDigest proof =
-  builtinIf
-    (BI.equalsInteger (lengthOfByteString paymentKeyHash) 28)
-    (groth16VerifyCommittedParsedBatchNoPok parsedVerifierKey (Proof proof) (Scalar publicInputDigest))
-    (traceError "reclaim payment key hash must be 28 bytes")
+  if BI.equalsInteger (lengthOfByteString paymentKeyHash) 28
+    then groth16VerifyCommittedParsedBatchNoPok parsedVerifierKey (Proof proof) (Scalar publicInputDigest)
+    else traceError "reclaim payment key hash must be 28 bytes"
 
 {-# INLINABLE nextBatchPower #-}
 nextBatchPower :: Integer -> Integer -> Integer
 nextBatchPower batchChallenge batchPower =
   (batchPower * batchChallenge) `B.modInteger` blsScalarFieldOrder
 
--- | Advance the coefficient-first integer state for a newly verified distinct
--- proof.
-{-# INLINABLE foldBatchScalarState #-}
-foldBatchScalarState ::
-  Integer ->
-  Integer ->
-  Integer ->
-  Integer ->
-  Integer ->
-  Integer ->
-  Integer ->
-  (Integer, Integer, Integer, Integer)
-foldBatchScalarState batchChallenge batchPower coefficientSum foldedPub foldedECmt pub eCmt =
-  ( nextBatchPower batchChallenge batchPower
-  , (coefficientSum + batchPower) `B.modInteger` blsScalarFieldOrder
-  , (foldedPub + batchPower * pub) `B.modInteger` blsScalarFieldOrder
-  , (foldedECmt + batchPower * eCmt) `B.modInteger` blsScalarFieldOrder
-  )
+-- | Choose the coefficient for one proof. Every non-final proof receives a
+-- positive power of the complete-transcript challenge. The final coefficient
+-- closes the affine sum to one:
+--
+--   r, r^2, ..., r^(n-1), 1 - sum [r .. r^(n-1)]
+--
+-- For n=1 this returns one. For n>1 no coefficient is fixed independently of
+-- the transcript. If proof errors are e_i, the folded error is
+--
+--   e_n + sum_i r^i (e_i - e_n),
+--
+-- which is identically zero only when every e_i is zero. For n=9 the random-
+-- oracle failure probability is therefore at most 8/q. Group multiplication
+-- interprets the final (usually negative) integer modulo q, while retaining an
+-- exact integer coefficient sum of one for the specialized terminal equation.
+{-# INLINABLE affineBatchCoefficient #-}
+affineBatchCoefficient :: Bool -> Integer -> Integer -> Integer
+affineBatchCoefficient isFinalProof priorCoefficientSum batchPower =
+  if isFinalProof
+    then 1 - priorCoefficientSum
+    else batchPower
 
-{-# INLINABLE foldBatchProof #-}
-foldBatchProof ::
+{-# INLINABLE nextAffineBatchCoefficient #-}
+nextAffineBatchCoefficient :: Integer -> Integer -> BI.BuiltinList BuiltinData -> Integer
+nextAffineBatchCoefficient priorCoefficientSum batchPower remainingProofs =
+  B.caseList
+    (\() -> 1 - priorCoefficientSum)
+    (\_ _ -> batchPower)
+    remainingProofs
+
+{-# INLINABLE scaleBatchPoint #-}
+scaleBatchPoint :: Integer -> BuiltinBLS12_381_G1_Element -> BuiltinBLS12_381_G1_Element
+scaleBatchPoint coefficient point =
+  if BI.equalsInteger coefficient 1
+    then point
+    else coefficient `bls12_381_G1_scalarMul` point
+
+-- | Finish one weighted G1 column. All coefficients are explicit because every
+-- proof in a multi-proof batch is transcript-dependent. The PV11 MSM cost
+-- model has a large fixed intercept, so short batches retain individual folds.
+{-# INLINABLE finishBatchG1Column #-}
+finishBatchG1Column ::
+  [Integer] ->
+  [BuiltinBLS12_381_G1_Element] ->
+  BuiltinBLS12_381_G1_Element
+finishBatchG1Column coefficients points =
+  case coefficients of
+    _ : _ : _ : _ : _ : _ : _ : _ ->
+      B.bls12_381_G1_multiScalarMul coefficients points
+    _ -> finishSmallBatchG1Column coefficients points
+
+{-# INLINABLE finishSmallBatchG1Column #-}
+finishSmallBatchG1Column ::
+  [Integer] ->
+  [BuiltinBLS12_381_G1_Element] ->
+  BuiltinBLS12_381_G1_Element
+finishSmallBatchG1Column coefficients points =
+  case coefficients of
+    [] -> traceError "internal reclaim batch has no coefficients"
+    coefficient : moreCoefficients ->
+      case points of
+        [] -> traceError "internal reclaim batch column mismatch"
+        point : morePoints -> go (scaleBatchPoint coefficient point) moreCoefficients morePoints
+  where
+    go !foldedPoint !remainingCoefficients !remainingPoints =
+      case remainingCoefficients of
+        [] ->
+          case remainingPoints of
+            [] -> foldedPoint
+            _ -> traceError "internal reclaim batch column mismatch"
+        coefficient : moreCoefficients ->
+          case remainingPoints of
+            [] -> traceError "internal reclaim batch column mismatch"
+            point : morePoints ->
+              go
+                (foldedPoint `bls12_381_G1_add` scaleBatchPoint coefficient point)
+                moreCoefficients
+                morePoints
+
+-- | Finish the PoK column already multiplied by the statement-bound merge
+-- challenge. For N>=8, fusing the challenge into every MSM scalar avoids a
+-- separate full-width G1 scalar multiplication. Smaller batches retain the
+-- cheaper scalar-fold implementation because PV11 MSM has a large intercept.
+{-# INLINABLE finishMergedPokColumn #-}
+finishMergedPokColumn ::
   Integer ->
-  BuiltinBLS12_381_G1_Element ->
-  BuiltinBLS12_381_G1_Element ->
-  BuiltinBLS12_381_MlResult ->
-  BuiltinBLS12_381_G1_Element ->
-  BuiltinBLS12_381_G1_Element ->
-  BuiltinBLS12_381_G1_Element ->
-  BuiltinBLS12_381_G1_Element ->
-  BuiltinBLS12_381_G2_Element ->
-  BuiltinBLS12_381_G1_Element ->
-  ( BuiltinBLS12_381_G1_Element
-  , BuiltinBLS12_381_G1_Element
-  , BuiltinBLS12_381_MlResult
-  , BuiltinBLS12_381_G1_Element
-  )
-foldBatchProof batchPower foldedCommitment foldedPok foldedGrothLhs foldedC commitment pok a b c =
-  let !scaledCommitment = batchPower `bls12_381_G1_scalarMul` commitment
-      !scaledPok = batchPower `bls12_381_G1_scalarMul` pok
-      !scaledA = batchPower `bls12_381_G1_scalarMul` a
-      !scaledC = batchPower `bls12_381_G1_scalarMul` c
-   in ( foldedCommitment `bls12_381_G1_add` scaledCommitment
-      , foldedPok `bls12_381_G1_add` scaledPok
-      , foldedGrothLhs `bls12_381_mulMlResult` bls12_381_millerLoop scaledA b
-      , foldedC `bls12_381_G1_add` scaledC
-      )
+  [Integer] ->
+  [BuiltinBLS12_381_G1_Element] ->
+  BuiltinBLS12_381_G1_Element
+finishMergedPokColumn mergeChallenge coefficients points =
+  case coefficients of
+    _ : _ : _ : _ : _ : _ : _ : _ ->
+      B.bls12_381_G1_multiScalarMul
+        (scaleBatchPowers mergeChallenge coefficients)
+        points
+    _ ->
+      mergeChallenge
+        `bls12_381_G1_scalarMul` finishSmallBatchG1Column coefficients points
+
+{-# INLINABLE finishBatchColumns #-}
+finishBatchColumns ::
+  Integer ->
+  [Integer] ->
+  [BuiltinBLS12_381_G1_Element] ->
+  [BuiltinBLS12_381_G1_Element] ->
+  [BuiltinBLS12_381_G1_Element] ->
+  ( BuiltinBLS12_381_G1_Element ->
+    BuiltinBLS12_381_G1_Element ->
+    BuiltinBLS12_381_G1_Element ->
+    Bool
+  ) ->
+  Bool
+finishBatchColumns mergeChallenge coefficients commitments poks cs continue =
+  case coefficients of
+    _ : _ : _ : _ : _ : _ : _ : _ ->
+      continue
+        (B.bls12_381_G1_multiScalarMul coefficients commitments)
+        (B.bls12_381_G1_multiScalarMul (scaleBatchPowers mergeChallenge coefficients) poks)
+        (B.bls12_381_G1_multiScalarMul coefficients cs)
+    _ ->
+      continue
+        (finishSmallBatchG1Column coefficients commitments)
+        (mergeChallenge `bls12_381_G1_scalarMul` finishSmallBatchG1Column coefficients poks)
+        (finishSmallBatchG1Column coefficients cs)
+
+{-# INLINABLE scaleBatchPowers #-}
+scaleBatchPowers :: Integer -> [Integer] -> [Integer]
+scaleBatchPowers mergeChallenge batchPowers =
+  case batchPowers of
+    [] -> []
+    batchPower : morePowers ->
+      (mergeChallenge * batchPower)
+        : scaleBatchPowers mergeChallenge morePowers
 
 -- | V2 has no proof marker and no proof/credential cache. Every authenticated
 -- reclaim slot consumes exactly one full proof and one digest, and therefore
@@ -573,21 +549,23 @@ validateReclaimInputsV2 ::
   BI.BuiltinList BuiltinData ->
   BI.BuiltinList BuiltinData ->
   BI.BuiltinList BuiltinData ->
-  BI.BuiltinBool
+  Bool
 validateReclaimInputsV2 baseScriptHash parsedVerifierKey verifierKeyHash proofs publicInputDigests inputs destinationOutputs =
   first inputs proofs publicInputDigests destinationOutputs
   where
     !batchTranscript = reclaimBatchTranscriptKnownWidthsV2 verifierKeyHash proofs publicInputDigests
-    !batchChallenge = ownershipProofBatchChallengeV2 batchTranscript
+    !batchTranscriptDigest = B.blake2b_256 batchTranscript
+    !batchChallenge = ownershipProofBatchChallengeFromDigestV2 batchTranscriptDigest
+    !mergeChallenge = ownershipProofBatchMergeChallengeFromDigestV2 batchTranscriptDigest
 
     first !remainingInputs !remainingProofs !remainingDigests !remainingOutputs =
       B.caseList
         (\() -> traceError "no reclaim base inputs")
         ( \txIn rest ->
             let !txOutFields = constrFields (txInResolved txIn)
-             in builtinIf
-                  (isReclaimBaseInput baseScriptHash txOutFields)
-                  ( B.caseList
+             in if isReclaimBaseInput baseScriptHash txOutFields
+                  then
+                    B.caseList
                       (\() -> traceError "missing reclaim proof")
                       ( \proofData moreProofs ->
                           B.caseList
@@ -604,52 +582,78 @@ validateReclaimInputsV2 baseScriptHash parsedVerifierKey verifierKeyHash proofs 
                                           !actualDigest = ownershipDestinationPublicInputDigest paymentKeyHash destinationAddress
                                           !inputValueData = field1 txOutFields
                                           !outputValueData = field1 destinationOutputFields
-                                       in builtinIf
-                                            (valueCoversData inputValueData outputValueData)
-                                            ( builtinIf
-                                                (BI.equalsByteString claimedDigest actualDigest)
-                                                ( let !proofCheck = validateFreshBatchReclaimProofWithDigest parsedVerifierKey paymentKeyHash actualDigest proof
+                                       in if valueCoversData inputValueData outputValueData
+                                            then
+                                              if BI.equalsByteString claimedDigest actualDigest
+                                                then
+                                                  let !proofCheck = validateFreshBatchReclaimProofWithDigest parsedVerifierKey paymentKeyHash actualDigest proof
                                                    in case proofCheck of
                                                         BatchCommittedProofCheck commitment pok a b c pub eCmt ->
-                                                          restOfBatch rest moreProofs moreDigests moreOutputs commitment pok (bls12_381_millerLoop a b) c pub eCmt 1 batchChallenge
-                                                )
-                                                (traceError "reclaim public input digest does not match statement")
-                                            )
-                                            (traceError "destination output underpays reclaim input")
+                                                          let !coefficient = nextAffineBatchCoefficient 0 batchChallenge moreProofs
+                                                              !scaledA = scaleBatchPoint coefficient a
+                                                              !foldedPub = coefficient * pub
+                                                              !foldedECmt = coefficient * eCmt
+                                                           in restOfBatch
+                                                                rest
+                                                                moreProofs
+                                                                moreDigests
+                                                                moreOutputs
+                                                                [coefficient]
+                                                                [commitment]
+                                                                [pok]
+                                                                (bls12_381_millerLoop scaledA b)
+                                                                [c]
+                                                                foldedPub
+                                                                foldedECmt
+                                                                coefficient
+                                                                (nextBatchPower batchChallenge batchChallenge)
+                                                else traceError "reclaim public input digest does not match statement"
+                                            else traceError "destination output underpays reclaim input"
                                   )
                                   remainingOutputs
                             )
                             remainingDigests
                       )
                       remainingProofs
-                  )
-                  (first rest remainingProofs remainingDigests remainingOutputs)
+                  else first rest remainingProofs remainingDigests remainingOutputs
         )
         remainingInputs
 
-    restOfBatch !remainingInputs !remainingProofs !remainingDigests !remainingOutputs !foldedCommitment !foldedPok !foldedGrothLhs !foldedC !foldedPub !foldedECmt !coefficientSum !batchPower =
+    restOfBatch !remainingInputs !remainingProofs !remainingDigests !remainingOutputs !batchCoefficients !commitments !poks !foldedGrothLhs !cs !foldedPub !foldedECmt coefficientSum batchPower =
       B.caseList
         ( \() ->
             B.caseList
               ( \() ->
-                  let !foldedVkX = coefficientFirstVkX parsedVerifierKey coefficientSum foldedPub foldedECmt foldedCommitment
-                   in builtinIf
-                        (verifyCommittedProofGrothBatchBuiltin parsedVerifierKey coefficientSum foldedGrothLhs foldedVkX foldedC)
-                        ( builtinIf
-                            (verifyCommittedProofPokBatchWithBatchVKBuiltin parsedVerifierKey foldedCommitment foldedPok)
-                            BI.true
-                            (traceError "reclaim proof commitment validation failed")
-                        )
-                        (traceError "reclaim proof validation failed")
+                  finishBatchColumns
+                    mergeChallenge
+                    batchCoefficients
+                    commitments
+                    poks
+                    cs
+                    ( \foldedCommitment scaledFoldedPok foldedC ->
+                        -- The affine coefficient construction guarantees this
+                        -- sum exactly. Supplying the literal lets Plinth erase
+                        -- both fixed-base coefficient-one tests and their dead
+                        -- scalar-multiplication branches after inlining.
+                        let !foldedVkX = coefficientFirstVkXSumOne parsedVerifierKey foldedPub foldedECmt foldedCommitment
+                         in verifyCommittedProofMergedBatchSumOneWithScaledPokBatchVK
+                              parsedVerifierKey
+                              foldedGrothLhs
+                              foldedVkX
+                              foldedC
+                              foldedCommitment
+                              scaledFoldedPok
+                              mergeChallenge
+                    )
               )
               (\_ _ -> traceError "unused reclaim public input digests")
               remainingDigests
         )
         ( \txIn rest ->
             let !txOutFields = constrFields (txInResolved txIn)
-             in builtinIf
-                  (isReclaimBaseInput baseScriptHash txOutFields)
-                  ( B.caseList
+             in if isReclaimBaseInput baseScriptHash txOutFields
+                  then
+                    B.caseList
                       (\() -> traceError "missing reclaim proof")
                       ( \proofData moreProofs ->
                           B.caseList
@@ -666,30 +670,47 @@ validateReclaimInputsV2 baseScriptHash parsedVerifierKey verifierKeyHash proofs 
                                           !actualDigest = ownershipDestinationPublicInputDigest paymentKeyHash destinationAddress
                                           !inputValueData = field1 txOutFields
                                           !outputValueData = field1 destinationOutputFields
-                                       in builtinIf
-                                            (valueCoversData inputValueData outputValueData)
-                                            ( builtinIf
-                                                (BI.equalsByteString claimedDigest actualDigest)
-                                                ( let !proofCheck = validateFreshBatchReclaimProofWithDigest parsedVerifierKey paymentKeyHash actualDigest proof
+                                       in if valueCoversData inputValueData outputValueData
+                                            then
+                                              if BI.equalsByteString claimedDigest actualDigest
+                                                then
+                                                  let !proofCheck = validateFreshBatchReclaimProofWithDigest parsedVerifierKey paymentKeyHash actualDigest proof
                                                    in case proofCheck of
                                                         BatchCommittedProofCheck commitment pok a b c pub eCmt ->
-                                                          let !(!newCommitment, !newPok, !newGrothLhs, !newC) =
-                                                                foldBatchProof batchPower foldedCommitment foldedPok foldedGrothLhs foldedC commitment pok a b c
-                                                              !(!newPower, !newSum, !newPub, !newECmt) =
-                                                                foldBatchScalarState batchChallenge batchPower coefficientSum foldedPub foldedECmt pub eCmt
-                                                           in restOfBatch rest moreProofs moreDigests moreOutputs newCommitment newPok newGrothLhs newC newPub newECmt newSum newPower
-                                                )
-                                                (traceError "reclaim public input digest does not match statement")
-                                            )
-                                            (traceError "destination output underpays reclaim input")
+                                                          let !coefficient = nextAffineBatchCoefficient coefficientSum batchPower moreProofs
+                                                              -- In a multi-proof batch this coefficient
+                                                              -- is transcript-dependent. Scalar-multiply
+                                                              -- unconditionally; the coefficient-one fast
+                                                              -- path is only material for N=1 above.
+                                                              !scaledA = coefficient `bls12_381_G1_scalarMul` a
+                                                              !newGrothLhs = foldedGrothLhs `bls12_381_mulMlResult` bls12_381_millerLoop scaledA b
+                                                              newPower = nextBatchPower batchChallenge batchPower
+                                                              newSum = coefficientSum + coefficient
+                                                              !newPub = foldedPub + coefficient * pub
+                                                              !newECmt = foldedECmt + coefficient * eCmt
+                                                           in restOfBatch
+                                                                rest
+                                                                moreProofs
+                                                                moreDigests
+                                                                moreOutputs
+                                                                (coefficient : batchCoefficients)
+                                                                (commitment : commitments)
+                                                                (pok : poks)
+                                                                newGrothLhs
+                                                                (c : cs)
+                                                                newPub
+                                                                newECmt
+                                                                newSum
+                                                                newPower
+                                                else traceError "reclaim public input digest does not match statement"
+                                            else traceError "destination output underpays reclaim input"
                                   )
                                   remainingOutputs
                             )
                             remainingDigests
                       )
                       remainingProofs
-                  )
-                  (restOfBatch rest remainingProofs remainingDigests remainingOutputs foldedCommitment foldedPok foldedGrothLhs foldedC foldedPub foldedECmt coefficientSum batchPower)
+                  else restOfBatch rest remainingProofs remainingDigests remainingOutputs batchCoefficients commitments poks foldedGrothLhs cs foldedPub foldedECmt coefficientSum batchPower
         )
         remainingInputs
 
@@ -700,32 +721,32 @@ validateReclaimInputsV2 baseScriptHash parsedVerifierKey verifierKeyHash proofs 
 -- the 672-byte key at validation time; export/build tooling rejects a key/hash
 -- mismatch before this code can be applied.
 {-# INLINABLE reclaimGlobalValidatorV2Builtin #-}
-reclaimGlobalValidatorV2Builtin :: CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinByteString -> BuiltinData -> BI.BuiltinBool
+reclaimGlobalValidatorV2Builtin :: CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinByteString -> BuiltinData -> Bool
 reclaimGlobalValidatorV2Builtin (CurrencySymbol paramsCurrencySymbol) (TokenName paramsTokenName) verifierKey verifierKeyHash ctx =
-  isRewarding `builtinAnd` validateGlobal
+  isRewarding && validateGlobal
   where
     !ctxFields = constrFields ctx
-    !txInfo = field0 ctxFields
-    !redeemer = field1 ctxFields
-    !scriptInfo = field2 ctxFields
+    !(!txInfo, !redeemer, !scriptInfo) = firstThree ctxFields
     !txInfoFields = constrFields txInfo
-    !txInfoInputs = field0 txInfoFields
-    !txInfoReferenceInputs = field1 txInfoFields
-    !txInfoOutputs = field2 txInfoFields
+    !(!txInfoInputs, !txInfoReferenceInputs, !txInfoOutputs) = firstThree txInfoFields
     !redeemerFields = constrFields redeemer
+    !(!paramsRefIdxData, !destinationOutStartIdxData, !reclaimProofs, !publicInputDigests) = firstFour redeemerFields
 
-    isRewarding = BI.equalsInteger (constrTag scriptInfo) 2
+    isRewarding =
+      B.caseInteger
+        (constrTag scriptInfo)
+        [False, False, True, False, False, False]
 
     validateGlobal =
-      let !paramsRefIdx = BI.unsafeDataAsI (field0 redeemerFields)
-          !destinationOutStartIdx = BI.unsafeDataAsI (field1 redeemerFields)
-          !reclaimProofsData = BI.unsafeDataAsList (field2 redeemerFields)
-          !publicInputDigestsData = BI.unsafeDataAsList (field3 redeemerFields)
-          !paramsInput = findReferenceInputAtData paramsRefIdx (BI.unsafeDataAsList txInfoReferenceInputs)
+      let !paramsRefIdx = BI.unsafeDataAsI paramsRefIdxData
+          !destinationOutStartIdx = BI.unsafeDataAsI destinationOutStartIdxData
+          !reclaimProofsData = BI.unsafeDataAsList reclaimProofs
+          !publicInputDigestsData = BI.unsafeDataAsList publicInputDigests
+          !paramsInput = findReferenceInputAt paramsRefIdx (BI.unsafeDataAsList txInfoReferenceInputs)
           !paramsOut = txInResolved paramsInput
           !baseScriptHash = decodeValidatedParams paramsCurrencySymbol paramsTokenName paramsOut
           !parsedVerifierKey = parseVerifyingKeyBatch verifierKey
-          !destinationOutputs = dropAtData "invalid destination output start index" destinationOutStartIdx (BI.unsafeDataAsList txInfoOutputs)
+          !destinationOutputs = BI.drop destinationOutStartIdx (BI.unsafeDataAsList txInfoOutputs)
        in validateReclaimInputsV2
             baseScriptHash
             parsedVerifierKey
@@ -738,21 +759,19 @@ reclaimGlobalValidatorV2Builtin (CurrencySymbol paramsCurrencySymbol) (TokenName
 {-# INLINABLE reclaimGlobalValidatorV2 #-}
 reclaimGlobalValidatorV2 :: CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinByteString -> BuiltinData -> Bool
 reclaimGlobalValidatorV2 paramsCurrencySymbol paramsTokenName verifierKey verifierKeyHash ctx =
-  builtinToBool $
-    reclaimGlobalValidatorV2Builtin
-      paramsCurrencySymbol
-      paramsTokenName
-      verifierKey
-      verifierKeyHash
-      ctx
+  reclaimGlobalValidatorV2Builtin
+    paramsCurrencySymbol
+    paramsTokenName
+    verifierKey
+    verifierKeyHash
+    ctx
 
 {-# INLINABLE reclaimGlobalValidatorV2Untyped #-}
 reclaimGlobalValidatorV2Untyped :: CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinByteString -> BuiltinData -> BuiltinUnit
 reclaimGlobalValidatorV2Untyped paramsCurrencySymbol paramsTokenName verifierKey verifierKeyHash ctx =
-  builtinIf
-    (reclaimGlobalValidatorV2Builtin paramsCurrencySymbol paramsTokenName verifierKey verifierKeyHash ctx)
-    BI.unitval
-    (traceError "reclaim global v2 validation failed")
+  if reclaimGlobalValidatorV2Builtin paramsCurrencySymbol paramsTokenName verifierKey verifierKeyHash ctx
+    then BI.unitval
+    else traceError "reclaim global v2 validation failed"
 
 reclaimGlobalValidatorV2Code :: CompiledCode (CurrencySymbol -> TokenName -> BuiltinByteString -> BuiltinByteString -> BuiltinData -> BuiltinUnit)
 reclaimGlobalValidatorV2Code =

@@ -13,6 +13,9 @@ import qualified Data.ByteString.Short as SBS
 import Data.Char (digitToInt, isHexDigit)
 import Data.List (find, nub)
 import Data.Maybe (fromMaybe)
+import qualified Data.Text as Text
+import System.Environment (lookupEnv)
+import System.Exit (exitSuccess)
 import Text.Printf (printf)
 
 import qualified PlutusCore as PLC
@@ -34,6 +37,7 @@ import PlutusLedgerApi.Common
 import qualified PlutusLedgerApi.V3 as V3
 import PlutusTx (CompiledCode)
 import qualified PlutusTx
+import qualified PlutusTx.AssocMap as Map
 import qualified PlutusTx.Builtins as B
 import PlutusTx.Builtins (BuiltinByteString, BuiltinData)
 import PlutusTx.Builtins.Internal (BuiltinUnit)
@@ -157,6 +161,7 @@ instance FromJSON RawMultiBenchmarkFixture where
 
 main :: IO ()
 main = do
+  profileRequest <- lookupEnv "OWNERSHIP_V2_PROFILE"
   destinationVk <- readBuiltinHex "testdata/ownership-destination-vk.hex"
   destinationProof <- readBuiltinHex "testdata/ownership-destination-proof.hex"
   distinctFixtures <- readDistinctFixtures "testdata/ownership-destination-distinct-proofs.txt"
@@ -195,6 +200,18 @@ main = do
             (take inputCount distinctFixtures)
         | profile <- [CanonicalV2]
         , inputCount <- [1 .. 9]
+        ]
+      valueBuiltinCases =
+        [ valueShapeBenchmarkCase
+            ("V2 PV11 valueContains multi-asset overpayment / N=" <> show inputCount)
+            preprodV11Evaluator
+            globalCredential14
+            paramCurrencySymbol
+            destinationVk
+            representativeRequiredValue
+            representativePaidValue
+            (take inputCount distinctFixtures)
+        | inputCount <- [1, 6, 9]
         ]
       defaultSix =
         reconciliationBenchmarkCase
@@ -251,14 +268,14 @@ main = do
           (take 7 distinctFixtures)
       v2ProductionWidth =
         reconciliationBenchmarkCaseNamedWithParams
-          "V2 production-width ablation: 28-byte policy CurrencySymbol + 28-byte global credential / Preprod V11"
+          "V2 production-width N=9: 28-byte policy CurrencySymbol + 28-byte global credential / PV11"
           preprodV11Evaluator
           CanonicalV2
           LedgerShapedContext
           globalCredential28
           paramCurrencySymbol28
           destinationVk
-          (take 7 distinctFixtures)
+          (take 9 distinctFixtures)
       namedV2N7 =
         fromMaybe
           (error "missing V2 N=7 ledger-shaped Preprod V11 reconciliation row")
@@ -272,6 +289,35 @@ main = do
         , fullGlobalCredential
         , v2ProductionWidth
         ]
+
+  case profileRequest of
+    Just "n9" -> do
+      let profileGlobalScript =
+            compiledToProgram
+              (statementV2GlobalValidatorCode paramCurrencySymbol28 destinationVk (B.blake2b_256 destinationVk))
+          profileContext =
+            reclaimClaimContext
+              CanonicalV2
+              LedgerShapedContext
+              globalCredential28
+              paramCurrencySymbol28
+              (take 9 distinctFixtures)
+      mapM_ (putStrLn . Text.unpack) (evaluateLogsWith preprodV11Evaluator profileGlobalScript profileContext)
+      exitSuccess
+    Just "tally-n9" -> do
+      let profileGlobalScript =
+            compiledToProgram
+              (statementV2GlobalValidatorCode paramCurrencySymbol28 destinationVk (B.blake2b_256 destinationVk))
+          profileContext =
+            reclaimClaimContext
+              CanonicalV2
+              LedgerShapedContext
+              globalCredential28
+              paramCurrencySymbol28
+              (take 9 distinctFixtures)
+      putStrLn (evaluateTallyWith preprodV11Evaluator profileGlobalScript profileContext)
+      exitSuccess
+    _ -> pure ()
 
   printV2ReleasePolicy defaultSix namedV2N7 duplicateCredentials
   printRawCapacityBoundary ledgerPreprodCapacityCases
@@ -292,6 +338,7 @@ main = do
   putStrLn "Ledger-shaped rows add a non-ReclaimBase wallet input before all reclaim-base inputs; the candidate must skip that input while covering every ReclaimBase input."
   putStrLn "The distinct single rows use credentials for m/1852'/1815'/0'/0/0..19 from the same master key, with one proof per credential."
   putStrLn "The multi rows use generated JSON fixtures with one destination-bound multi proof per requested input count."
+  putStrLn "The PV11 valueContains rows use canonical positive ledger Values: three required policies/assets and a four-policy/five-asset paid superset per reclaim slot."
   putStrLn ""
   let headerLabels :: [String]
       headerLabels =
@@ -328,7 +375,7 @@ main = do
       (headerLabels !! 12)
       (headerLabels !! 13)
   putStrLn (replicate 177 '-')
-  mapM_ printCase (multiCases <> statementV2DistinctCases <> statementV2RepeatedCases <> reconciliationCases <> ledgerPreprodCapacityCases <> releaseCases)
+  mapM_ printCase (multiCases <> statementV2DistinctCases <> statementV2RepeatedCases <> reconciliationCases <> ledgerPreprodCapacityCases <> valueBuiltinCases <> releaseCases)
   putStrLn ""
   putStrLn "ZK-02 all-distinct redeemer sizes (exact Plutus Data CBOR; not transaction CBOR)"
   forM_ [1 .. 9] $ \inputCount ->
@@ -457,6 +504,53 @@ reconciliationBenchmarkCaseNamedWithParams name evaluator profile contextShape c
         case profile of
           CanonicalV2 -> statementV2GlobalValidatorCode paramsCurrencySymbol verifierKey (B.blake2b_256 verifierKey)
     claimContext = reclaimClaimContext profile contextShape credential paramsCurrencySymbol fixtures
+    baseRuns =
+      [ evaluateBudgetWith evaluator baseScript $
+          reclaimBaseContext claimContext index (ReclaimBaseDatum paymentKeyHash)
+      | (index, OwnershipFixture paymentKeyHash _) <- indexedFixtures
+      ]
+    baseTotal = sumBudgets baseRuns
+    globalBudget = evaluateBudgetWith evaluator globalScript claimContext
+
+-- | Exercise the native Value conversion/containment path in the complete V2
+-- transaction rather than only in the focused micro-profile. Each logical
+-- reclaim slot keeps its source-backed proof and receives one canonical paid
+-- superset output at the authenticated destination.
+valueShapeBenchmarkCase ::
+  String ->
+  Evaluator ->
+  V3.Credential ->
+  V3.CurrencySymbol ->
+  BuiltinByteString ->
+  V3.Value ->
+  V3.Value ->
+  [OwnershipFixture] ->
+  BenchmarkCase
+valueShapeBenchmarkCase name evaluator credential paramsCurrencySymbol verifierKey requiredValue paidValue fixtures =
+  BenchmarkCase
+    { benchCaseName = name
+    , benchInputCount = inputCount
+    , benchBaseRuns = baseRuns
+    , benchBase = baseTotal
+    , benchGlobal = globalBudget
+    , benchTotal = addBudget baseTotal globalBudget
+    }
+  where
+    inputCount = length fixtures
+    indexedFixtures = zip [0 ..] fixtures
+    baseScript = compiledToProgram (baseValidatorCode credential)
+    globalScript =
+      compiledToProgram $
+        statementV2GlobalValidatorCode paramsCurrencySymbol verifierKey (B.blake2b_256 verifierKey)
+    claimContext =
+      reclaimClaimContextWithValues
+        CanonicalV2
+        LedgerShapedContext
+        credential
+        paramsCurrencySymbol
+        requiredValue
+        paidValue
+        fixtures
     baseRuns =
       [ evaluateBudgetWith evaluator baseScript $
           reclaimBaseContext claimContext index (ReclaimBaseDatum paymentKeyHash)
@@ -656,14 +750,59 @@ evaluateBudgetWith Evaluator {evaluatorMachineParameters} script ctx =
         (Cek.restricting (ExRestrictingBudget countingBudget))
         Cek.logEmitter
         namedTerm of
-        (Right _, Cek.RestrictingSt (ExRestrictingBudget finalBudget), _) ->
-          fromExBudget (countingBudget `minusExBudget` finalBudget)
-        (Left err, _, logs) ->
-          error $
-            "script evaluation failed: "
-              <> show err
-              <> "; logs="
-              <> show logs
+        Cek.CekReport result (Cek.RestrictingSt (ExRestrictingBudget finalBudget)) logs ->
+          case result of
+            Cek.CekFailure err ->
+              error $
+                "script evaluation failed: "
+                  <> show err
+                  <> "; logs="
+                  <> show logs
+            _ -> fromExBudget (countingBudget `minusExBudget` finalBudget)
+
+-- | Emit the raw cost-centre trace for an alternate @profile-all@ build. The
+-- production build removes traces, so this path is intentionally selected by
+-- an environment variable and used only with an isolated Cabal build dir.
+evaluateLogsWith :: Evaluator -> Script -> V3.ScriptContext -> [Text.Text]
+evaluateLogsWith Evaluator {evaluatorMachineParameters} script ctx =
+  let UPLC.Program _ _ term = applyContextArgument script ctx
+      namedTerm = UPLC.termMapNames UPLC.fakeNameDeBruijn term
+   in case Cek.runCekDeBruijn
+        evaluatorMachineParameters
+        (Cek.restricting (ExRestrictingBudget countingBudget))
+        Cek.logWithBudgetEmitter
+        namedTerm of
+        Cek.CekReport result _ logs ->
+          case result of
+            Cek.CekFailure err ->
+              error $
+                "profiled script evaluation failed: "
+                  <> show err
+                  <> "; logs="
+                  <> show logs
+            _ -> logs
+
+-- | Attribute the exact non-instrumented accepted-path budget to CEK steps and
+-- builtins. Unlike @profile-all@, tallying changes only the host-side budget
+-- accumulator and does not alter the compiled UPLC term.
+evaluateTallyWith :: Evaluator -> Script -> V3.ScriptContext -> String
+evaluateTallyWith Evaluator {evaluatorMachineParameters} script ctx =
+  let UPLC.Program _ _ term = applyContextArgument script ctx
+      namedTerm = UPLC.termMapNames UPLC.fakeNameDeBruijn term
+   in case Cek.runCekDeBruijn
+        evaluatorMachineParameters
+        Cek.tallying
+        Cek.logEmitter
+        namedTerm of
+        Cek.CekReport result tally logs ->
+          case result of
+            Cek.CekFailure err ->
+              error $
+                "tallied script evaluation failed: "
+                  <> show err
+                  <> "; logs="
+                  <> show logs
+            _ -> show tally
 
 applyContextArgument :: Script -> V3.ScriptContext -> Script
 applyContextArgument (UPLC.Program ann version term) ctx =
@@ -713,7 +852,7 @@ protocol11SnapshotPath :: FilePath
 protocol11SnapshotPath = "bench/results/preprod-protocol-v11-epoch-300.json"
 
 maxTxMemory :: Integer
-maxTxMemory = 14_000_000
+maxTxMemory = 16_500_000
 
 maxTxCpu :: Integer
 maxTxCpu = 10_000_000_000
@@ -864,11 +1003,30 @@ reclaimClaimContext ::
   [OwnershipFixture] ->
   V3.ScriptContext
 reclaimClaimContext profile contextShape configuredGlobalCredential paramsCurrencySymbol fixtures =
+  reclaimClaimContextWithValues
+    profile
+    contextShape
+    configuredGlobalCredential
+    paramsCurrencySymbol
+    reclaimValue
+    reclaimValue
+    fixtures
+
+reclaimClaimContextWithValues ::
+  ClaimProfile ->
+  ClaimContextShape ->
+  V3.Credential ->
+  V3.CurrencySymbol ->
+  V3.Value ->
+  V3.Value ->
+  [OwnershipFixture] ->
+  V3.ScriptContext
+reclaimClaimContextWithValues profile contextShape configuredGlobalCredential paramsCurrencySymbol requiredValue paidValue fixtures =
   buildScriptContext $
     contextPrefix
       <> foldMap (withSpendingScript (V3.toBuiltinData ())) reclaimInputs
       <> withReferenceTxIn (paramInputWith paramsCurrencySymbol)
-      <> foldMap (const (withTxOut (destinationOutput 1))) fixtures
+      <> foldMap (const (withTxOut (destinationOutputWithValue paidValue))) fixtures
       <> contextSuffix
       <> withRewardingScript
         redeemer
@@ -882,7 +1040,7 @@ reclaimClaimContext profile contextShape configuredGlobalCredential paramsCurren
       | OwnershipFixture paymentKeyHash _ <- fixtures
       ]
     reclaimInputs =
-      [ reclaimBaseInput index paymentKeyHash
+      [ reclaimBaseInputWithValue requiredValue index paymentKeyHash
       | (index, OwnershipFixture paymentKeyHash _) <- indexedFixtures
       ]
     redeemer =
@@ -980,9 +1138,13 @@ reclaimGlobalMultiContext fixture =
 
 reclaimBaseInput :: Int -> BuiltinByteString -> InputBuilder
 reclaimBaseInput index paymentKeyHash =
+  reclaimBaseInputWithValue reclaimValue index paymentKeyHash
+
+reclaimBaseInputWithValue :: V3.Value -> Int -> BuiltinByteString -> InputBuilder
+reclaimBaseInputWithValue value index paymentKeyHash =
   withOutRef (reclaimBaseOutRef index)
     <> withAddress (scriptAddress baseScriptHash)
-    <> withValue reclaimValue
+    <> withValue value
     <> withInlineDatum (V3.toBuiltinData (ReclaimBaseDatum paymentKeyHash))
 
 paramInput :: V3.TxInInfo
@@ -1004,10 +1166,41 @@ paramInputWith paramsCurrencySymbol =
 
 destinationOutput :: Int -> V3.TxOut
 destinationOutput inputCount =
+  destinationOutputWithValue $
+    V3.singleton V3.adaSymbol V3.adaToken (2_000_000 * fromIntegral inputCount)
+
+destinationOutputWithValue :: V3.Value -> V3.TxOut
+destinationOutputWithValue value =
   mkTxOut $
     withTxOutAddress (pubKeyAddress destinationPaymentKeyHash)
-      <> withTxOutValue
-        (V3.singleton V3.adaSymbol V3.adaToken (2_000_000 * fromIntegral inputCount))
+      <> withTxOutValue value
+
+representativeRequiredValue :: V3.Value
+representativeRequiredValue =
+  canonicalValue
+    [ (V3.adaSymbol, [(V3.adaToken, 2_000_000)])
+    , (V3.CurrencySymbol "aaaaaaaaaaaaaaaaaaaaaaaaaaaa", [(V3.TokenName "token-a", 3)])
+    , (V3.CurrencySymbol "bbbbbbbbbbbbbbbbbbbbbbbbbbbb", [(V3.TokenName "token-b", 7)])
+    ]
+
+representativePaidValue :: V3.Value
+representativePaidValue =
+  canonicalValue
+    [ (V3.adaSymbol, [(V3.adaToken, 2_000_001)])
+    , ( V3.CurrencySymbol "aaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      , [(V3.TokenName "token-a", 3), (V3.TokenName "token-extra", 11)]
+      )
+    , (V3.CurrencySymbol "bbbbbbbbbbbbbbbbbbbbbbbbbbbb", [(V3.TokenName "token-b", 8)])
+    , (V3.CurrencySymbol "cccccccccccccccccccccccccccc", [(V3.TokenName "token-c", 13)])
+    ]
+
+canonicalValue :: [(V3.CurrencySymbol, [(V3.TokenName, Integer)])] -> V3.Value
+canonicalValue policies =
+  V3.Value $
+    Map.unsafeFromList
+      [ (policyId, Map.unsafeFromList tokens)
+      | (policyId, tokens) <- policies
+      ]
 
 reclaimBaseOutRef :: Int -> V3.TxOutRef
 reclaimBaseOutRef index =

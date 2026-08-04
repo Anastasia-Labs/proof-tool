@@ -9,7 +9,6 @@ module V4BlindValueCoverage (v4BlindValueCoverageTests) where
 import Ownership.ReclaimGlobalV2 (valueCoversData)
 import qualified PlutusLedgerApi.V3 as V3
 import qualified PlutusTx.AssocMap as Map
-import qualified PlutusTx.Builtins.Internal as BI
 import ScriptContextBuilder
   ( mkTxOut
   , pubKeyAddress
@@ -72,9 +71,9 @@ assertCoverage :: Bool -> V3.Value -> V3.Value -> IO ()
 assertCoverage expected required paid =
   builtinBoolToBool (valueCoversData (txOutValueData required) (txOutValueData paid)) @?= expected
 
-builtinBoolToBool :: BI.BuiltinBool -> Bool
+builtinBoolToBool :: Bool -> Bool
 builtinBoolToBool condition =
-  BI.ifThenElse condition (\_ -> True) (\_ -> False) BI.unitval
+  condition
 
 -- | All call sites list unique policies and token names in ledger byte order,
 -- and use strictly positive quantities.  Keeping the construction typed avoids

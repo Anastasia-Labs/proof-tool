@@ -90,10 +90,11 @@ globalCredential `elem` keys (txInfoWdrl txInfo)
 ```
 
 The compiled Base projects `txInfoWdrl` directly from field 6 of the
-ledger-built Plutus V3 `TxInfo`. It deliberately does not recheck the
-single-constructor `ScriptContext`/`TxInfo` tags or recursively bounds-check
-that fixed record projection. A layout regression test pins the field against
-`plutus-ledger-api-1.38.0.0`; upgrading the ledger API requires rerunning that
+ledger-built Plutus V3 `TxInfo`, using the protocol-v11 `dropList` builtin for
+the fixed projection. It deliberately does not recheck the single-constructor
+`ScriptContext`/`TxInfo` tags or recursively bounds-check that fixed record
+projection. A layout regression test pins the field against
+`plutus-ledger-api-1.66.0.0`; upgrading the ledger API requires rerunning that
 test and the artifact/coherence gates.
 
 For the intended deployment, ledger validation of the configured script
@@ -202,11 +203,18 @@ For every withdrawal under the parameterized `ReclaimGlobalV2` script:
      `reclaimPaymentKeyHash` and `destinationAddressV1`, then require it to
      equal the corresponding redeemer digest;
    - decode the full proof into the committed-proof batch representation;
-   - require the input value to be less than or equal to the destination output
-     value using full multi-asset comparison;
-6. Derive the statement-bound V2 batch challenge from the verifier-key hash and
-   the complete ordered proof/digest lists, fold every slot exactly once, and
-   require both the Groth16 batch equation and commitment proof-of-knowledge.
+   - require the destination output value to contain the input value using the
+     protocol-v11 native `Value` builtins and full multi-asset comparison;
+6. Hash the verifier-key/ordered-proof/digest transcript once. Derive the batch
+   challenge directly from that digest and derive the independently
+   suffix-separated merge challenge from `digest || 0x01`. For one slot use coefficient
+   one. For N>1 use transcript-dependent affine coefficients
+   `r, r^2, ..., r^(N-1), 1-sum(r..r^(N-1))`, fold every slot exactly
+   once, and require the statement-bound merged Groth16/commitment-PoK pairing
+   product. The coefficients sum to one, allowing unscaled Groth16 alpha and
+   IC0 without fixing any multi-proof coefficient independently of the
+   transcript. The commitment remains unscaled in Groth16 `vkX`; only its
+   PoK-side occurrence is merge-challenge-scaled.
 7. Fail if proofs or digests are missing or remain unused after all matching
    inputs are processed.
 8. Fail if there are no matching reclaim-base inputs.
@@ -215,6 +223,13 @@ The rewarding script computes destination bytes from the corresponding output on
 chain. The destination is not trusted when supplied by the redeemer or off-chain
 builder. A valid proof authorizes the spend only to the proof-bound destination
 address, and the protected input value must be covered by that output.
+
+The native comparison converts only ledger-originated `TxOut` value data with
+`unsafeDataAsValue`. Cardano ledger values are canonical and quantities in a
+`TxOut` are non-negative, satisfying the protocol-v11 builtin preconditions.
+Redeemer-supplied data is not converted this way. The one-shot minting policy
+also intentionally retains its explicit mint-map checks because a mint value
+can contain negative burn quantities.
 
 `destinationAddressV1` is a network-independent, fixed 58-byte encoding:
 
@@ -315,9 +330,9 @@ For every withdrawal under
    Enterprise addresses are encoded with a zero stake credential; base addresses
    encode the stake credential; pointer staking credentials are unsupported.
 7. Verify the single proof against the multi-proof public input.
-8. Require the aggregate protected value from all matching base inputs to be
-   less than or equal to the aggregate contiguous destination-run value using
-   full multi-asset comparison.
+8. Aggregate protected and destination-run values with native `unionValue`,
+   then require the destination value to contain the protected value with
+   native `valueContains` using full multi-asset comparison.
 
 ### Invariants
 

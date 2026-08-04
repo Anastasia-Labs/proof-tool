@@ -76,11 +76,9 @@ loadProtocol11Snapshot path = do
         evaluatorParameterCount <-
           case warnings of
             [] -> Right 350
-            [CMTooManyParamsWarn expected actual]
-              | expected == 297 && actual == 350 -> Right expected
             _ ->
               Left $
-                "unexpected PlutusV3 cost model warning(s): "
+                "Plutus 1.66.0.0 must consume the complete 350-entry PV11 cost model; warning(s): "
                   <> renderWarnings warnings
         pure
           Protocol11Snapshot

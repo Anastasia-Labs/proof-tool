@@ -57,15 +57,15 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | Purpose | `scriptContextScriptInfo` | Current purpose is `RewardingScript _` | Any other script purpose |
 | Redeemer decode | Raw constructor field extraction | Contains parameter index, destination start index, proof list, and digest list in the V2 positions | Malformed or missing fields |
-| Parameter ref index | `findReferenceInputAt reclaimParamsIdx txInfoReferenceInputs` | Index is non-negative and in bounds | Negative or out of bounds |
+| Parameter ref index | `findReferenceInputAt reclaimParamsIdx txInfoReferenceInputs` | Index resolves in bounds and the selected output carries the exact parameter NFT/datum | Out of bounds or selected output fails parameter authentication; negative indices alias index zero under `dropList` semantics |
 | Parameter NFT | `hasExactlyOneParamToken paramsCurrencySymbol paramsOut` | The parameter output contains one token with quantity `1` under the configured currency symbol | Missing symbol, multiple token names under symbol, or quantity not `1` |
 | Parameter datum | `decodeParams paramsOut` | Parameter output has inline datum decodable as `ReclaimGlobalParams` | Missing datum, datum hash only, or malformed datum |
 | Base input match | `isReclaimBaseInput reclaimBaseScriptHash txIn` | Input resolved output address is `ScriptCredential reclaimBaseScriptHash` | Non-base inputs are skipped |
 | Slot consumption | `validateReclaimInputsV2` | Exactly one full proof, digest, and destination output consumed per matching base input, in ledger order | Missing or unused slot material, zero base inputs, or output-order mismatch |
-| Destination output consumption | `validateReclaimInputsV2` | Exactly one destination output consumed per matching base input, starting at `reclaimDestinationOutStartIdx` | Negative/out-of-bounds start index, missing destination output, or destination output order mismatch |
+| Destination output consumption | `validateReclaimInputsV2` | Exactly one destination output consumed per matching base input, starting at `reclaimDestinationOutStartIdx`; negative starts alias zero | Out-of-bounds start index, missing destination output, or destination output order mismatch |
 | Base datum/statement | `validateReclaimInputsV2` | Base input has inline `ReclaimBaseDatum`, a 28-byte key hash, and the supplied digest equals the domain-separated credential/destination statement | Missing/malformed datum, bad key hash length, wrong digest, or destination substitution |
-| Batch proof | `reclaimBatchTranscriptV2`, `foldBatchProof`, `foldBatchScalarState` | Every 336-byte proof participates once in the verifier-key-bound ordered batch and both final verification equations accept | Malformed proof, reordering/substitution, Groth16 failure, or commitment proof-of-knowledge failure |
-| Output value policy | `Value.leq` | Corresponding destination output value covers the full input value across all assets | Lovelace underpayment, missing native asset, or insufficient native asset quantity |
+| Batch proof | `reclaimBatchTranscriptV2`, `finishBatchColumns` | Every 336-byte proof participates once in the verifier-key/statement-bound ordered batch and the digest-suffix-separated merged Groth16/commitment-PoK pairing product accepts | Malformed proof, reordering/substitution, Groth16 failure, or commitment proof-of-knowledge failure |
+| Output value policy | Native `valueContains` over ledger-originated `TxOut` values | Corresponding destination output value covers the full input value across all assets | Lovelace underpayment, missing native asset, or insufficient native asset quantity |
 
 ## Compliance Matrix
 
@@ -78,7 +78,7 @@ stateDiagram-v2
 | Base script does not validate purpose, datum, proofs, destinations, or value | ReclaimBase | `reclaimBaseValidatorBuiltin` | Those responsibilities are centralized in ledger invocation and GlobalV2 |
 | Global script is parameterized by exact parameter NFT identity, verifier key, and verifier-key hash | ReclaimGlobalV2 | `reclaimGlobalValidatorV2` | Four validator parameters; exporter rejects a key/hash mismatch |
 | Global redeemer contains parameter index, destination start index, ordered full proofs, and ordered statement digests | ReclaimGlobalV2 | `reclaimGlobalRedeemerDataV2` and raw field extraction | Four-field constructor shape |
-| Parameter UTxO must be a reference input | ReclaimGlobalV2 | `findReferenceInputAtData` over `txInfoReferenceInputs` | Does not search spending inputs |
+| Parameter UTxO must be a reference input | ReclaimGlobalV2 | `findReferenceInputAt` over `txInfoReferenceInputs` | Does not search spending inputs |
 | Parameter NFT identifies params datum | ReclaimGlobalV2 | `hasExactlyOneParamTokenData`, `decodeValidatedParams` | Checks exact policy/token and inline datum on the same referenced output |
 | Global script traverses tx inputs in ledger order | ReclaimGlobalV2 | `validateReclaimInputsV2` recursion over `txInfoInputs` | Proofs, digests, and destination outputs are consumed in the same recursion |
 | Global script verifies every matching base input | ReclaimGlobalV2 | `validateFreshBatchReclaimProofWithDigest` plus final batch checks | Statement digest binds the base datum credential and on-chain destination; each full proof enters the V2 fold |

@@ -11,7 +11,7 @@ module Ownership.OneShotNFT
   , spendsTxOutRef
   ) where
 
-import PlutusTx (CompiledCode, unsafeFromBuiltinData)
+import PlutusTx (CompiledCode)
 import qualified PlutusTx
 import PlutusLedgerApi.V3
   ( ScriptContext
@@ -26,11 +26,12 @@ import PlutusLedgerApi.V3.Contexts (ownCurrencySymbol)
 import PlutusTx.Prelude
 import qualified PlutusLedgerApi.V3 as V3
 import qualified PlutusTx.AssocMap as Map
+import qualified PlutusTx.List as List
 
 {-# INLINABLE spendsTxOutRef #-}
 spendsTxOutRef :: TxOutRef -> TxInfo -> Bool
 spendsTxOutRef seedRef txInfo =
-  any
+  List.any
     (\txIn -> txInInfoOutRef txIn == seedRef)
     (txInfoInputs txInfo)
 

@@ -64,11 +64,12 @@ func ChallengeV2(transcript []byte) *big.Int {
 	return challenge(transcript)
 }
 
-// MergeChallengeV2 derives the optional suffix-separated second challenge
-// from the very same complete V2 transcript.
+// MergeChallengeV2 commits the complete transcript once, then derives the
+// suffix-separated merge challenge from transcript_digest || 0x01.
 func MergeChallengeV2(transcript []byte) *big.Int {
-	withSuffix := make([]byte, 0, len(transcript)+1)
-	withSuffix = append(withSuffix, transcript...)
+	digest := blake2b.Sum256(transcript)
+	withSuffix := make([]byte, 0, len(digest)+1)
+	withSuffix = append(withSuffix, digest[:]...)
 	withSuffix = append(withSuffix, 0x01)
 	return challenge(withSuffix)
 }

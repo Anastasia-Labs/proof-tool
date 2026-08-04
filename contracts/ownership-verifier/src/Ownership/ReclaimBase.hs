@@ -26,14 +26,9 @@ data ReclaimBaseDatum = ReclaimBaseDatum
 PlutusTx.makeIsDataIndexed ''ReclaimBaseDatum [('ReclaimBaseDatum, 0)]
 PlutusTx.makeLift ''ReclaimBaseDatum
 
-{-# INLINABLE builtinIf #-}
-builtinIf :: BI.BuiltinBool -> a -> a -> a
-builtinIf condition trueBranch falseBranch =
-  BI.ifThenElse condition (\_ -> trueBranch) (\_ -> falseBranch) BI.unitval
-
 -- | Extract the withdrawal map from a library-encoded V3 ScriptContext.
 -- The ledger constructs both single-constructor records and guarantees their
--- field counts. In plutus-ledger-api-1.38.0.0, txInfoWdrl is fixed at field 6,
+-- field counts. In plutus-ledger-api-1.66.0.0, txInfoWdrl is fixed at field 6,
 -- after inputs, reference inputs, outputs, fee, mint, and certificates. Use a
 -- direct unsafe projection rather than rechecking ledger-owned tags or list
 -- lengths on every ReclaimBase execution. The layout test keeps this pinned
@@ -43,43 +38,31 @@ txInfoWdrlFromContextData :: BuiltinData -> BuiltinData
 txInfoWdrlFromContextData ctx =
   let txInfo = BI.head (BI.snd (BI.unsafeDataAsConstr ctx))
       txInfoFields = BI.snd (BI.unsafeDataAsConstr txInfo)
-   in BI.head
-        ( BI.tail
-            ( BI.tail
-                ( BI.tail
-                    ( BI.tail
-                        (BI.tail (BI.tail txInfoFields))
-                    )
-                )
-            )
-        )
+   in BI.head (BI.drop 6 txInfoFields)
 
 {-# INLINABLE withdrawalKeyPresent #-}
-withdrawalKeyPresent :: BuiltinData -> BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> BI.BuiltinBool
+withdrawalKeyPresent :: BuiltinData -> BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> Bool
 withdrawalKeyPresent expectedKey entries =
   B.caseList
-    (\() -> BI.false)
+    (\() -> False)
     ( \entry rest ->
-        builtinIf
-          (BI.equalsData expectedKey (BI.fst entry))
-          BI.true
-          (withdrawalKeyPresent expectedKey rest)
+        if BI.equalsData expectedKey (BI.fst entry)
+          then True
+          else withdrawalKeyPresent expectedKey rest
     )
     entries
 
 -- | Production-only traversal that returns the validator result directly.
--- Keep 'withdrawalKeyPresent' as the observable Boolean helper used by tests,
--- while avoiding its BuiltinBool-to-Bool conversion in the compiled script.
+-- Keep 'withdrawalKeyPresent' as the observable Boolean helper used by tests.
 {-# INLINABLE requireWithdrawalKey #-}
 requireWithdrawalKey :: BuiltinData -> BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> BuiltinUnit
 requireWithdrawalKey expectedKey entries =
   B.caseList
     (\() -> traceError "reclaim global withdrawal missing")
     ( \entry rest ->
-        builtinIf
-          (BI.equalsData expectedKey (BI.fst entry))
-          BI.unitval
-          (requireWithdrawalKey expectedKey rest)
+        if BI.equalsData expectedKey (BI.fst entry)
+          then BI.unitval
+          else requireWithdrawalKey expectedKey rest
     )
     entries
 
@@ -91,7 +74,7 @@ requireWithdrawalKey expectedKey entries =
 -- global validator; duplicating them here adds cost without strengthening the
 -- composed authorization property.
 {-# INLINABLE reclaimBaseValidatorBuiltin #-}
-reclaimBaseValidatorBuiltin :: BuiltinData -> BuiltinData -> BI.BuiltinBool
+reclaimBaseValidatorBuiltin :: BuiltinData -> BuiltinData -> Bool
 reclaimBaseValidatorBuiltin globalCredentialData ctx =
   withdrawalKeyPresent
     globalCredentialData
