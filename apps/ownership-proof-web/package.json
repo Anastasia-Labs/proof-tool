@@ -29,9 +29,10 @@
     "visual:lock-funds:strict": "NEXT_PUBLIC_LOCK_FUNDS_UI_FIXTURE=1 LOCK_FUNDS_VISUAL_STRICT=1 node scripts/lock-funds-ui-visual-check.mjs"
   },
   "dependencies": {
-    "@lucid-evolution/core-types": "0.2.1",
-    "@lucid-evolution/lucid": "0.5.5",
-    "@lucid-evolution/provider": "0.1.96",
+    "@lucid-evolution/core-types": "0.3.0",
+    "@lucid-evolution/lucid": "0.6.0",
+    "@lucid-evolution/provider": "0.2.0",
+    "@lucid-evolution/scalus-uplc": "0.1.3",
     "@noble/hashes": "1.8.0",
     "@proof-zk-recovery/proof-tool-client": "file:../../packages/client-ts",
     "bech32": "2.0.0",

@@ -19,6 +19,7 @@ import {
   validatorToScriptHash,
   walletFromSeed,
 } from "@lucid-evolution/lucid";
+import { createScalusEvaluator } from "@lucid-evolution/scalus-uplc";
 import { normalizePreprodWalletRoles } from "./preflight.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -64,7 +65,10 @@ export async function deployReclaimPreprod(options = {}) {
   const deployer = walletRole(walletFile, "deployer");
   const provider = createProvider(env);
   const protocol = await provider.getProtocolParameters();
-  const lucid = await Lucid(provider, NETWORK);
+  const lucid = await Lucid(provider, NETWORK, {
+    evaluator: createScalusEvaluator(),
+    presetProtocolParameters: protocol,
+  });
   lucid.selectWallet.fromSeed(deployer.mnemonic, { accountIndex: 0 });
   const deployerAddress = walletFromSeed(deployer.mnemonic, { network: NETWORK }).address;
   const deployerDetails = getAddressDetails(deployerAddress);
@@ -159,6 +163,7 @@ export async function deployReclaimPreprod(options = {}) {
     .complete({
       canonical: true,
       changeAddress: deployerAddress,
+      localUPLCEval: true,
       presetWalletInputs: deployerUtxos,
     });
 

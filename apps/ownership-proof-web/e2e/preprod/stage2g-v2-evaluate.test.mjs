@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe("Stage 2g V2 distinct benchmark evaluator", () => {
-  it("uses local material, direct scripts, and exactly one provider measurement while writing redacted evidence", async () => {
+  it("uses local material, direct scripts, and local Scalus measurement while writing redacted evidence", async () => {
     const outputDir = tempDir();
     const material = benchmarkMaterial();
     const materialPath = writeMaterial(outputDir, material);
@@ -42,6 +42,7 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
     const bootstrapBuilder = vi.fn(async () => ({
       txCbor: "a100",
       additionalUtxos: Array.from({ length: 10 }, (_, index) => ({ txHash: `${index}`.repeat(64), outputIndex: 0 })),
+      redeemers: measuredRedeemers(),
       attachment: "direct",
     }));
 
@@ -65,8 +66,7 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
         scripts,
       }),
     );
-    expect(provider.evaluateTx).toHaveBeenCalledTimes(1);
-    expect(provider.evaluateTx).toHaveBeenCalledWith("a100", expect.any(Array));
+    expect(provider.evaluateTx).not.toHaveBeenCalled();
     expect(provider.submitTx).not.toHaveBeenCalled();
     expect(provider.signTx).not.toHaveBeenCalled();
     expect(provider.getUtxos).not.toHaveBeenCalled();
@@ -98,7 +98,7 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
         tx_cbor_written: false,
         tx_cbor_bytes: 2,
         reference_scripts: false,
-        provider_measurement_only: true,
+        local_scalus_evaluation: true,
       },
       safety: {
         signing: false,
@@ -148,14 +148,6 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
     const material = benchmarkMaterial();
     const evidencePath = stageEvidencePath(outputDir);
     const provider = fakeProvider();
-    provider.evaluateTx.mockResolvedValue(
-      Array.from({ length: 8 }, (_, index) => ({
-        redeemer_tag: index < 7 ? "spend" : "withdraw",
-        redeemer_index: index < 7 ? index : 0,
-        ex_units: { mem: 1_000, steps: 120_000 },
-      })),
-    );
-
     await expect(
       evaluateStage2gV2({
         env: gates(),
@@ -170,6 +162,7 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
             txHash: `${index}`.repeat(64),
             outputIndex: 0,
           })),
+          redeemers: measuredRedeemers({ steps: 120_000 }),
           attachment: "direct",
         }),
         protocolParameters,
@@ -191,11 +184,7 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
     const outputDir = tempDir();
     const material = benchmarkMaterial();
     const leakedCredential = material.entries[0].credential;
-    const provider = fakeProvider({
-      error: new Error(
-        `withdrawal stake account not registered for ${material.entries[0].destination_address}; credential=${leakedCredential}; proof=${material.entries[0].proof_hex}`,
-      ),
-    });
+    const provider = fakeProvider();
     const evidencePath = stageEvidencePath(outputDir);
     const log = vi.fn();
 
@@ -207,21 +196,18 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
         evidencePath,
         provider,
         exporter: async () => scripts,
-        bootstrapBuilder: async () => ({
-          txCbor: "a100",
-          additionalUtxos: Array.from({ length: 10 }, (_, index) => ({
-            txHash: `${index}`.repeat(64),
-            outputIndex: 0,
-          })),
-          attachment: "direct",
-        }),
+        bootstrapBuilder: async () => {
+          throw new Error(
+            `withdrawal stake account not registered for ${material.entries[0].destination_address}; credential=${leakedCredential}; proof=${material.entries[0].proof_hex}`,
+          );
+        },
         protocolParameters,
         log,
       }),
     ).rejects.toMatchObject({
       code: "synthetic_stake_state_rejected",
     });
-    expect(provider.evaluateTx).toHaveBeenCalledTimes(1);
+    expect(provider.evaluateTx).not.toHaveBeenCalled();
     expect(provider.submitTx).not.toHaveBeenCalled();
     const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
     expect(evidence).toMatchObject({
@@ -295,6 +281,7 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
             txHash: `${index}`.repeat(64),
             outputIndex: 0,
           })),
+          redeemers: measuredRedeemers(),
           attachment: "direct",
         }),
         protocolParameters,
@@ -325,6 +312,7 @@ describe("Stage 2g V2 distinct benchmark evaluator", () => {
             txHash: `${index}`.repeat(64),
             outputIndex: 0,
           })),
+          redeemers: measuredRedeemers(),
           attachment: "direct",
         }),
         protocolParameters,
@@ -376,6 +364,21 @@ function fakeProvider(options = {}) {
     signTx: vi.fn(),
     getUtxos: vi.fn(),
   };
+}
+
+function measuredRedeemers({ mem = 1_000, steps = 10_000 } = {}) {
+  return [
+    ...Array.from({ length: 7 }, (_, index) => ({
+      redeemer_tag: "spend",
+      redeemer_index: index,
+      ex_units: { mem, steps },
+    })),
+    {
+      redeemer_tag: "withdraw",
+      redeemer_index: 0,
+      ex_units: { mem, steps },
+    },
+  ];
 }
 
 function benchmarkMaterial() {
