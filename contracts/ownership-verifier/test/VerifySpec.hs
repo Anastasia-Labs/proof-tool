@@ -5,6 +5,7 @@ module Main (main) where
 
 import Control.Exception (SomeException, evaluate, try)
 import Control.Monad (forM_)
+import qualified Data.ByteString.Short as SBS
 import Data.Char (digitToInt, isHexDigit)
 import Data.List (foldl', nubBy, zipWith4)
 
@@ -34,7 +35,7 @@ import qualified PlutusTx.AssocMap as Map
 import qualified UntypedPlutusCore as UPLC
 import qualified UntypedPlutusCore.Evaluation.Machine.Cek as Cek
 
-import Ownership.OneShotNFT (oneShotNFTPolicy)
+import Ownership.OneShotNFT (oneShotNFTPolicy, oneShotNFTPolicyCode)
 import Ownership.ReclaimBase
   ( ReclaimBaseDatum (..)
   , reclaimBaseValidatorBuiltin
@@ -714,6 +715,44 @@ main = do
         , testCase "ignores minting under other policies when exactly one own token is minted" $
             oneShotNFTPolicy seedRef (mintingContext [seedRef] (mintValue [(ownSymbol, [(tokenName, 1)]), (otherSymbol, [(otherTokenName, 10)])]))
               @?= True
+        , testCase "compact compiled policy accepts the ledger V3 context without traces" $ do
+            let script =
+                  compiledToProgram $
+                    oneShotNFTPolicyCode
+                      `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.toBuiltinData seedRef)
+                (succeeded, emittedNoLogs) =
+                  evaluateCompiledScript
+                    script
+                    (mintingContext [seedRef] (mintValue [(ownSymbol, [(tokenName, 1)])]))
+            assertBool "compact one-shot policy rejected a valid mint" succeeded
+            assertBool "compact one-shot policy emitted traces" emittedNoLogs
+        , testCase "compact compiled policy rejects a missing seed input" $ do
+            let script =
+                  compiledToProgram $
+                    oneShotNFTPolicyCode
+                      `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.toBuiltinData seedRef)
+                (succeeded, _) =
+                  evaluateCompiledScript
+                    script
+                    (mintingContext [otherRef] (mintValue [(ownSymbol, [(tokenName, 1)])]))
+            assertBool "compact one-shot policy accepted without the seed input" (not succeeded)
+        , testCase "compact compiled policy rejects multiple own tokens" $ do
+            let script =
+                  compiledToProgram $
+                    oneShotNFTPolicyCode
+                      `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.toBuiltinData seedRef)
+                (succeeded, _) =
+                  evaluateCompiledScript
+                    script
+                    (mintingContext [seedRef] (mintValue [(ownSymbol, [(tokenName, 2)])]))
+            assertBool "compact one-shot policy accepted multiple own tokens" (not succeeded)
+        , testCase "applied compact policy stays safely below the transaction-size limit" $ do
+            let code =
+                  oneShotNFTPolicyCode
+                    `PlutusTx.unsafeApplyCode` PlutusTx.liftCodeDef (V3.toBuiltinData seedRef)
+            assertBool
+              "compact one-shot policy exceeded its 2 KiB regression budget"
+              (SBS.length (V3.serialiseCompiledCode code) <= 2048)
         ]
     , testGroup "Ownership.ReclaimBase"
         [ testCase "accepts when the configured withdrawal is present" $
