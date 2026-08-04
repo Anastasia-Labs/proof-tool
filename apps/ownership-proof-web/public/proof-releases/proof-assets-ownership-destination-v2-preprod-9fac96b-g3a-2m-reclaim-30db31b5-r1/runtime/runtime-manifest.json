@@ -1,0 +1,43 @@
+{
+  "go_version": "go version go1.26.5 linux/amd64",
+  "build_flags": [
+    "-trimpath",
+    "-buildvcs=false",
+    "-mod=vendor",
+    "-ldflags",
+    "-buildid="
+  ],
+  "wasm_opt": "wasm-opt version 130 (version_130) -O3 -all",
+  "files": [
+    {
+      "filename": "proof-destination.wasm",
+      "size_bytes": 22882453,
+      "sha256": "3ad5f0ab4b9bbef21c3530a5eb09278823b4e348bc2a2e3e31f8d71c2ba56d4e",
+      "blake2b256": "107406db64de119b9547f100979d9b2c493d43edae45f438a76f5e32c89f7491"
+    },
+    {
+      "filename": "msmworker.wasm",
+      "size_bytes": 11141058,
+      "sha256": "f94900e5e684854f4db1a44c2b0dfb09572b74d80f3031d49e9c778ee1190225",
+      "blake2b256": "084f31fa51c61dc25a208645ce22e5880c8d6ea2e9d0cb65ceb0174cb3a67a25"
+    },
+    {
+      "filename": "wasm_exec.js",
+      "size_bytes": 16992,
+      "sha256": "0c949f4996f9a89698e4b5c586de32249c3b69b7baadb64d220073cc04acba14",
+      "blake2b256": "9be0dbf2b47f0cf1e2f7525312c1a03b241eebd4002af8486ed352f981af9246"
+    },
+    {
+      "filename": "msm-worker.js",
+      "size_bytes": 22008,
+      "sha256": "743e73bfd3a2fa48301c5cd63a7e9e1c3258143041aad00a4d70e1787b78cee0",
+      "blake2b256": "4cc299e2e1abd240390c17e703da77d31c251a0a121203425abf872ecad015f6"
+    },
+    {
+      "filename": "prover-worker.js",
+      "size_bytes": 18306,
+      "sha256": "c0dc56625cd93191afa3aa18f5205be061d88da1a5100b0f11364e37ff133027",
+      "blake2b256": "0530e1369a193ed17b20e6d77b2cf05dd0b795ee5ba4cb1fa9cff017fe5e272f"
+    }
+  ]
+}
