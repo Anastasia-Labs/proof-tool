@@ -2,8 +2,8 @@
 # Verifies that vendor/ is exactly `go mod vendor` output plus
 # the reviewed patches under experiments/wasm-prover/patches. The vendored
 # dependencies contain ProveStream/MSM plus opt-W2 domain-decoding, opt-W3
-# CCS-release, opt-W1 scheduling/yield, opt-W6 computeH table-lifetime, and
-# opt-C8 constant byte-operation folding seams;
+# CCS-release, opt-W1 scheduling/yield, opt-W6 computeH table-lifetime,
+# opt-C8 constant byte-operation folding, and native MPC ceremony parallelism;
 # regenerating vendor/ without this check in place silently deletes the prover.
 #
 # Fails (exit 1) on any drift in either direction: an unmirrored vendor edit,
@@ -16,9 +16,12 @@ PATCHES=(
   experiments/wasm-prover/patches/domain-read-no-precompute.patch
   experiments/wasm-prover/patches/release-ccs-after-solve.patch
   experiments/wasm-prover/patches/dispatch-before-fft.patch
-	experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch
-	experiments/wasm-prover/patches/uints-constant-fold.patch
-	experiments/wasm-prover/patches/computeh-parallel-transforms.patch
+  experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch
+  experiments/wasm-prover/patches/uints-constant-fold.patch
+  experiments/wasm-prover/patches/computeh-parallel-transforms.patch
+  experiments/wasm-prover/patches/mpc-phase1-parallel-update.patch
+  experiments/wasm-prover/patches/mpc-phase1-parallel-codec.patch
+  experiments/wasm-prover/patches/mpc-phase2-parallel-initialize.patch
 )
 
 for patch in "${PATCHES[@]}"; do

@@ -2,7 +2,8 @@
 # Regenerates vendor/ from go.mod and applies the reviewed browser-prover patches
 # (gnark ProveStream/MSM seam, opt-W2 domain decoding, opt-W3 CCS release, and
 # opt-W1 dispatch-before-FFT scheduling/yields, opt-W6 scoped computeH
-# coset-table reuse and opt-C8 constant byte-operation folding).
+# coset-table reuse, opt-C8 constant byte-operation folding, and the native
+# MPC ceremony Phase 1/Phase 2 parallel hot paths).
 # vendor/ is
 # gitignored; this script is the ONLY supported way to (re)create it.
 # A plain `go mod vendor` produces a tree WITHOUT the streaming prover and
@@ -19,9 +20,12 @@ PATCHES=(
   experiments/wasm-prover/patches/domain-read-no-precompute.patch
   experiments/wasm-prover/patches/release-ccs-after-solve.patch
   experiments/wasm-prover/patches/dispatch-before-fft.patch
-	experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch
-	experiments/wasm-prover/patches/uints-constant-fold.patch
-	experiments/wasm-prover/patches/computeh-parallel-transforms.patch
+  experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch
+  experiments/wasm-prover/patches/uints-constant-fold.patch
+  experiments/wasm-prover/patches/computeh-parallel-transforms.patch
+  experiments/wasm-prover/patches/mpc-phase1-parallel-update.patch
+  experiments/wasm-prover/patches/mpc-phase1-parallel-codec.patch
+  experiments/wasm-prover/patches/mpc-phase2-parallel-initialize.patch
 )
 
 for patch in "${PATCHES[@]}"; do

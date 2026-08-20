@@ -22,6 +22,9 @@ that foundation.
 - [`trusted-setup-ceremony.md`](trusted-setup-ceremony.md): setup provenance and
   signed key-bundle handling, including the explicit boundary between local
   single-actor setup and MPC.
+- [`mpc-ceremony-parallel-optimizations.md`](mpc-ceremony-parallel-optimizations.md):
+  gnark Phase 1/Phase 2 threading changes, safety invariants, benchmarks, and
+  the initial exact K=21 comparison result.
 - [`mpc-ceremony-runbook.md`](mpc-ceremony-runbook.md): production operator,
   contributor, auditor, beacon, archival, replay, and release gates for the
   dedicated two-phase BLS12-381 MPC ceremony.

@@ -1,0 +1,194 @@
+--- vendor/github.com/consensys/gnark/backend/groth16/bls12-381/mpcsetup/phase1.go
++++ vendor/github.com/consensys/gnark/backend/groth16/bls12-381/mpcsetup/phase1.go
+@@ -16,6 +16,7 @@
+ 	curve "github.com/consensys/gnark-crypto/ecc/bls12-381"
+ 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
+ 	"github.com/consensys/gnark-crypto/ecc/bls12-381/mpcsetup"
++	"github.com/consensys/gnark/internal/utils"
+ )
+ 
+ // SrsCommons are the circuit-independent components of the Groth16 SRS,
+@@ -102,9 +103,6 @@
+ 
+ // from the fourth argument on this just gives an opportunity to avoid recomputing some scalar multiplications
+ func (c *SrsCommons) update(tauUpdate, alphaUpdate, betaUpdate *fr.Element) {
+-
+-	// TODO @gbotrel working with jacobian points here will help with perf.
+-
+ 	// update α, β
+ 	var coeff big.Int
+ 	alphaUpdate.BigInt(&coeff)
+@@ -113,35 +111,47 @@
+ 	c.G1.BetaTau[0].ScalarMultiplication(&c.G1.BetaTau[0], &coeff)
+ 	c.G2.Beta.ScalarMultiplication(&c.G2.Beta, &coeff)
+ 
+-	// update all values from 1 to N-1
+-	tauPowI := *tauUpdate
+-	for i := 1; i < len(c.G2.Tau); i++ {
+-		tauPowI.BigInt(&coeff)
+-
+-		c.G1.Tau[i].ScalarMultiplication(&c.G1.Tau[i], &coeff)
+-		c.G2.Tau[i].ScalarMultiplication(&c.G2.Tau[i], &coeff)
+-
+-		var tauPowIScaled fr.Element
+-
+-		// let α₁ = α₀.α', τ₁ = τ₀.τ'
+-		// then α₁τ₁ⁱ = (α₀τ₀ⁱ)α'τ'ⁱ
+-		tauPowIScaled.Mul(&tauPowI, alphaUpdate)
+-		tauPowIScaled.BigInt(&coeff)
+-		c.G1.AlphaTau[i].ScalarMultiplication(&c.G1.AlphaTau[i], &coeff)
+-
+-		// similarly for β
+-		tauPowIScaled.Mul(&tauPowI, betaUpdate)
+-		tauPowIScaled.BigInt(&coeff)
+-		c.G1.BetaTau[i].ScalarMultiplication(&c.G1.BetaTau[i], &coeff)
++	// Every worker owns a disjoint range and computes the first power it needs.
++	// Splitting the two ranges separately balances the more expensive first half
++	// (four scalar multiplications per index) independently from the second half.
++	utils.Parallelize(len(c.G2.Tau)-1, func(start, end int) {
++		start++
++		end++
++		updateTauRange(c, tauUpdate, alphaUpdate, betaUpdate, start, end, true)
++	})
++	utils.Parallelize(len(c.G1.Tau)-len(c.G2.Tau), func(start, end int) {
++		start += len(c.G2.Tau)
++		end += len(c.G2.Tau)
++		updateTauRange(c, tauUpdate, alphaUpdate, betaUpdate, start, end, false)
++	})
++}
+ 
+-		tauPowI.Mul(&tauPowI, tauUpdate)
+-	}
++func updateTauRange(c *SrsCommons, tauUpdate, alphaUpdate, betaUpdate *fr.Element, start, end int, updateBothGroups bool) {
++	var exponent, coeff big.Int
++	exponent.SetUint64(uint64(start))
++	var tauPowI fr.Element
++	tauPowI.Exp(*tauUpdate, &exponent)
+ 
+-	// update the rest of [τⁱ]₁
+-	for i := len(c.G2.Tau); i < len(c.G1.Tau); i++ {
++	for i := start; i < end; i++ {
+ 		tauPowI.BigInt(&coeff)
+ 		c.G1.Tau[i].ScalarMultiplication(&c.G1.Tau[i], &coeff)
+ 
++		if updateBothGroups {
++			c.G2.Tau[i].ScalarMultiplication(&c.G2.Tau[i], &coeff)
++
++			var tauPowIScaled fr.Element
++			// let α₁ = α₀.α', τ₁ = τ₀.τ'
++			// then α₁τ₁ⁱ = (α₀τ₀ⁱ)α'τ'ⁱ
++			tauPowIScaled.Mul(&tauPowI, alphaUpdate)
++			tauPowIScaled.BigInt(&coeff)
++			c.G1.AlphaTau[i].ScalarMultiplication(&c.G1.AlphaTau[i], &coeff)
++
++			// similarly for β
++			tauPowIScaled.Mul(&tauPowI, betaUpdate)
++			tauPowIScaled.BigInt(&coeff)
++			c.G1.BetaTau[i].ScalarMultiplication(&c.G1.BetaTau[i], &coeff)
++		}
++
+ 		tauPowI.Mul(&tauPowI, tauUpdate)
+ 	}
+ }
+--- /dev/null
++++ vendor/github.com/consensys/gnark/backend/groth16/bls12-381/mpcsetup/phase1_parallel_test.go
+@@ -0,0 +1,99 @@
++package mpcsetup
++
++import (
++	"math/big"
++	"reflect"
++	"testing"
++
++	curve "github.com/consensys/gnark-crypto/ecc/bls12-381"
++	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
++)
++
++func updateSerial(c *SrsCommons, tauUpdate, alphaUpdate, betaUpdate *fr.Element) {
++	var coeff big.Int
++	alphaUpdate.BigInt(&coeff)
++	c.G1.AlphaTau[0].ScalarMultiplication(&c.G1.AlphaTau[0], &coeff)
++	betaUpdate.BigInt(&coeff)
++	c.G1.BetaTau[0].ScalarMultiplication(&c.G1.BetaTau[0], &coeff)
++	c.G2.Beta.ScalarMultiplication(&c.G2.Beta, &coeff)
++
++	tauPowI := *tauUpdate
++	for i := 1; i < len(c.G2.Tau); i++ {
++		tauPowI.BigInt(&coeff)
++		c.G1.Tau[i].ScalarMultiplication(&c.G1.Tau[i], &coeff)
++		c.G2.Tau[i].ScalarMultiplication(&c.G2.Tau[i], &coeff)
++
++		var scaled fr.Element
++		scaled.Mul(&tauPowI, alphaUpdate).BigInt(&coeff)
++		c.G1.AlphaTau[i].ScalarMultiplication(&c.G1.AlphaTau[i], &coeff)
++		scaled.Mul(&tauPowI, betaUpdate).BigInt(&coeff)
++		c.G1.BetaTau[i].ScalarMultiplication(&c.G1.BetaTau[i], &coeff)
++		tauPowI.Mul(&tauPowI, tauUpdate)
++	}
++	for i := len(c.G2.Tau); i < len(c.G1.Tau); i++ {
++		tauPowI.BigInt(&coeff)
++		c.G1.Tau[i].ScalarMultiplication(&c.G1.Tau[i], &coeff)
++		tauPowI.Mul(&tauPowI, tauUpdate)
++	}
++}
++
++func testCommons(n uint64) SrsCommons {
++	var c SrsCommons
++	c.setOne(n)
++	return c
++}
++
++func TestParallelUpdateMatchesSerial(t *testing.T) {
++	var tau, alpha, beta fr.Element
++	tau.SetUint64(17)
++	alpha.SetUint64(23)
++	beta.SetUint64(29)
++
++	for _, n := range []uint64{1, 2, 3, 17, 64} {
++		t.Run(new(big.Int).SetUint64(n).String(), func(t *testing.T) {
++			want := testCommons(n)
++			got := testCommons(n)
++			updateSerial(&want, &tau, &alpha, &beta)
++			got.update(&tau, &alpha, &beta)
++			if !reflect.DeepEqual(got, want) {
++				t.Fatal("parallel update differs from the serial implementation")
++			}
++		})
++	}
++}
++
++func benchmarkUpdate(b *testing.B, parallel bool) {
++	const n = 1 << 10
++	var tau, alpha, beta fr.Element
++	tau.SetUint64(17)
++	alpha.SetUint64(23)
++	beta.SetUint64(29)
++	base := testCommons(n)
++	b.ReportAllocs()
++	b.ResetTimer()
++	for i := 0; i < b.N; i++ {
++		c := cloneCommons(base)
++		if parallel {
++			c.update(&tau, &alpha, &beta)
++		} else {
++			updateSerial(&c, &tau, &alpha, &beta)
++		}
++	}
++}
++
++func cloneCommons(c SrsCommons) SrsCommons {
++	cloneG1 := func(points []curve.G1Affine) []curve.G1Affine {
++		return append([]curve.G1Affine(nil), points...)
++	}
++	cloneG2 := func(points []curve.G2Affine) []curve.G2Affine {
++		return append([]curve.G2Affine(nil), points...)
++	}
++	c.G1.Tau = cloneG1(c.G1.Tau)
++	c.G1.AlphaTau = cloneG1(c.G1.AlphaTau)
++	c.G1.BetaTau = cloneG1(c.G1.BetaTau)
++	c.G2.Tau = cloneG2(c.G2.Tau)
++	return c
++}
++
++func BenchmarkUpdateSerial(b *testing.B)   { benchmarkUpdate(b, false) }
++func BenchmarkUpdateParallel(b *testing.B) { benchmarkUpdate(b, true) }

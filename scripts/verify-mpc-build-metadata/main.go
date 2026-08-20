@@ -70,6 +70,9 @@ var (
 		"computeh-scoped-coset-tables.patch",
 		"uints-constant-fold.patch",
 		"computeh-parallel-transforms.patch",
+		"mpc-phase1-parallel-update.patch",
+		"mpc-phase1-parallel-codec.patch",
+		"mpc-phase2-parallel-initialize.patch",
 	}
 )
 

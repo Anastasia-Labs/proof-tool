@@ -30,6 +30,9 @@ var gnarkPatchPaths = []string{
 	"experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch",
 	"experiments/wasm-prover/patches/uints-constant-fold.patch",
 	"experiments/wasm-prover/patches/computeh-parallel-transforms.patch",
+	"experiments/wasm-prover/patches/mpc-phase1-parallel-update.patch",
+	"experiments/wasm-prover/patches/mpc-phase1-parallel-codec.patch",
+	"experiments/wasm-prover/patches/mpc-phase2-parallel-initialize.patch",
 }
 
 type bom struct {

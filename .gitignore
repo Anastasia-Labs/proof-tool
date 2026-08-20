@@ -71,6 +71,9 @@ experiments/wasm-prover/patches/*
 !experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch
 !experiments/wasm-prover/patches/uints-constant-fold.patch
 !experiments/wasm-prover/patches/computeh-parallel-transforms.patch
+!experiments/wasm-prover/patches/mpc-phase1-parallel-update.patch
+!experiments/wasm-prover/patches/mpc-phase1-parallel-codec.patch
+!experiments/wasm-prover/patches/mpc-phase2-parallel-initialize.patch
 !experiments/wasm-prover/runtime/**
 !experiments/wasm-prover/fault/**
 !experiments/wasm-prover/scripts/**
@@ -90,3 +93,7 @@ experiments/wasm-prover/web/*
 /docs/ux-review-landing-and-claim-flow.md
 /contracts/ownership-verifier/testdata/*-review.md
 .vercel/
+
+# Local Go build outputs.
+/mpc-ceremony
+/workflowhelper

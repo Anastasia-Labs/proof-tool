@@ -1,0 +1,456 @@
+--- vendor/github.com/consensys/gnark/backend/groth16/bls12-381/mpcsetup/marshal.go
++++ vendor/github.com/consensys/gnark/backend/groth16/bls12-381/mpcsetup/marshal.go
+@@ -152,56 +152,170 @@
+ 	return n + dn, err
+ }
+ 
+-// refsSlice produces a slice consisting of references to all sub-elements
+-// prepended by the size parameter, to be used in WriteTo and ReadFrom functions
+-func (c *SrsCommons) refsSlice() []any {
+-	N := uint64(len(c.G2.Tau))
+-	expectedLen := 5*N - 1
+-	// size N                                                                    1
+-	// [β]₂                                                                      1
+-	// [τⁱ]₁  for 1 ≤ i ≤ 2N-2                                                2N-2
+-	// [τⁱ]₂  for 1 ≤ i ≤ N-1                                                  N-1
+-	// [ατⁱ]₁ for 0 ≤ i ≤ N-1                                                  N
+-	// [βτⁱ]₁ for 0 ≤ i ≤ N-1                                                  N
+-	refs := make([]any, 2, expectedLen)
+-	refs[0] = N
+-	refs[1] = &c.G2.Beta
+-	refs = utils.AppendRefs(refs, c.G1.Tau[1:])
+-	refs = utils.AppendRefs(refs, c.G2.Tau[1:])
+-	refs = utils.AppendRefs(refs, c.G1.BetaTau)
+-	refs = utils.AppendRefs(refs, c.G1.AlphaTau)
+-
+-	if uint64(len(refs)) != expectedLen {
+-		panic("incorrect length estimate")
+-	}
+-
+-	return refs
+-}
+-
+-func (c *SrsCommons) WriteTo(writer io.Writer) (int64, error) {
+-	enc := curve.NewEncoder(writer)
+-	for _, v := range c.refsSlice() {
+-		if err := enc.Encode(v); err != nil {
+-			return enc.BytesWritten(), err
++const srsCodecChunkSize = 4096
++
++// WriteTo writes the canonical Phase 1 wire format. Point compression is done
++// in bounded parallel chunks, while chunks themselves are written in order.
++func (c *SrsCommons) WriteTo(writer io.Writer) (n int64, err error) {
++	var size [8]byte
++	binary.BigEndian.PutUint64(size[:], uint64(len(c.G2.Tau)))
++	if dn, writeErr := writeAll(writer, size[:]); writeErr != nil {
++		return int64(dn), writeErr
++	}
++	n = int64(len(size))
++
++	for _, write := range []func(io.Writer) (int64, error){
++		func(w io.Writer) (int64, error) { return writeG2Point(w, &c.G2.Beta) },
++		func(w io.Writer) (int64, error) { return writeG1Points(w, c.G1.Tau[1:]) },
++		func(w io.Writer) (int64, error) { return writeG2Points(w, c.G2.Tau[1:]) },
++		func(w io.Writer) (int64, error) { return writeG1Points(w, c.G1.BetaTau) },
++		func(w io.Writer) (int64, error) { return writeG1Points(w, c.G1.AlphaTau) },
++	} {
++		dn, writeErr := write(writer)
++		n += dn
++		if writeErr != nil {
++			return n, writeErr
+ 		}
+ 	}
+-	return enc.BytesWritten(), nil
++	return n, nil
+ }
+ 
+-// ReadFrom implements io.ReaderFrom
++// ReadFrom implements io.ReaderFrom. Each point still undergoes the full
++// canonical encoding, curve, and subgroup checks performed by SetBytes.
+ func (c *SrsCommons) ReadFrom(reader io.Reader) (n int64, err error) {
+-	var N uint64
+-	dec := curve.NewDecoder(reader)
+-	if err = dec.Decode(&N); err != nil {
+-		return dec.BytesRead(), err
++	var size [8]byte
++	dn, err := io.ReadFull(reader, size[:])
++	n = int64(dn)
++	if err != nil {
++		return n, err
+ 	}
+ 
++	N := binary.BigEndian.Uint64(size[:])
+ 	c.setContributionsZero(N)
+ 
+-	for _, v := range c.refsSlice()[1:] { // we've already decoded N
+-		if err = dec.Decode(v); err != nil {
+-			return dec.BytesRead(), err
++	for _, read := range []func(io.Reader) (int64, error){
++		func(r io.Reader) (int64, error) { return readG2Point(r, &c.G2.Beta) },
++		func(r io.Reader) (int64, error) { return readG1Points(r, c.G1.Tau[1:]) },
++		func(r io.Reader) (int64, error) { return readG2Points(r, c.G2.Tau[1:]) },
++		func(r io.Reader) (int64, error) { return readG1Points(r, c.G1.BetaTau) },
++		func(r io.Reader) (int64, error) { return readG1Points(r, c.G1.AlphaTau) },
++	} {
++		dn, readErr := read(reader)
++		n += dn
++		if readErr != nil {
++			return n, readErr
++		}
++	}
++	return n, nil
++}
++
++func writeAll(writer io.Writer, data []byte) (int, error) {
++	written := 0
++	for len(data) > 0 {
++		n, err := writer.Write(data)
++		written += n
++		data = data[n:]
++		if err != nil {
++			return written, err
++		}
++		if n == 0 {
++			return written, io.ErrShortWrite
++		}
++	}
++	return written, nil
++}
++
++func writeG1Points(writer io.Writer, points []curve.G1Affine) (n int64, err error) {
++	for start := 0; start < len(points); start += srsCodecChunkSize {
++		end := min(start+srsCodecChunkSize, len(points))
++		chunk := make([]byte, (end-start)*curve.SizeOfG1AffineCompressed)
++		utils.Parallelize(end-start, func(workerStart, workerEnd int) {
++			for i := workerStart; i < workerEnd; i++ {
++				encoded := points[start+i].Bytes()
++				copy(chunk[i*curve.SizeOfG1AffineCompressed:], encoded[:])
++			}
++		})
++		dn, writeErr := writeAll(writer, chunk)
++		n += int64(dn)
++		if writeErr != nil {
++			return n, writeErr
++		}
++	}
++	return n, nil
++}
++
++func writeG2Points(writer io.Writer, points []curve.G2Affine) (n int64, err error) {
++	for start := 0; start < len(points); start += srsCodecChunkSize {
++		end := min(start+srsCodecChunkSize, len(points))
++		chunk := make([]byte, (end-start)*curve.SizeOfG2AffineCompressed)
++		utils.Parallelize(end-start, func(workerStart, workerEnd int) {
++			for i := workerStart; i < workerEnd; i++ {
++				encoded := points[start+i].Bytes()
++				copy(chunk[i*curve.SizeOfG2AffineCompressed:], encoded[:])
++			}
++		})
++		dn, writeErr := writeAll(writer, chunk)
++		n += int64(dn)
++		if writeErr != nil {
++			return n, writeErr
++		}
++	}
++	return n, nil
++}
++
++func writeG2Point(writer io.Writer, point *curve.G2Affine) (int64, error) {
++	encoded := point.Bytes()
++	n, err := writeAll(writer, encoded[:])
++	return int64(n), err
++}
++
++func readG1Points(reader io.Reader, points []curve.G1Affine) (n int64, err error) {
++	return readPointChunks(reader, len(points), curve.SizeOfG1AffineCompressed, func(start int, chunk []byte, decodeErrs []error) {
++		utils.Parallelize(len(decodeErrs), func(workerStart, workerEnd int) {
++			for i := workerStart; i < workerEnd; i++ {
++				_, decodeErrs[i] = points[start+i].SetBytes(chunk[i*curve.SizeOfG1AffineCompressed : (i+1)*curve.SizeOfG1AffineCompressed])
++			}
++		})
++	})
++}
++
++func readG2Points(reader io.Reader, points []curve.G2Affine) (n int64, err error) {
++	return readPointChunks(reader, len(points), curve.SizeOfG2AffineCompressed, func(start int, chunk []byte, decodeErrs []error) {
++		utils.Parallelize(len(decodeErrs), func(workerStart, workerEnd int) {
++			for i := workerStart; i < workerEnd; i++ {
++				_, decodeErrs[i] = points[start+i].SetBytes(chunk[i*curve.SizeOfG2AffineCompressed : (i+1)*curve.SizeOfG2AffineCompressed])
++			}
++		})
++	})
++}
++
++func readG2Point(reader io.Reader, point *curve.G2Affine) (int64, error) {
++	var encoded [curve.SizeOfG2AffineCompressed]byte
++	n, err := io.ReadFull(reader, encoded[:])
++	if err != nil {
++		return int64(n), err
++	}
++	_, err = point.SetBytes(encoded[:])
++	return int64(n), err
++}
++
++func readPointChunks(reader io.Reader, count, pointSize int, decode func(int, []byte, []error)) (n int64, err error) {
++	for start := 0; start < count; start += srsCodecChunkSize {
++		end := min(start+srsCodecChunkSize, count)
++		chunk := make([]byte, (end-start)*pointSize)
++		dn, readErr := io.ReadFull(reader, chunk)
++		n += int64(dn)
++		if readErr != nil {
++			return n, readErr
++		}
++
++		decodeErrs := make([]error, end-start)
++		decode(start, chunk, decodeErrs)
++		for _, decodeErr := range decodeErrs {
++			if decodeErr != nil {
++				return n, decodeErr
++			}
+ 		}
+ 	}
+-	return dec.BytesRead(), nil
++	return n, nil
+ }
+--- /dev/null
++++ vendor/github.com/consensys/gnark/backend/groth16/bls12-381/mpcsetup/marshal_parallel_test.go
+@@ -0,0 +1,239 @@
++package mpcsetup
++
++import (
++	"bytes"
++	"encoding/binary"
++	"io"
++	"reflect"
++	"testing"
++
++	curve "github.com/consensys/gnark-crypto/ecc/bls12-381"
++)
++
++func writeCommonsSerial(c *SrsCommons, writer io.Writer) (int64, error) {
++	enc := curve.NewEncoder(writer)
++	if err := enc.Encode(uint64(len(c.G2.Tau))); err != nil {
++		return enc.BytesWritten(), err
++	}
++	values := []any{&c.G2.Beta}
++	for i := 1; i < len(c.G1.Tau); i++ {
++		values = append(values, &c.G1.Tau[i])
++	}
++	for i := 1; i < len(c.G2.Tau); i++ {
++		values = append(values, &c.G2.Tau[i])
++	}
++	for i := range c.G1.BetaTau {
++		values = append(values, &c.G1.BetaTau[i])
++	}
++	for i := range c.G1.AlphaTau {
++		values = append(values, &c.G1.AlphaTau[i])
++	}
++	for _, value := range values {
++		if err := enc.Encode(value); err != nil {
++			return enc.BytesWritten(), err
++		}
++	}
++	return enc.BytesWritten(), nil
++}
++
++func readCommonsSerial(c *SrsCommons, reader io.Reader) (int64, error) {
++	dec := curve.NewDecoder(reader)
++	var n uint64
++	if err := dec.Decode(&n); err != nil {
++		return dec.BytesRead(), err
++	}
++	c.setContributionsZero(n)
++	values := []any{&c.G2.Beta}
++	for i := 1; i < len(c.G1.Tau); i++ {
++		values = append(values, &c.G1.Tau[i])
++	}
++	for i := 1; i < len(c.G2.Tau); i++ {
++		values = append(values, &c.G2.Tau[i])
++	}
++	for i := range c.G1.BetaTau {
++		values = append(values, &c.G1.BetaTau[i])
++	}
++	for i := range c.G1.AlphaTau {
++		values = append(values, &c.G1.AlphaTau[i])
++	}
++	for _, value := range values {
++		if err := dec.Decode(value); err != nil {
++			return dec.BytesRead(), err
++		}
++	}
++	return dec.BytesRead(), nil
++}
++
++func codecTestCommons(tb testing.TB, n uint64) SrsCommons {
++	tb.Helper()
++	var c SrsCommons
++	c.setContributionsZero(n)
++	_, _, g1, g2 := curve.Generators()
++
++	nextG1 := g1
++	fillG1 := func(points []curve.G1Affine) {
++		for i := range points {
++			nextG1.Add(&nextG1, &g1)
++			points[i].Set(&nextG1)
++		}
++	}
++	fillG1(c.G1.Tau[1:])
++	fillG1(c.G1.BetaTau)
++	fillG1(c.G1.AlphaTau)
++
++	nextG2 := g2
++	nextG2.Add(&nextG2, &g2)
++	c.G2.Beta.Set(&nextG2)
++	for i := 1; i < len(c.G2.Tau); i++ {
++		nextG2.Add(&nextG2, &g2)
++		c.G2.Tau[i].Set(&nextG2)
++	}
++
++	if n > 1 && c.G1.Tau[0].Equal(&c.G1.Tau[1]) {
++		tb.Fatal("deterministic codec fixture contains repeated Tau points")
++	}
++	if n > 0 && c.G1.BetaTau[0].Equal(&c.G1.AlphaTau[0]) {
++		tb.Fatal("deterministic codec fixture contains repeated parameter points")
++	}
++	return c
++}
++
++func TestParallelCommonsCodecMatchesSerial(t *testing.T) {
++	for _, n := range []uint64{1, 2, 17, srsCodecChunkSize + 1} {
++		c := codecTestCommons(t, n)
++		var want, got bytes.Buffer
++		wantN, err := writeCommonsSerial(&c, &want)
++		if err != nil {
++			t.Fatal(err)
++		}
++		gotN, err := c.WriteTo(&got)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if gotN != wantN || !bytes.Equal(got.Bytes(), want.Bytes()) {
++			t.Fatalf("parallel encoding differs from serial encoding for N=%d", n)
++		}
++
++		var decoded SrsCommons
++		readN, err := decoded.ReadFrom(bytes.NewReader(got.Bytes()))
++		if err != nil {
++			t.Fatal(err)
++		}
++		if readN != gotN || !reflect.DeepEqual(decoded, c) {
++			t.Fatalf("parallel round trip differs for N=%d", n)
++		}
++	}
++}
++
++func TestParallelCommonsDecoderRejectsMalformedPoint(t *testing.T) {
++	c := codecTestCommons(t, 2)
++	var encoded bytes.Buffer
++	if _, err := c.WriteTo(&encoded); err != nil {
++		t.Fatal(err)
++	}
++	data := encoded.Bytes()
++	firstG1 := 8 + curve.SizeOfG2AffineCompressed
++	data[firstG1] = 0xe0 // invalid point-encoding mask
++	var decoded SrsCommons
++	if _, err := decoded.ReadFrom(bytes.NewReader(data)); err == nil {
++		t.Fatal("malformed point was accepted")
++	}
++}
++
++func TestParallelCommonsDecoderRejectsUncompressedPoints(t *testing.T) {
++	c := codecTestCommons(t, 2)
++	var encoded bytes.Buffer
++	enc := curve.NewEncoder(&encoded, curve.RawEncoding())
++	if err := enc.Encode(uint64(len(c.G2.Tau))); err != nil {
++		t.Fatal(err)
++	}
++	values := []any{&c.G2.Beta}
++	for i := 1; i < len(c.G1.Tau); i++ {
++		values = append(values, &c.G1.Tau[i])
++	}
++	for i := 1; i < len(c.G2.Tau); i++ {
++		values = append(values, &c.G2.Tau[i])
++	}
++	for i := range c.G1.BetaTau {
++		values = append(values, &c.G1.BetaTau[i])
++	}
++	for i := range c.G1.AlphaTau {
++		values = append(values, &c.G1.AlphaTau[i])
++	}
++	for _, value := range values {
++		if err := enc.Encode(value); err != nil {
++			t.Fatal(err)
++		}
++	}
++
++	var serial SrsCommons
++	if _, err := readCommonsSerial(&serial, bytes.NewReader(encoded.Bytes())); err != nil {
++		t.Fatalf("generic decoder rejected valid uncompressed fixture: %v", err)
++	}
++	var decoded SrsCommons
++	if _, err := decoded.ReadFrom(bytes.NewReader(encoded.Bytes())); err == nil {
++		t.Fatal("parallel compressed-only decoder accepted uncompressed Phase 1 points")
++	}
++}
++
++func TestParallelCommonsDecoderCountsTruncatedInput(t *testing.T) {
++	var size [8]byte
++	binary.BigEndian.PutUint64(size[:], 1)
++	data := append(size[:], make([]byte, curve.SizeOfG2AffineCompressed-1)...)
++	var decoded SrsCommons
++	n, err := decoded.ReadFrom(bytes.NewReader(data))
++	if err == nil {
++		t.Fatal("truncated input was accepted")
++	}
++	if n != int64(len(data)) {
++		t.Fatalf("read count %d, want %d", n, len(data))
++	}
++}
++
++func BenchmarkCommonsWriteSerial(b *testing.B) {
++	c := codecTestCommons(b, 1<<12)
++	b.ReportAllocs()
++	b.ResetTimer()
++	for i := 0; i < b.N; i++ {
++		if _, err := writeCommonsSerial(&c, io.Discard); err != nil {
++			b.Fatal(err)
++		}
++	}
++}
++
++func BenchmarkCommonsWriteParallel(b *testing.B) {
++	c := codecTestCommons(b, 1<<12)
++	b.ReportAllocs()
++	b.ResetTimer()
++	for i := 0; i < b.N; i++ {
++		if _, err := c.WriteTo(io.Discard); err != nil {
++			b.Fatal(err)
++		}
++	}
++}
++
++func benchmarkCommonsRead(b *testing.B, parallel bool) {
++	c := codecTestCommons(b, 1<<12)
++	var encoded bytes.Buffer
++	if _, err := writeCommonsSerial(&c, &encoded); err != nil {
++		b.Fatal(err)
++	}
++	data := encoded.Bytes()
++	b.ReportAllocs()
++	b.ResetTimer()
++	for i := 0; i < b.N; i++ {
++		var decoded SrsCommons
++		var err error
++		if parallel {
++			_, err = decoded.ReadFrom(bytes.NewReader(data))
++		} else {
++			_, err = readCommonsSerial(&decoded, bytes.NewReader(data))
++		}
++		if err != nil {
++			b.Fatal(err)
++		}
++	}
++}
++
++func BenchmarkCommonsReadSerial(b *testing.B)   { benchmarkCommonsRead(b, false) }
++func BenchmarkCommonsReadParallel(b *testing.B) { benchmarkCommonsRead(b, true) }

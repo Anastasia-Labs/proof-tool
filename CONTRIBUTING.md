@@ -8,7 +8,7 @@ coherent). This file only covers the mechanics.
 
 ```bash
 pnpm install                 # repo root: installs Biome + lefthook, registers git hooks
-bash scripts/bootstrap-vendor.sh   # required: vendors gnark with the local ProveStream patch
+bash scripts/bootstrap-vendor.sh   # required: vendors gnark with the reviewed local patches
 ```
 
 Never run plain `go mod vendor`; it drops the hand-applied patch. Use the
