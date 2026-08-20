@@ -2035,6 +2035,7 @@ case "$STAGE" in
       --published-at "$PUBLISHED_AT" \
       --coordinator-signing-key "$COORDINATOR_PRIVATE_KEY" \
       --transcript-dir "$TRANSCRIPT"
+    write_state "$STATE_DIR/phase2-published-epoch.txt" "$PUBLISHED_EPOCH"
     PREPARED_EPOCH=$(step_epoch finalize-prepare "$((PUBLISHED_EPOCH + 1))")
     run_step finalize-prepare \
       finalize prepare \

@@ -11,8 +11,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/consensys/gnark/logger"
 
 	"proof-tool/internal/circuit/ownership"
 	"proof-tool/internal/circuit/ownershipdest"
@@ -22,11 +25,22 @@ import (
 
 const resultSchema = "proof-tool-mpc-public-evidence-generation-result-v1"
 
+func goldenPublicPath() ownership.Path {
+	return ownership.Path{Account: 0, Role: 0, Index: 0}
+}
+
 func main() {
+	// gnark defaults its global logger to stdout. Keep stdout exclusively for
+	// the helper's single JSON result so the ceremony runner can parse it.
+	configureLibraryLogging(os.Stderr)
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+func configureLibraryLogging(stderr io.Writer) {
+	logger.SetOutput(stderr)
 }
 
 func run() error {
@@ -85,7 +99,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	path := ownership.Path{Account: 3, Role: 2, Index: 0}
+	path := goldenPublicPath()
 	credential, err := ownership.DeriveCredential(master, path)
 	if err != nil {
 		return err
