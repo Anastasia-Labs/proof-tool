@@ -340,7 +340,7 @@ func groth16Commitments(r1cs *bls12381cs.R1CS) (constraint.Groth16Commitments, e
 }
 
 // phase2ShapeFromR1CS mirrors the length-only part of gnark v0.16.3
-// mpcsetup.Phase2.Initialize. It avoids evaluating the full K=21 QAP merely
+// mpcsetup.Phase2.Initialize. It avoids evaluating the full K=22 QAP merely
 // to establish allocation-safe transcript bounds in the ceremony definition.
 // engine_test checks this result against DerivePhase2Shape on an initialized
 // committed circuit.

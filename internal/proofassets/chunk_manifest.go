@@ -761,6 +761,7 @@ func validateAgainstKeyManifest(m *ChunkManifest, manifest *artifact.KeyManifest
 	}{
 		{"key_version", c.KeyVersion, manifest.KeyVersion},
 		{"circuit_id", c.CircuitID, manifest.CircuitID},
+		{"gnark_version", c.GnarkVersion, manifest.GnarkVersion},
 		{"vk_hash", c.VKHash, manifest.VKHash},
 		{"proving_key_sha256", c.ProvingKeySHA256, manifest.ProvingKeySHA256},
 		{"proving_key_blake2b256", c.ProvingKeyBlake2b256, manifest.ProvingKeyBlake2b256},

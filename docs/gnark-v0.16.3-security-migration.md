@@ -27,6 +27,10 @@ operations remain folded while every dynamic lookup result retains upstream's
 new 8-bit range check. `scripts/check-vendor-drift.sh` verifies that the vendor
 tree is a clean v0.16.3 vendor operation plus the reviewed patch series.
 
+Key-bundle loaders, the browser WASM preflight, and key/chunk-manifest
+coherence checks all require the exact `v0.16.3` version. Negative tests reject
+an otherwise coherent manifest that claims the retired v0.15.0 version.
+
 ## Circuit identities and size
 
 The public statements and domain separators are unchanged. Circuit and key
@@ -43,6 +47,27 @@ The destination circuit grows by 623,657 constraints (34.85%). The increase is
 the expected cost of constraining dynamic lookup outputs that the affected
 version left under-constrained.
 
+## Fresh Preprod setup evidence
+
+A fresh single-operator Preprod setup was generated from clean source commit
+`9e8cab701589cf77c1c8d74fa016d8b13faebd84`. This is not an MPC or trustless
+ceremony: the operator explicitly acknowledged the toxic-waste boundary. The
+signed key manifest verifies against its external trust anchor and pins:
+
+- native VK hash
+  `blake2b256:ebf91d8ffc17fab6d26afdee256798f7178ed010200001285468688f97abc514`;
+- Cardano VK hash
+  `blake2b256:4dfe550735d4f27a02e58de8a5567aee5aed66279cd4222b026d8059b18615da`;
+- CCS hash
+  `blake2b256:39bb5adabc2aec214c69f925578546c5e922d15b1104d03d290c57fcda371a80`;
+- setup transcript hash
+  `blake2b256:42996b1b070d2313e235de71001f58e3f3dbb31bc33dc3a1ac8c4fe9edd23740`.
+
+The native PK is 1,834,843,511 bytes and the frozen CCS is 161,214,609
+bytes. The local browser candidate splits the PK into 875 signed 2 MiB chunks
+and compresses the CCS transport to 43,806,673 bytes while retaining both
+identity and compressed-content hashes.
+
 ## Performance evidence
 
 The native pre-migration baseline used the frozen v0.15.0 destination CCS and
@@ -51,8 +76,31 @@ verified. Proving times were 4,011.493 ms, 3,610.577 ms, 3,811.809 ms,
 3,872.431 ms, and 4,094.230 ms; median 3,872.431 ms. Peak process RSS was
 4,925,220 KiB.
 
-The fixed-circuit proof timing and peak RSS are recorded here after the fresh
-setup and end-to-end proof run complete.
+The fixed v0.16.3 destination bundle used the same host and Go version. Five
+real proofs all verified. Proving times were 5,372.055 ms, 5,037.937 ms,
+4,880.453 ms, 4,878.902 ms, and 4,966.319 ms; median 4,966.319 ms. Peak process
+RSS was 7,663,944 KiB.
+
+| Measurement | v0.15.0 | v0.16.3 | Change |
+| --- | ---: | ---: | ---: |
+| Median native prove | 3,872.431 ms | 4,966.319 ms | +28.25% |
+| Peak native RSS | 4,925,220 KiB | 7,663,944 KiB | +55.61% |
+| Proving key size | 1,288,707,133 bytes | 1,834,843,511 bytes | +42.38% |
+| Constraint system size | 129,221,468 bytes | 161,214,609 bytes | +24.76% |
+| Proving key load | 9,772.896 ms | 22,959.641 ms | +134.93% |
+
+The browser runtime was built twice from clean inputs; the proof WASM,
+MSM-worker WASM, and `wasm_exec.js` were byte-identical between builds. A cold
+loopback Playwright run then loaded the signed manifest, 2 MiB PK chunks,
+compressed CCS, VK, and deployment descriptor, generated a real proof, and
+verified it locally. On an intentionally bounded four-worker/eight-CPU run it
+took 158.786 seconds, reported 2.154 GiB peak Go heap, completed all 56 worker
+shards, and used no swap.
+
+Twenty fresh Cardano-format proofs were generated and verified natively before
+serialization. The Plutus verifier suite then passed all 137 tests, including
+ordinary, all-distinct, repeated-proof, malformed-proof, wrong-public-input,
+reordering, substitution, and compiled-validator cases.
 
 ## Rollout invariant
 
