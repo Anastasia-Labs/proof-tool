@@ -71,25 +71,26 @@ func (c *Curve) Add(p, q *Point) *Point {
 }
 
 const (
-	windowBits = 4                // 4-bit windows
-	windowSize = 1 << windowBits  // 16 table entries per window
-	numWindows = 256 / windowBits // 64 windows covering all 256 bits
+	scalarBits = 255
+	windowBits = 7
+	windowSize = 1 << windowBits
+	numWindows = (scalarBits + windowBits - 1) / windowBits
 )
 
-// windowTable holds, for one 4-bit window j, the precomputed multiples
-// k * (2^(4j) * B) for k = 0..15, with entry 0 = identity.
+// windowTable holds, for one seven-bit window j, the precomputed multiples
+// k * (2^(7j) * B) for k = 0..127, with entry 0 = identity.
 type windowTable struct {
 	xs []*emulated.Element[Ed25519Fp]
 	ys []*emulated.Element[Ed25519Fp]
 }
 
-// buildTables precomputes the 64 windowed tables of constant base multiples.
+// buildTables precomputes the 37 windowed tables of constant base multiples.
 // All values are computed out of circuit with the big.Int reference and become
 // circuit constants, which is sound because the base B is fixed.
 func (c *Curve) buildTables() []windowTable {
 	tables := make([]windowTable, numWindows)
 	for j := 0; j < numWindows; j++ {
-		// base_j = 2^(4j) * B
+		// base_j = 2^(7j) * B
 		shift := new(big.Int).Lsh(big.NewInt(1), uint(windowBits*j))
 		baseJ := RefScalarMulBase(shift)
 
@@ -111,8 +112,9 @@ func (c *Curve) buildTables() []windowTable {
 
 // ScalarMulBaseBits computes A = s*B, where s is given as exactly 256
 // little-endian bits used AS-IS (no reduction mod L). It uses a windowed
-// fixed-base method: 64 four-bit windows, each selecting a precomputed
-// constant multiple of B and adding it to the accumulator.
+// fixed-base method: 37 seven-bit windows, each selecting a precomputed
+// constant multiple of B and adding it to the accumulator. The final window
+// consumes bits 252..254 and is zero-padded in its four high positions.
 //
 // This function self-enforces two soundness preconditions:
 //   - Every bit is boolean-constrained (F1: sound even if the caller omits
@@ -144,17 +146,13 @@ func (c *Curve) ScalarMulBaseBits(bits []frontend.Variable) *Point {
 
 	var acc *Point
 	for j := 0; j < numWindows; j++ {
-		// window value sel = b0 + 2 b1 + 4 b2 + 8 b3
-		b0 := bits[4*j+0]
-		b1 := bits[4*j+1]
-		b2 := bits[4*j+2]
-		b3 := bits[4*j+3]
-		sel := c.api.Add(
-			b0,
-			c.api.Mul(b1, 2),
-			c.api.Mul(b2, 4),
-			c.api.Mul(b3, 8),
-		)
+		sel := frontend.Variable(0)
+		for k := 0; k < windowBits; k++ {
+			bitIndex := windowBits*j + k
+			if bitIndex < scalarBits {
+				sel = c.api.Add(sel, c.api.Mul(bits[bitIndex], 1<<k))
+			}
+		}
 		selX := c.f.Mux(sel, tables[j].xs...)
 		selY := c.f.Mux(sel, tables[j].ys...)
 		sp := &Point{X: selX, Y: selY}
