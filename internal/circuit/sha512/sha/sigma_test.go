@@ -38,6 +38,42 @@ func TestSigmaCutPositionsDerivedFromOperations(t *testing.T) {
 	}
 }
 
+type constantSigmaCircuit struct{}
+
+func (*constantSigmaCircuit) Define(api frontend.API) error {
+	uapi, err := uints.New[uints.U64](api)
+	if err != nil {
+		return err
+	}
+	rc := rangecheck.New(api)
+	const word = uint64(0x0123456789abcdef)
+	tests := []struct {
+		rotations  []int
+		rightShift int
+		want       uint64
+	}{
+		{rotations: []int{14, 18, 41}, want: bits.RotateLeft64(word, -14) ^ bits.RotateLeft64(word, -18) ^ bits.RotateLeft64(word, -41)},
+		{rotations: []int{28, 34, 39}, want: bits.RotateLeft64(word, -28) ^ bits.RotateLeft64(word, -34) ^ bits.RotateLeft64(word, -39)},
+		{rotations: []int{1, 8}, rightShift: 7, want: bits.RotateLeft64(word, -1) ^ bits.RotateLeft64(word, -8) ^ (word >> 7)},
+		{rotations: []int{19, 61}, rightShift: 6, want: bits.RotateLeft64(word, -19) ^ bits.RotateLeft64(word, -61) ^ (word >> 6)},
+	}
+	for _, test := range tests {
+		got := sigmaRot(api, uapi, rc, uints.NewU64(word), test.rotations, test.rightShift)
+		uapi.AssertEq(got, uints.NewU64(test.want))
+	}
+	return nil
+}
+
+func TestConstantSigmaDecompositionFoldsWithoutConstraints(t *testing.T) {
+	ccs, err := frontend.Compile(ecc.BLS12_381.ScalarField(), r1cs.NewBuilder, &constantSigmaCircuit{})
+	if err != nil {
+		t.Fatalf("compile constant sigma circuit: %v", err)
+	}
+	if got := ccs.GetNbConstraints(); got != 0 {
+		t.Fatalf("constant sigma constraints = %d, want 0", got)
+	}
+}
+
 type sigmaDifferentialCircuit struct {
 	Words                          [sigmaRandomCases]uints.U64
 	ExpectedBig1, ExpectedBig0     [sigmaRandomCases]uints.U64

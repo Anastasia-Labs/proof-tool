@@ -241,6 +241,24 @@ func decomposeSigmaByte(
 	widths []int,
 ) sigmaByteChunks {
 	inputValue := uapi.Value(input)
+	if constant, ok := api.Compiler().ConstantValue(inputValue); ok {
+		values := make([]frontend.Variable, len(widths))
+		offsets := make([]int, len(widths))
+		offset := 0
+		for i, width := range widths {
+			if width < 1 || offset+width > 8 {
+				panic("sha: invalid sigma chunk width")
+			}
+			offsets[i] = offset
+			mask := (uint64(1) << width) - 1
+			values[i] = (constant.Uint64() >> offset) & mask
+			offset += width
+		}
+		if offset != 8 {
+			panic("sha: sigma chunk widths do not cover one byte")
+		}
+		return sigmaByteChunks{values: values, widths: widths, offsets: offsets}
+	}
 	hintInputs := make([]frontend.Variable, 1+len(widths))
 	hintInputs[0] = inputValue
 	for i, width := range widths {
