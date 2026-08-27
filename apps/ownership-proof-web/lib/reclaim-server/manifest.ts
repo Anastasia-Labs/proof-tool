@@ -11,8 +11,8 @@ import type {
 } from "../reclaim/types";
 
 export const RECLAIM_DEPLOYMENT_SCHEMA = "proof-tool-reclaim-deployment-v1";
-export const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v2/bls12-381/groth16";
-export const DESTINATION_KEY_VERSION = "ownership-destination-v2";
+export const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v3/bls12-381/groth16";
+export const DESTINATION_KEY_VERSION = "ownership-destination-v3";
 export const DESTINATION_ADDRESS_ENCODING = "destination-address-v1";
 export const SINGLE_DESTINATION_PROOF_PROFILE = "single-destination";
 export const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 = "full-proof-plus-public-input-digest-v2";

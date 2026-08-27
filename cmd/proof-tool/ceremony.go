@@ -121,9 +121,10 @@ type ceremonyCircuit struct {
 }
 
 type ceremonyArtifacts struct {
-	ProvingKey   ceremonyDigest `json:"proving_key"`
-	VerifyingKey ceremonyDigest `json:"verifying_key"`
-	ToxicNotes   ceremonyDigest `json:"toxic_waste_notes"`
+	ConstraintSystem ceremonyDigest `json:"constraint_system"`
+	ProvingKey       ceremonyDigest `json:"proving_key"`
+	VerifyingKey     ceremonyDigest `json:"verifying_key"`
+	ToxicNotes       ceremonyDigest `json:"toxic_waste_notes"`
 }
 
 type ceremonySigning struct {
@@ -278,7 +279,8 @@ func runSetupCeremony(opts setupCeremonyOptions) (*setupCeremonyResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	ccsDigest, err := digestConstraintSystem(ccs)
+	ccsPath := filepath.Join(opts.OutDir, prover.DestinationConstraintSystemFile)
+	ccsDigest, err := writeAndDigestConstraintSystem(ccs, ccsPath)
 	if err != nil {
 		return nil, err
 	}
@@ -346,9 +348,10 @@ func runSetupCeremony(opts setupCeremonyOptions) (*setupCeremonyResult, error) {
 			PublicVariables:      ccs.GetNbPublicVariables(),
 		},
 		Artifacts: ceremonyArtifacts{
-			ProvingKey:   digestFromProver(pkDigest),
-			VerifyingKey: digestFromProver(vkDigest),
-			ToxicNotes:   digestFromProver(toxicNotesDigest),
+			ConstraintSystem: ccsDigest,
+			ProvingKey:       digestFromProver(pkDigest),
+			VerifyingKey:     digestFromProver(vkDigest),
+			ToxicNotes:       digestFromProver(toxicNotesDigest),
 		},
 		Signing: ceremonySigning{
 			SignatureKeyID:       opts.SignatureKeyID,
@@ -471,16 +474,34 @@ func ensureFreshDirectory(dir string) error {
 	return nil
 }
 
-func digestConstraintSystem(ccs constraint.ConstraintSystem) (ceremonyDigest, error) {
+func writeAndDigestConstraintSystem(ccs constraint.ConstraintSystem, outputPath string) (ceremonyDigest, error) {
+	f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return ceremonyDigest{}, fmt.Errorf("create constraint system: %w", err)
+	}
+	complete := false
+	defer func() {
+		_ = f.Close()
+		if !complete {
+			_ = os.Remove(outputPath)
+		}
+	}()
 	sha := sha256.New()
 	blake, err := blake2b.New256(nil)
 	if err != nil {
 		return ceremonyDigest{}, fmt.Errorf("create blake2b digest: %w", err)
 	}
-	size, err := ccs.WriteTo(io.MultiWriter(sha, blake))
+	size, err := ccs.WriteTo(io.MultiWriter(f, sha, blake))
 	if err != nil {
-		return ceremonyDigest{}, fmt.Errorf("hash constraint system: %w", err)
+		return ceremonyDigest{}, fmt.Errorf("write constraint system: %w", err)
 	}
+	if err := f.Sync(); err != nil {
+		return ceremonyDigest{}, fmt.Errorf("sync constraint system: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return ceremonyDigest{}, fmt.Errorf("close constraint system: %w", err)
+	}
+	complete = true
 	return ceremonyDigest{
 		SHA256:     "sha256:" + hex.EncodeToString(sha.Sum(nil)),
 		Blake2b256: "blake2b256:" + hex.EncodeToString(blake.Sum(nil)),
@@ -652,6 +673,7 @@ This directory contains a signed key bundle for the configured proof circuit.
 
 Files:
 
+- `+"`ownership-destination.ccs`"+`: frozen compiled constraint system pinned by the manifest.
 - `+"`ownership.pk`"+`: Groth16 proving key.
 - `+"`ownership.vk`"+`: Groth16 verifying key.
 - `+"`manifest.json`"+`: key metadata, hashes, source, software, and setup transcript hash.
@@ -678,6 +700,7 @@ separate trusted channel.
 
 func writeBundleChecksums(outDir, checksumsPath string) error {
 	files := []string{
+		prover.DestinationConstraintSystemFile,
 		"ownership.pk",
 		"ownership.vk",
 		"manifest.json",

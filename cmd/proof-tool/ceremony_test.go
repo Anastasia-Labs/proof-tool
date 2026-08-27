@@ -103,7 +103,7 @@ func TestCeremonyProfileForKeyVersion(t *testing.T) {
 	if destinationProfile.CircuitID != ownershipdest.CircuitID {
 		t.Fatalf("destination circuit id = %q", destinationProfile.CircuitID)
 	}
-	if destinationProfile.KeyVersion != "ownership-destination-v2" {
+	if destinationProfile.KeyVersion != "ownership-destination-v3" {
 		t.Fatalf("destination key version = %q", destinationProfile.KeyVersion)
 	}
 

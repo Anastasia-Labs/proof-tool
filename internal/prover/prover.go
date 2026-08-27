@@ -31,11 +31,11 @@ import (
 var curve = ecc.BLS12_381
 
 const (
-	DefaultKeyVersion            = "ownership-v1"
-	DefaultDestinationKeyVersion = "ownership-destination-v2"
-	DefaultMultiKeyVersion       = "ownership-multi-destination-v1-count2"
+	DefaultKeyVersion            = "ownership-v2"
+	DefaultDestinationKeyVersion = "ownership-destination-v3"
+	DefaultMultiKeyVersion       = "ownership-multi-destination-v2-count2"
 	ProofToolVersion             = "0.1.0"
-	GnarkVersion                 = "v0.15.0"
+	GnarkVersion                 = "v0.16.3"
 )
 
 const (
@@ -691,6 +691,9 @@ func validateManifest(manifest *artifact.KeyManifest, cfg keyConfig) error {
 	}
 	if manifest.Backend != "groth16" {
 		return fmt.Errorf("manifest backend %q, want groth16", manifest.Backend)
+	}
+	if manifest.GnarkVersion != GnarkVersion {
+		return fmt.Errorf("manifest gnark version %q, want %q", manifest.GnarkVersion, GnarkVersion)
 	}
 	return nil
 }

@@ -1,13 +1,16 @@
 package verifier
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-func TestLoadPinnedVerifier(t *testing.T) {
+func TestLoadPinnedVerifierRejectsRetiredUnsafeKey(t *testing.T) {
 	proofVerifier, err := LoadPinnedVerifier()
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "GHSA-3mvx-pp85-pm65") {
+		t.Fatalf("retired verifier error = %v", err)
 	}
-	if proofVerifier.VKHash() != PinnedVKHash {
-		t.Fatalf("vk hash = %s", proofVerifier.VKHash())
+	if proofVerifier != nil {
+		t.Fatal("retired verifier unexpectedly loaded")
 	}
 }

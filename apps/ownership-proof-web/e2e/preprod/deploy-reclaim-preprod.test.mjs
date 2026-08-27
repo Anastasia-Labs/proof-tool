@@ -98,8 +98,8 @@ describe("reclaim script exporter invocation", () => {
 
     expect(manifest.reclaim_global.proof_slot_encoding).toBe("full-proof-plus-public-input-digest-v2");
     expect(manifest.reclaim_global.batch_transcript_vk_hash).toBe(`blake2b256:${"22".repeat(32)}`);
-    expect(manifest.proof.circuit_id).toBe("root-ownership-destination-v2/bls12-381/groth16");
-    expect(manifest.proof.key_version).toBe("ownership-destination-v2");
+    expect(manifest.proof.circuit_id).toBe("root-ownership-destination-v3/bls12-381/groth16");
+    expect(manifest.proof.key_version).toBe("ownership-destination-v3");
     expect(manifest.proof.vk_hash).toBe(`blake2b256:${"11".repeat(32)}`);
     expect(manifest.reclaim_global.verifier_vk_hash).toBe(manifest.proof.cardano_vk_blake2b256);
     expect(manifest.proof.cardano_vk_blake2b256).toBe(`blake2b256:${"22".repeat(32)}`);

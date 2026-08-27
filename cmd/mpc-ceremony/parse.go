@@ -14,7 +14,7 @@ import (
 	"proof-tool/internal/mpcceremony"
 )
 
-const supportedKeyVersion = "ownership-destination-v2"
+const supportedKeyVersion = "ownership-destination-v3"
 
 type helpRequest struct {
 	topic []string
@@ -412,7 +412,7 @@ func parseInit(args []string) (InitOptions, error) {
 	fs := commandFlagSet("init")
 	fs.StringVar(&options.SessionNonceHex, "session-nonce-hex", "", "optional 32-byte session nonce as hex; generated securely when omitted")
 	fs.StringVar(&options.CreatedAt, "created-at", "", "ceremony creation timestamp in RFC3339")
-	fs.StringVar(&options.KeyVersion, "key-version", "", "repository key version (ownership-destination-v2 only)")
+	fs.StringVar(&options.KeyVersion, "key-version", "", "repository key version (ownership-destination-v3 only)")
 	fs.StringVar(&options.ParticipantsPath, "participants", "", "participant roster JSON path")
 	fs.StringVar(&options.PolicyPath, "policy", "", "ceremony policy JSON path")
 	fs.StringVar(&options.CoordinatorKeyID, "coordinator-key-id", "", "coordinator signing key identifier")

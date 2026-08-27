@@ -130,6 +130,67 @@ func TestC6RejectedMultiReturnAliasCannotCrossSeparateProductionTables(t *testin
 	}
 }
 
+type uintsPackedKeyCollisionCircuit struct{ A, B uints.U8 }
+
+func (c *uintsPackedKeyCollisionCircuit) Define(api frontend.API) error {
+	bapi, err := uints.NewBytes(api)
+	if err != nil {
+		return err
+	}
+	// The first forged lookup result is consumed as the second lookup's input.
+	// Discard the final result so no downstream equality masks whether uints
+	// itself constrains every lookup result to the canonical byte range.
+	xor := bapi.Xor(c.A, c.B)
+	_ = bapi.And(c.A, xor)
+	return nil
+}
+
+func TestGHSA3mvxPackedKeyCollisionIsRejected(t *testing.T) {
+	xorHint := findByteHint(t, ".xorHint")
+	andHint := findByteHint(t, ".andHint")
+	ccs := compile(t, &uintsPackedKeyCollisionCircuit{})
+	assignment := &uintsPackedKeyCollisionCircuit{
+		A: uints.NewU8(1),
+		B: uints.NewU8(0),
+	}
+	witness, err := frontend.NewWitness(assignment, ccs.Field())
+	if err != nil {
+		t.Fatalf("build witness: %v", err)
+	}
+	if err := ccs.IsSolved(witness); err != nil {
+		t.Fatalf("honest chained XOR/AND lookups failed: %v", err)
+	}
+
+	// GHSA-3mvx-pp85-pm65: Xor(1, 0) may be forged as 1/256 because
+	// 1 + 2^8*0 + 2^16*(1/256) = 257, which collides with a valid table key.
+	// Feeding that non-byte result to And(1, 1/256) and returning zero creates
+	// another valid packed key. Both lookups passed in vulnerable gnark releases.
+	corruptXor := func(field *big.Int, _, outputs []*big.Int) error {
+		if len(outputs) != 1 {
+			return fmt.Errorf("production XOR hint has %d returns, want exactly one", len(outputs))
+		}
+		outputs[0].ModInverse(big.NewInt(256), field)
+		if outputs[0].Sign() == 0 {
+			return fmt.Errorf("256 is unexpectedly non-invertible in the circuit field")
+		}
+		return nil
+	}
+	corruptAnd := func(_ *big.Int, _, outputs []*big.Int) error {
+		if len(outputs) != 1 {
+			return fmt.Errorf("production AND hint has %d returns, want exactly one", len(outputs))
+		}
+		outputs[0].SetUint64(0)
+		return nil
+	}
+	if err := ccs.IsSolved(
+		witness,
+		csolver.OverrideHint(csolver.GetHintID(xorHint), corruptXor),
+		csolver.OverrideHint(csolver.GetHintID(andHint), corruptAnd),
+	); err == nil {
+		t.Fatal("GHSA-3mvx packed-key collision unexpectedly satisfied uints lookup constraints")
+	}
+}
+
 func findByteHint(t *testing.T, suffix string) csolver.Hint {
 	t.Helper()
 	for _, hint := range uints.GetHints() {

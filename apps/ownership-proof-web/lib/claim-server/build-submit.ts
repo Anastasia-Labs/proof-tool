@@ -45,7 +45,7 @@ import { createClaimDraft } from "./draft";
 import { assembleTransactionWithWitnessSet } from "../cardano/transactions";
 import { buildBatchTranscriptV2, decodeBlake2b256, decodeHexBytes } from "../reclaim/batch-transcript";
 
-const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v2/bls12-381/groth16";
+const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v3/bls12-381/groth16";
 const DESTINATION_PUBLIC_INPUT_DOMAIN = "ROOT-OWNERSHIP-DESTINATION-v1";
 const DESTINATION_PUBLIC_INPUT_ENCODING = "single-credential-destination-v1";
 const CARDANO_PROOF_FORMAT = "groth16-bls12-381-bsb22";

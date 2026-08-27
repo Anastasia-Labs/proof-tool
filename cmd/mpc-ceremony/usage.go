@@ -79,7 +79,7 @@ second path list.
 
 var commandHelp = map[string]string{
 	"init": `Usage:
-  mpc-ceremony init --key-version ownership-destination-v2 \
+  mpc-ceremony init --key-version ownership-destination-v3 \
     --participants ROSTER.json --policy POLICY.json \
     --coordinator-key-id ID --coordinator-signing-key KEY \
     --created-at RFC3339 --out-dir DIR [--mode rehearsal|production] \

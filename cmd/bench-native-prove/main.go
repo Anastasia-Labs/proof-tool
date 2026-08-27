@@ -1,5 +1,5 @@
 // Command bench-native-prove measures native (non-WASM) Groth16 proving time
-// for the frozen root-ownership-destination-v2 circuit using the ceremony
+// for the frozen root-ownership-destination-v3 circuit using the ceremony
 // artifacts hosted on R2 (ownership.pk, ownership-destination.ccs) and the
 // repository golden witness. It deliberately deserializes the frozen CCS
 // instead of recompiling, so the measurement binds to the exact ceremony

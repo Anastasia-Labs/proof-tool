@@ -29,12 +29,12 @@ const (
 	AuditRecordSchema             = "proof-tool-mpc-audit-record-v1"
 	FinalTranscriptSchema         = "proof-tool-mpc-final-transcript-v1"
 
-	KeyVersionDestinationV2 = "ownership-destination-v2"
-	CircuitIDDestinationV2  = "root-ownership-destination-v2/bls12-381/groth16"
+	KeyVersionDestinationV3 = "ownership-destination-v3"
+	CircuitIDDestinationV3  = "root-ownership-destination-v3/bls12-381/groth16"
 	CurveBLS12381           = "BLS12-381"
 	BackendGroth16          = "groth16"
-	GnarkVersion            = "v0.15.0"
-	GnarkCryptoVersion      = "v0.20.1"
+	GnarkVersion            = "v0.16.3"
+	GnarkCryptoVersion      = "v0.21.0"
 	DrandVersion            = "v2.1.6"
 	ProductionGoVersion     = "go1.26.5"
 	ProductionGOOS          = "linux"
@@ -212,11 +212,11 @@ type CircuitBinding struct {
 }
 
 func (b CircuitBinding) Validate() error {
-	if b.KeyVersion != KeyVersionDestinationV2 {
-		return fmt.Errorf("key_version %q, want %q", b.KeyVersion, KeyVersionDestinationV2)
+	if b.KeyVersion != KeyVersionDestinationV3 {
+		return fmt.Errorf("key_version %q, want %q", b.KeyVersion, KeyVersionDestinationV3)
 	}
-	if b.CircuitID != CircuitIDDestinationV2 {
-		return fmt.Errorf("circuit_id %q, want %q", b.CircuitID, CircuitIDDestinationV2)
+	if b.CircuitID != CircuitIDDestinationV3 {
+		return fmt.Errorf("circuit_id %q, want %q", b.CircuitID, CircuitIDDestinationV3)
 	}
 	if b.Curve != CurveBLS12381 {
 		return fmt.Errorf("curve %q, want %q", b.Curve, CurveBLS12381)

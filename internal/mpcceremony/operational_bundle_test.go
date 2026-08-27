@@ -398,7 +398,7 @@ func newOperationalBundleFixture(t *testing.T) operationalBundleFixture {
 	definition.Mode = ModeRehearsal
 	definition.CreatedAt = round42Time.Add(-30 * time.Hour).Format(time.RFC3339)
 	definition.Circuit.Constraints = 1_789_750
-	definition.Circuit.DomainSize = 1 << 21
+	definition.Circuit.DomainSize = 1 << 22
 	definition.Phase1Policy.Minimum = 1
 	definition.Phase2Policy.Minimum = 1
 	var err error

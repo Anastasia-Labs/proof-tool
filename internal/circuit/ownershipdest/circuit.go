@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	CircuitID                  = "root-ownership-destination-v2/bls12-381/groth16"
+	CircuitID                  = "root-ownership-destination-v3/bls12-381/groth16"
 	Domain                     = "ROOT-OWNERSHIP-DESTINATION-v1"
 	CredentialLen              = 28
 	DestinationAddressV1Len    = 58

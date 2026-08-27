@@ -350,6 +350,20 @@ func TestLoadOwnershipProverFailsClosedWhenMissing(t *testing.T) {
 	}
 }
 
+func TestValidateManifestRejectsStaleGnarkVersion(t *testing.T) {
+	manifest := &artifact.KeyManifest{
+		KeyVersion:   DefaultDestinationKeyVersion,
+		CircuitID:    ownershipdest.CircuitID,
+		Curve:        "BLS12-381",
+		Backend:      "groth16",
+		GnarkVersion: "v0.15.0",
+	}
+	err := validateManifest(manifest, ownershipDestinationKeyConfig())
+	if err == nil || !strings.Contains(err.Error(), "manifest gnark version") {
+		t.Fatalf("stale gnark manifest error = %v", err)
+	}
+}
+
 func TestInspectOwnershipBundleRejectsWrongVerifyingKeyHash(t *testing.T) {
 	dir := t.TempDir()
 	manifestPath, pkPath, vkPath := ownershipBundlePaths(dir)
@@ -373,6 +387,7 @@ func TestInspectOwnershipBundleRejectsWrongVerifyingKeyHash(t *testing.T) {
 		CircuitID:            ownership.CircuitID,
 		Curve:                "BLS12-381",
 		Backend:              "groth16",
+		GnarkVersion:         GnarkVersion,
 		VKHash:               "blake2b256:wrong",
 		ProvingKeySHA256:     pkDigest.SHA256,
 		ProvingKeyBlake2b256: pkDigest.Blake2b256,

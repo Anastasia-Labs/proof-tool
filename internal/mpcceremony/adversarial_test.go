@@ -206,8 +206,8 @@ func adversarialDefinition(t *testing.T) CeremonyDefinition {
 		CreatedAt:       "2026-07-23T12:00:00Z",
 		SessionNonceHex: strings.Repeat("5a", 32),
 		Circuit: CircuitBinding{
-			KeyVersion:        KeyVersionDestinationV2,
-			CircuitID:         CircuitIDDestinationV2,
+			KeyVersion:        KeyVersionDestinationV3,
+			CircuitID:         CircuitIDDestinationV3,
 			Curve:             CurveBLS12381,
 			Backend:           BackendGroth16,
 			R1CS:              ArtifactRef{Name: "ownership-destination.ccs", Digest: NewDigest([]byte("r1cs"))},

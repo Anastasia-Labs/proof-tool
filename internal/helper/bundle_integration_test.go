@@ -17,7 +17,7 @@ import (
 // idle-TTL cache) against a real installed key bundle. It is gated on
 // PROOF_TOOL_BUNDLE_DIR because the bundle is ~1.4 GiB and not present in CI.
 //
-//	PROOF_TOOL_BUNDLE_DIR=/path/to/key-bundle/ownership-destination-v2-... \
+//	PROOF_TOOL_BUNDLE_DIR=/path/to/key-bundle/ownership-destination-v3-... \
 //	  go test ./internal/helper -run TestGenerateDestinationProofsAgainstInstalledBundle -v
 func TestGenerateDestinationProofsAgainstInstalledBundle(t *testing.T) {
 	bundleDir := os.Getenv("PROOF_TOOL_BUNDLE_DIR")

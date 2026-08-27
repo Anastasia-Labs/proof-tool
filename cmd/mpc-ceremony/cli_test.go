@@ -74,7 +74,7 @@ func TestParseInvocationAcceptsRequiredCommandSurface(t *testing.T) {
 			args: []string{
 				"init",
 				"--created-at", "2026-07-23T11:00:00Z",
-				"--key-version", "ownership-destination-v2",
+				"--key-version", "ownership-destination-v3",
 				"--participants", "policy/participants.json",
 				"--policy", "policy/ceremony.json",
 				"--coordinator-key-id", "coordinator-2026",

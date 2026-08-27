@@ -164,7 +164,7 @@ worker-bound stages without changing proof challenges.
 
 ## Dependency Strategy
 
-Upstream gnark v0.15.0 does not expose all seams required by the reviewed
+Upstream gnark v0.16.3 does not expose all seams required by the reviewed
 browser runtime. `vendor/` must equal a clean `go mod vendor` plus the ordered
 runtime patch set managed by these scripts:
 

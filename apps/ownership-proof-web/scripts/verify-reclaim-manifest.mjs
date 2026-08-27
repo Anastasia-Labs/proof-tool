@@ -4,8 +4,8 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const SCHEMA = "proof-tool-reclaim-deployment-v1";
-const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v2/bls12-381/groth16";
-const DESTINATION_KEY_VERSION = "ownership-destination-v2";
+const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v3/bls12-381/groth16";
+const DESTINATION_KEY_VERSION = "ownership-destination-v3";
 const DESTINATION_ADDRESS_ENCODING = "destination-address-v1";
 const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 = "full-proof-plus-public-input-digest-v2";
 const DISTINCT_7_REQUEST_PARAMETER = "maxUtxos";

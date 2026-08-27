@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	CircuitID = "root-ownership-v1/bls12-381/groth16"
+	CircuitID = "root-ownership-v2/bls12-381/groth16"
 	Domain    = "ROOT-OWNERSHIP-v1"
 )
 
