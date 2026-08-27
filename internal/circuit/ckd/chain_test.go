@@ -322,7 +322,7 @@ func TestFinishStepLeafOmitsUnconsumedState(t *testing.T) {
 	// would resurrect the removed CC branch. The v0.16.3 count retains the
 	// mandatory uint lookup-result range checks added for GHSA-3mvx-pp85-pm65,
 	// while avoiding redundant recomposition for their single-limb values.
-	const acceptedC1LeafConstraints = 415_608
+	const acceptedC1LeafConstraints = 410_542
 	if got := leafCCS.GetNbConstraints(); got != acceptedC1LeafConstraints {
 		t.Fatalf("C2/C1 leaf constraints = %d, want %d; fixed lookup checks and dead-leaf elimination must both remain active", got, acceptedC1LeafConstraints)
 	}

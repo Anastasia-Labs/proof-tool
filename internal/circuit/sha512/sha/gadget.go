@@ -95,6 +95,9 @@ func Permute512(api frontend.API, uapi *uints.BinaryField[uints.U64], currentHas
 	ih0, ih1, ih2, ih3 := currentHash[0], currentHash[1], currentHash[2], currentHash[3]
 	ih4, ih5, ih6, ih7 := currentHash[4], currentHash[5], currentHash[6], currentHash[7]
 	a, b, c, d, e, f, g, h := ih0, ih1, ih2, ih3, ih4, ih5, ih6, ih7
+	// After every round b takes the previous a and c takes the previous b, so
+	// this round's b^c is the preceding round's a^b. Seed the first round once.
+	bXorC := uapi.Xor(b, c)
 
 	for i := 0; i < 80; i++ {
 		// big sigma1(e) = ROTR(e,14) ^ ROTR(e,18) ^ ROTR(e,41)
@@ -109,11 +112,13 @@ func Permute512(api frontend.API, uapi *uints.BinaryField[uints.U64], currentHas
 			w[i],
 		)
 		// big sigma0(a) = ROTR(a,28) ^ ROTR(a,34) ^ ROTR(a,39)
-		// Maj(a,b,c) = (a AND b) ^ ((a ^ b) AND c)
+		// Maj(a,b,c) = b ^ ((a ^ b) AND (b ^ c)). Retain a^b for the
+		// next round, where register rotation makes it the new b^c.
 		// t2 is also deferred: two U64 terms give t2 < 2*2^64.
+		aXorB := uapi.Xor(a, b)
 		t2 := NativeSum64(api, uapi,
 			sigmaRot(api, uapi, rc, a, []int{28, 34, 39}, 0),
-			majority(uapi, a, b, c),
+			majorityFromXors(uapi, b, aXorB, bXorC),
 		)
 
 		h = g
@@ -126,6 +131,7 @@ func Permute512(api frontend.API, uapi *uints.BinaryField[uints.U64], currentHas
 		b = a
 		// t1+t2 < 7*2^64, so the high limb is at most 6 (3 bits).
 		a = Materialize64(api, uapi, rc, api.Add(t1, t2), 3)
+		bXorC = aXorB
 	}
 
 	// Each feed-forward is a two-U64 sum, so carry hi <= 1 (1 bit).
@@ -358,7 +364,11 @@ func choose(uapi *uints.BinaryField[uints.U64], e, f, g uints.U64) uints.U64 {
 }
 
 func majority(uapi *uints.BinaryField[uints.U64], a, b, c uints.U64) uints.U64 {
-	return uapi.Xor(uapi.And(a, b), uapi.And(uapi.Xor(a, b), c))
+	return majorityFromXors(uapi, b, uapi.Xor(a, b), uapi.Xor(b, c))
+}
+
+func majorityFromXors(uapi *uints.BinaryField[uints.U64], b, aXorB, bXorC uints.U64) uints.U64 {
+	return uapi.Xor(b, uapi.And(aXorB, bXorC))
 }
 
 // padSHA512 applies SHA-512 padding (FIPS 180-4 sec 5.1.2) to a message whose
