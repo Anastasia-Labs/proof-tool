@@ -24,8 +24,8 @@ func TestOwnershipDestinationCircuitGate(t *testing.T) {
 		{
 			name:            CircuitID,
 			circuit:         &Circuit{},
-			constraints:     2_413_407,
-			k:               22,
+			constraints:     1_759_577,
+			k:               21,
 			commitmentCount: 1,
 		},
 	}
