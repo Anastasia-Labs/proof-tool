@@ -94,8 +94,10 @@ MSM-worker WASM, and `wasm_exec.js` were byte-identical between builds. A cold
 loopback Playwright run then loaded the signed manifest, 2 MiB PK chunks,
 compressed CCS, VK, and deployment descriptor, generated a real proof, and
 verified it locally. On an intentionally bounded four-worker/eight-CPU run it
-took 158.786 seconds, reported 2.154 GiB peak Go heap, completed all 56 worker
-shards, and used no swap.
+took 152.298 seconds, reported 1.194 GiB peak Go heap, completed all 56 worker
+shards, and used no swap or contaminated samples. W1/W2/W3/W5/W6/W7 and pinned
+decode were enabled. The post-review proof WASM SHA-256 is
+`29dc252d97d0ed7e01ea9777684bb288e55fbf915dc423cc7abc91014757e303`.
 
 Twenty fresh Cardano-format proofs were generated and verified natively before
 serialization. The Plutus verifier suite then passed all 137 tests, including
@@ -113,3 +115,23 @@ PK/CCS would break proving or leave the old verifier relation active.
 
 The legacy embedded ownership-v1 verifier is fail-closed during this migration.
 It must not be re-enabled until an ownership-v2 key is generated and pinned.
+
+## Unfinished rollout gates
+
+This migration branch is not itself a deployable Preprod release. The checked-in
+web deployment descriptor and desktop download descriptor still identify the
+active v2 assets, while the updated loaders require v3 and therefore fail
+closed. Complete the following as one coordinated rollout:
+
+1. merge the reviewed source so the deployment transaction is built from an
+   exact clean `origin/main` commit;
+2. deploy the new Cardano verifier parameterized by the fixed Cardano VK and
+   produce its real deployment descriptor;
+3. regenerate/sign the chunk manifest against that descriptor and upload all
+   bulk bytes under a fresh immutable R2 prefix;
+4. refresh web and desktop pins, run the live Preprod prove/build/submit/confirm
+   lane, and only then retire the v2 R2 prefixes and purge stale edge entries.
+
+The hosted legacy ownership API is a separate surface: it remains deliberately
+unavailable until a fresh ownership-v2 (non-destination) verifier key is
+generated and pinned.
