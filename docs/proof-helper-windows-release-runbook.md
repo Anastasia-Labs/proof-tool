@@ -177,7 +177,7 @@ Then stage the release artifacts from the same app directory:
 
 ```bat
 pushd \\wsl.localhost\Ubuntu\home\gumbo\playground\proof-zk-recovery\proof-tool\apps\proof-helper-desktop
-pnpm release:stage-windows -- --tag proof-helper-desktop-v0.1.0-windows-preview.1 --bundle-dir src-tauri\target\x86_64-pc-windows-msvc\release\bundle --sidecar src-tauri\binaries\proof-tool-x86_64-pc-windows-msvc.exe --out-dir ..\..\dist\proof-helper-windows-x64
+pnpm release:stage-windows -- --tag proof-helper-desktop-v0.2.3 --bundle-dir src-tauri\target\x86_64-pc-windows-msvc\release\bundle --sidecar src-tauri\binaries\proof-tool-x86_64-pc-windows-msvc.exe --out-dir ..\..\dist\proof-helper-windows-x64
 popd
 ```
 
@@ -186,7 +186,7 @@ popd
 Download the draft assets:
 
 ```sh
-gh release download proof-helper-desktop-v0.1.0-windows-preview.1 \
+gh release download proof-helper-desktop-v0.2.3 \
   --dir /tmp/proof-helper-windows-release \
   --clobber
 ```
@@ -235,7 +235,7 @@ notes before publishing.
 Only publish after the gates and Windows validation pass:
 
 ```sh
-gh release edit proof-helper-desktop-v0.1.0-windows-preview.1 --draft=false
+gh release edit proof-helper-desktop-v0.2.3 --draft=false
 ```
 
 Then update the website download link to the direct Windows installer asset.

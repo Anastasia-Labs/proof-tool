@@ -1,6 +1,6 @@
 [package]
 name = "proof-helper-desktop"
-version = "0.2.2"
+version = "0.2.3"
 description = "Desktop wrapper for the local Proof Helper sidecar"
 edition = "2021"
 

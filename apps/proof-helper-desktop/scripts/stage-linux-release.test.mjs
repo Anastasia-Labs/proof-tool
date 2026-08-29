@@ -55,6 +55,6 @@ test("stages a versioned executable AppImage with matching checksum and provenan
   const manifest = JSON.parse(await fsp.readFile(path.join(out, "proof-helper-linux-release-manifest.json"), "utf8"));
   expect(manifest.source_commit).toBe("a".repeat(40));
   expect(manifest.artifact.sha256).toBe(`sha256:${digest}`);
-  expect(manifest.proof_assets_descriptor.expected_key_version).toBe("ownership-destination-v2");
+  expect(manifest.proof_assets_descriptor.expected_key_version).toBe("ownership-destination-v3");
   expect(await fsp.readFile(path.join(out, "VERIFY-LINUX.md"), "utf8")).toMatch(/sha256sum --check/u);
 });
