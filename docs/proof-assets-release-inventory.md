@@ -90,12 +90,12 @@ root.
 The current GitHub release remains the desktop archive distribution route. The
 browser prover obtains the same key bundle's bulk, hash-pinned assets from the
 Cloudflare R2 bucket `proof-assets` through the custom domain
-`proof-assets-2m.reclaim-proof.com`.
+`proof-assets.reclaim-proof.com`.
 
 - Object-key prefix:
   `proof-assets/preprod-v3-191ca93-opt-bb62-07d48bc5-r1/`
 - Chunk-manifest base URL:
-  `https://proof-assets-2m.reclaim-proof.com/proof-assets/preprod-v3-191ca93-opt-bb62-07d48bc5-r1/`
+  `https://proof-assets.reclaim-proof.com/proof-assets/preprod-v3-191ca93-opt-bb62-07d48bc5-r1/`
 - Bulk objects: 509 2 MiB `ownership.pk.part####` chunks,
   `ownership-destination.ccs` (`101185815` bytes), its compressed transport
   (`33386315` bytes), and the CPU-fallback `ownership.pk` (`1065962731`

@@ -26,7 +26,7 @@
     "deployment_source_commit": "693b6ada6f640619355029642d22e3f05cb8588e"
   },
   "transport": {
-    "base_url": "https://proof-assets-2m.reclaim-proof.com/proof-assets/preprod-v3-191ca93-opt-bb62-07d48bc5-r1/",
+    "base_url": "https://proof-assets.reclaim-proof.com/proof-assets/preprod-v3-191ca93-opt-bb62-07d48bc5-r1/",
     "content_encoding": "identity",
     "requires_https": true,
     "supports_range": true
