@@ -97,27 +97,27 @@ struct ArchiveDigest {
 
 pub fn active_descriptor() -> ProofAssetsReleaseDescriptor {
     ProofAssetsReleaseDescriptor {
-        release_tag: "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a".to_string(),
+        release_tag: "proof-assets-ownership-destination-v3-preprod-191ca93-opt-r1".to_string(),
         profile: "preprod-single-destination".to_string(),
-        archive_url: "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a/proof-assets-ownership-destination-v2-preprod-9fac96b-g3a.tar".to_string(),
-        archive_size: 1_417_943_040,
+        archive_url: "https://github.com/Anastasia-Labs/proof-tool-release/releases/download/proof-assets-ownership-destination-v3-preprod-191ca93-opt-r1/proof-assets-ownership-destination-v3-preprod-191ca93-opt-r1.tar".to_string(),
+        archive_size: 1_167_165_440,
         archive_sha256:
-            "sha256:ee2f232f828da815428965ceb7d57719e32b706fce3373cff603de73a29fdff9"
+            "sha256:3da800387c9690ba8b3b558978d12600d4f1adfea96c4256b523bd753e9a217a"
                 .to_string(),
         archive_blake2b256:
-            "blake2b256:2a44af40ef01cbdca91728098c96978af247ca65dd7ea632090393709a516a28"
+            "blake2b256:12264a7a47a9dd77fcf39b2d9176df62c35d6ab419c7ae5313c9f840297f2bfa"
                 .to_string(),
-        key_bundle_prefix: "key-bundle/ownership-destination-v2-preprod-9fac96b-g3a".to_string(),
-        expected_key_version: "ownership-destination-v2".to_string(),
-        expected_circuit_id: "root-ownership-destination-v2/bls12-381/groth16".to_string(),
+        key_bundle_prefix: "key-bundle/ownership-destination-v3-preprod-191ca93-opt-r1".to_string(),
+        expected_key_version: "ownership-destination-v3".to_string(),
+        expected_circuit_id: "root-ownership-destination-v3/bls12-381/groth16".to_string(),
         expected_vk_hash:
-            "blake2b256:b1c03cf24376bcd6c743cb372169ff71f93b210e0d8d52b2c6831808f50ded80"
+            "blake2b256:bb62fb1ab0bbc2d63f0e86dca668ee339dba8d3bc3c83f063a781261b2462ce7"
                 .to_string(),
-        expected_signature_key_id: "preprod-local-destination-v2-9fac96b-g3a".to_string(),
+        expected_signature_key_id: "preprod-local-destination-v3-191ca93-20260829".to_string(),
         trusted_manifest_public_key_hex:
-            "2af3b300b9e641ede236d4b7d48b43eccfb843ffa9aca74abb38f98e7211eccb".to_string(),
+            "e5924495fbf85b40f909856e4b39151897871f65b4b329c2f9fb07e680ec855b".to_string(),
         expected_cardano_vk_blake2b256:
-            "blake2b256:06ce913c931a53561fe5d022ed45a5fbc033b06d80eebdd9f646d23a05b7d5c4"
+            "blake2b256:b953a5133901bee9832254df08b76f28a8f5e5aba58683815623f6e1ec660fa7"
                 .to_string(),
         minimum_free_bytes: MINIMUM_FREE_BYTES,
     }
@@ -790,10 +790,10 @@ mod tests {
         let descriptor = active_descriptor();
         assert!(!descriptor.release_tag.is_empty());
         assert!(!descriptor.profile.is_empty());
-        assert_eq!(descriptor.expected_key_version, "ownership-destination-v2");
+        assert_eq!(descriptor.expected_key_version, "ownership-destination-v3");
         assert_eq!(
             descriptor.expected_circuit_id,
-            "root-ownership-destination-v2/bls12-381/groth16"
+            "root-ownership-destination-v3/bls12-381/groth16"
         );
         assert!(descriptor.expected_vk_hash.starts_with("blake2b256:"));
         assert!(!descriptor.expected_signature_key_id.is_empty());
@@ -804,12 +804,12 @@ mod tests {
         assert!(descriptor.minimum_free_bytes > 0);
         assert!(descriptor.download_configured());
         assert!(descriptor.archive_url.starts_with("https://github.com/"));
-        assert_eq!(descriptor.archive_size, 1_417_943_040);
+        assert_eq!(descriptor.archive_size, 1_167_165_440);
         assert!(descriptor.archive_sha256.starts_with("sha256:"));
         assert!(descriptor.archive_blake2b256.starts_with("blake2b256:"));
         assert_eq!(
             descriptor.key_bundle_prefix,
-            "key-bundle/ownership-destination-v2-preprod-9fac96b-g3a"
+            "key-bundle/ownership-destination-v3-preprod-191ca93-opt-r1"
         );
     }
 
@@ -835,7 +835,7 @@ mod tests {
         assert_eq!(
             bundle_file_for_entry(
                 Path::new(
-                    "./key-bundle/ownership-destination-v2-preprod-9fac96b-g3a/manifest.json"
+                    "./key-bundle/ownership-destination-v3-preprod-191ca93-opt-r1/manifest.json"
                 ),
                 &descriptor.key_bundle_prefix,
             )
@@ -844,7 +844,7 @@ mod tests {
         );
         assert_eq!(
             bundle_file_for_entry(
-                Path::new("key-bundle/ownership-destination-v2-preprod-9fac96b-g3a/ownership.pk"),
+                Path::new("key-bundle/ownership-destination-v3-preprod-191ca93-opt-r1/ownership.pk"),
                 &descriptor.key_bundle_prefix,
             )
             .unwrap(),
@@ -853,7 +853,7 @@ mod tests {
         assert_eq!(
             bundle_file_for_entry(
                 Path::new(
-                    "key-bundle/ownership-destination-v2-preprod-9fac96b-g3a/ownership-destination.ccs"
+                    "key-bundle/ownership-destination-v3-preprod-191ca93-opt-r1/ownership-destination.ccs"
                 ),
                 &descriptor.key_bundle_prefix,
             )
@@ -863,7 +863,7 @@ mod tests {
         assert_eq!(
             bundle_file_for_entry(
                 Path::new(
-                    "proof-assets-ownership-destination-v2-preprod-9fac96b-g3a/manifest.json"
+                    "proof-assets-ownership-destination-v3-preprod-191ca93-opt-r1/manifest.json"
                 ),
                 &descriptor.key_bundle_prefix,
             )

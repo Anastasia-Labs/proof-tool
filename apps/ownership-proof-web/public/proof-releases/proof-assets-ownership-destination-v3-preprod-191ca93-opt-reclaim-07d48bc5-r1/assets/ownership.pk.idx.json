@@ -1,0 +1,52 @@
+{
+  "sections": {
+    "A": {
+      "name": "A",
+      "offset": 461,
+      "len": 190123200,
+      "elem_size": 96
+    },
+    "B": {
+      "name": "B",
+      "offset": 190123665,
+      "len": 127219872,
+      "elem_size": 96
+    },
+    "Basis": {
+      "name": "Basis",
+      "offset": 897389991,
+      "len": 84286368,
+      "elem_size": 96
+    },
+    "BasisExpSigma": {
+      "name": "BasisExpSigma",
+      "offset": 981676363,
+      "len": 84286368,
+      "elem_size": 96
+    },
+    "G2B": {
+      "name": "G2B",
+      "offset": 638693757,
+      "len": 254439744,
+      "elem_size": 192
+    },
+    "K": {
+      "name": "K",
+      "offset": 518670041,
+      "len": 120023328,
+      "elem_size": 96
+    },
+    "Z": {
+      "name": "Z",
+      "offset": 317343541,
+      "len": 201326496,
+      "elem_size": 96
+    }
+  },
+  "domain_cardinality": 2097152,
+  "nb_wires": 2128229,
+  "nb_infinity_a": 147779,
+  "nb_infinity_b": 803022,
+  "nb_commitment_keys": 1,
+  "file_size": 1065962731
+}

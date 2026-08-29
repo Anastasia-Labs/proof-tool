@@ -47,7 +47,7 @@ The destination circuit grows by 623,657 constraints (34.85%). The increase is
 the expected cost of constraining dynamic lookup outputs that the affected
 version left under-constrained.
 
-## Fresh Preprod setup evidence
+## Initial fixed-circuit setup evidence
 
 A fresh single-operator Preprod setup was generated from clean source commit
 `9e8cab701589cf77c1c8d74fa016d8b13faebd84`. This is not an MPC or trustless
@@ -67,6 +67,10 @@ The native PK is 1,834,843,511 bytes and the frozen CCS is 161,214,609
 bytes. The local browser candidate splits the PK into 875 signed 2 MiB chunks
 and compresses the CCS transport to 43,806,673 bytes while retaining both
 identity and compressed-content hashes.
+
+This candidate established the security migration before the circuit was
+optimized. It is superseded for deployment by the optimized coherence set in
+the cutover section below.
 
 ## Performance evidence
 
@@ -116,21 +120,37 @@ PK/CCS would break proving or leave the old verifier relation active.
 The legacy embedded ownership-v1 verifier is fail-closed during this migration.
 It must not be re-enabled until an ownership-v2 key is generated and pinned.
 
-## Unfinished rollout gates
+## Optimized Preprod cutover
 
-This migration branch is not itself a deployable Preprod release. The checked-in
-web deployment descriptor and desktop download descriptor still identify the
-active v2 assets, while the updated loaders require v3 and therefore fail
-closed. Complete the following as one coordinated rollout:
+The reviewed migration source was merged before creating the final deployment.
+The optimized destination circuit was then set up from source commit
+`191ca9312b8081cfc5fd26581d7e8c2bcefcee73`; its signed coherence set pins:
 
-1. merge the reviewed source so the deployment transaction is built from an
-   exact clean `origin/main` commit;
-2. deploy the new Cardano verifier parameterized by the fixed Cardano VK and
-   produce its real deployment descriptor;
-3. regenerate/sign the chunk manifest against that descriptor and upload all
-   bulk bytes under a fresh immutable R2 prefix;
-4. refresh web and desktop pins, run the live Preprod prove/build/submit/confirm
-   lane, and only then retire the v2 R2 prefixes and purge stale edge entries.
+- native VK hash
+  `blake2b256:bb62fb1ab0bbc2d63f0e86dca668ee339dba8d3bc3c83f063a781261b2462ce7`;
+- Cardano VK hash
+  `blake2b256:b953a5133901bee9832254df08b76f28a8f5e5aba58683815623f6e1ec660fa7`;
+- CCS hash
+  `blake2b256:d1215047c4e53cba141fa1b25debd2b060330baf893ba90a6ac75fac19ca302c`.
+
+The corresponding Preprod deployment transaction is
+`dd557660decbd9c1b648f59004243ad4f600bba3139adb68732aff270e8e4a81`.
+The browser release uses the fresh immutable R2 prefix
+`proof-assets/preprod-v3-191ca93-opt-bb62-07d48bc5-r1/`; the desktop release
+is `proof-assets-ownership-destination-v3-preprod-191ca93-opt-r1`.
+
+The stable descriptors must be merged only after all R2 objects are publicly
+range-readable and the exact cutover commit passes the live Preprod
+prove/build/submit/confirm lane. Previous v2 releases remain immutable rollback
+artifacts; promotion retires their active pointers but does not delete them.
+
+The current Lean formal-assurance lock remains historical evidence for the
+previous v2 Preprod deployment. It must not be attributed to this v3 cutover:
+the pinned Lean/PlutusCore importer does not yet decode the Plutus 1.66/UPLC
+artifacts used by the new contract deployment. Public-chain regeneration did
+independently reproduce the v3 policy, Base, and Global identities and byte
+digests, but refreshing the theorem corpus remains a separate open assurance
+task.
 
 The hosted legacy ownership API is a separate surface: it remains deliberately
 unavailable until a fresh ownership-v2 (non-destination) verifier key is

@@ -1,7 +1,7 @@
 # Proof Helper Linux AppImage Release Runbook
 
 The public Linux package is a portable x86-64 AppImage. It bundles the Go
-sidecar and downloads the separately published, signed V2 Preprod proof bundle
+sidecar and downloads the separately published, signed V3 Preprod proof bundle
 on first launch. Packaging success alone is not publication approval.
 
 ## Release gates
@@ -34,7 +34,7 @@ go build -trimpath -ldflags="-s -w" \
 
 VITE_PROOF_SITE_URL=https://proof-tool.vercel.app \
 VITE_PROOF_HELPER_ALLOWED_ORIGINS=https://proof-tool-git-*.vercel.app \
-VITE_PROOF_HELPER_APP_VERSION=0.2.2 \
+VITE_PROOF_HELPER_APP_VERSION=0.2.3 \
 pnpm --dir apps/proof-helper-desktop tauri build --bundles appimage
 ```
 
@@ -42,8 +42,8 @@ Stage the release using the full source commit:
 
 ```bash
 pnpm --dir apps/proof-helper-desktop release:stage-linux -- \
-  --tag proof-helper-desktop-v0.2.2 \
-  --appimage src-tauri/target/release/bundle/appimage/Proof\ Helper_0.2.2_amd64.AppImage \
+  --tag proof-helper-desktop-v0.2.3 \
+  --appimage src-tauri/target/release/bundle/appimage/Proof\ Helper_0.2.3_amd64.AppImage \
   --sidecar src-tauri/binaries/proof-tool-x86_64-unknown-linux-gnu \
   --out-dir ../../dist/proof-helper-linux-x86_64 \
   --source-commit "$(git rev-parse HEAD)"
@@ -54,15 +54,15 @@ pnpm --dir apps/proof-helper-desktop release:stage-linux -- \
 Download the AppImage and its `.sha256` file into the same directory, then run:
 
 ```bash
-sha256sum --check proof-helper_0.2.2_linux_x86_64.AppImage.sha256
-chmod +x proof-helper_0.2.2_linux_x86_64.AppImage
-./proof-helper_0.2.2_linux_x86_64.AppImage
+sha256sum --check proof-helper_0.2.3_linux_x86_64.AppImage.sha256
+chmod +x proof-helper_0.2.3_linux_x86_64.AppImage
+./proof-helper_0.2.3_linux_x86_64.AppImage
 ```
 
 If FUSE is unavailable:
 
 ```bash
-./proof-helper_0.2.2_linux_x86_64.AppImage --appimage-extract-and-run
+./proof-helper_0.2.3_linux_x86_64.AppImage --appimage-extract-and-run
 ```
 
 Never enter a recovery phrase into the desktop app. The desktop app installs

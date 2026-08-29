@@ -195,7 +195,7 @@ jobs:
             echo
             echo "- Target: x86_64-pc-windows-msvc"
             echo "- Signing status: ${signing_status}"
-            echo "- Proof-assets descriptor: proof-assets-ownership-destination-v2-preprod-9fac96b-g3a"
+            echo "- Proof-assets descriptor: proof-assets-ownership-destination-v3-preprod-191ca93-opt-r1"
             echo "- Proof-assets download route: public HTTPS (GitHub release asset), size and hashes pinned in the app descriptor"
             echo
             echo "Do not describe this as a general Windows end-user release until Authenticode signatures, a public proof-assets download route, and local Windows release-build validation are complete."
