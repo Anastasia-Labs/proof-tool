@@ -11,7 +11,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/std/math/uints"
-	"github.com/consensys/gnark/std/rangecheck"
 )
 
 const sigmaRandomCases = 1_000
@@ -45,7 +44,6 @@ func (*constantSigmaCircuit) Define(api frontend.API) error {
 	if err != nil {
 		return err
 	}
-	rc := rangecheck.New(api)
 	const word = uint64(0x0123456789abcdef)
 	tests := []struct {
 		rotations  []int
@@ -58,7 +56,7 @@ func (*constantSigmaCircuit) Define(api frontend.API) error {
 		{rotations: []int{19, 61}, rightShift: 6, want: bits.RotateLeft64(word, -19) ^ bits.RotateLeft64(word, -61) ^ (word >> 6)},
 	}
 	for _, test := range tests {
-		got := sigmaRot(api, uapi, rc, uints.NewU64(word), test.rotations, test.rightShift)
+		got := sigmaRot(api, uapi, uints.NewU64(word), test.rotations, test.rightShift)
 		uapi.AssertEq(got, uints.NewU64(test.want))
 	}
 	return nil
@@ -85,27 +83,26 @@ func (c *sigmaDifferentialCircuit) Define(api frontend.API) error {
 	if err != nil {
 		return err
 	}
-	rc := rangecheck.New(api)
 	for i := range c.Words {
-		gotBig1 := sigmaRot(api, uapi, rc, c.Words[i], []int{14, 18, 41}, 0)
+		gotBig1 := sigmaRot(api, uapi, c.Words[i], []int{14, 18, 41}, 0)
 		legacyBig1 := uapi.Xor(
 			uapi.Lrot(c.Words[i], -14),
 			uapi.Lrot(c.Words[i], -18),
 			uapi.Lrot(c.Words[i], -41),
 		)
-		gotBig0 := sigmaRot(api, uapi, rc, c.Words[i], []int{28, 34, 39}, 0)
+		gotBig0 := sigmaRot(api, uapi, c.Words[i], []int{28, 34, 39}, 0)
 		legacyBig0 := uapi.Xor(
 			uapi.Lrot(c.Words[i], -28),
 			uapi.Lrot(c.Words[i], -34),
 			uapi.Lrot(c.Words[i], -39),
 		)
-		gotSmall0 := sigmaRot(api, uapi, rc, c.Words[i], []int{1, 8}, 7)
+		gotSmall0 := sigmaRot(api, uapi, c.Words[i], []int{1, 8}, 7)
 		legacySmall0 := uapi.Xor(
 			uapi.Lrot(c.Words[i], -1),
 			uapi.Lrot(c.Words[i], -8),
 			uapi.Rshift(c.Words[i], 7),
 		)
-		gotSmall1 := sigmaRot(api, uapi, rc, c.Words[i], []int{19, 61}, 6)
+		gotSmall1 := sigmaRot(api, uapi, c.Words[i], []int{19, 61}, 6)
 		legacySmall1 := uapi.Xor(
 			uapi.Lrot(c.Words[i], -19),
 			uapi.Lrot(c.Words[i], -61),
@@ -150,7 +147,7 @@ func (c *sigmaByteDecompositionCircuit) Define(api frontend.API) error {
 		return err
 	}
 	input := uapi.ByteValueOf(c.Input)
-	_ = decomposeSigmaByte(api, uapi, rangecheck.New(api), input, c.widths)
+	_ = decomposeSigmaByte(api, uapi, input, c.widths)
 	return nil
 }
 
