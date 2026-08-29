@@ -38,8 +38,8 @@ export const DEPLOYMENT_PLAN_FILENAME = "deployment-plan.json";
 
 const NETWORK = "Mainnet";
 const NETWORK_ID = 1;
-const KEY_VERSION = "ownership-destination-v2";
-const CIRCUIT_ID = "root-ownership-destination-v2/bls12-381/groth16";
+const KEY_VERSION = "ownership-destination-v3";
+const CIRCUIT_ID = "root-ownership-destination-v3/bls12-381/groth16";
 const CURVE = "BLS12-381";
 const BACKEND = "groth16";
 const CARDANO_VK_FORMAT = "groth16-bls12-381-bsb22";

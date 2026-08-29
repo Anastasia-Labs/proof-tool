@@ -9,7 +9,7 @@ import (
 )
 
 func TestV2IdentityPreservesV1StatementDomain(t *testing.T) {
-	if CircuitID != "root-ownership-destination-v2/bls12-381/groth16" {
+	if CircuitID != "root-ownership-destination-v3/bls12-381/groth16" {
 		t.Fatalf("circuit id = %q", CircuitID)
 	}
 	if Domain != "ROOT-OWNERSHIP-DESTINATION-v1" {

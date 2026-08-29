@@ -3,7 +3,7 @@
 # the reviewed patches under experiments/wasm-prover/patches. The vendored
 # dependencies contain ProveStream/MSM plus opt-W2 domain-decoding, opt-W3
 # CCS-release, opt-W1 scheduling/yield, opt-W6 computeH table-lifetime, and
-# opt-C8 constant byte-operation folding seams;
+# opt-C8 constant byte-operation folding, exact-width bounded byte packing;
 # regenerating vendor/ without this check in place silently deletes the prover.
 #
 # Fails (exit 1) on any drift in either direction: an unmirrored vendor edit,
@@ -18,6 +18,8 @@ PATCHES=(
   experiments/wasm-prover/patches/dispatch-before-fft.patch
 	experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch
 	experiments/wasm-prover/patches/uints-constant-fold.patch
+	experiments/wasm-prover/patches/uints-bounded-pack.patch
+	experiments/wasm-prover/patches/rangecheck-single-limb.patch
 	experiments/wasm-prover/patches/computeh-parallel-transforms.patch
 )
 

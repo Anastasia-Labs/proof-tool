@@ -1116,6 +1116,7 @@ mod tests {
                 circuit_id: key_bundle_core::CIRCUIT_ID.to_string(),
                 curve: "BLS12-381".to_string(),
                 backend: "groth16".to_string(),
+                gnark_version: key_bundle_core::GNARK_VERSION.to_string(),
                 vk_hash: vk_digest.blake2b256.clone(),
                 proving_key_sha256: pk_digest.sha256,
                 proving_key_blake2b256: pk_digest.blake2b256,

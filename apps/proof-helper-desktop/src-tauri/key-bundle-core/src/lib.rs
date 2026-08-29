@@ -9,8 +9,9 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-pub const KEY_VERSION: &str = "ownership-destination-v2";
-pub const CIRCUIT_ID: &str = "root-ownership-destination-v2/bls12-381/groth16";
+pub const KEY_VERSION: &str = "ownership-destination-v3";
+pub const CIRCUIT_ID: &str = "root-ownership-destination-v3/bls12-381/groth16";
+pub const GNARK_VERSION: &str = "v0.16.3";
 pub const MANIFEST_FILE: &str = "manifest.json";
 pub const MANIFEST_SIGNATURE_FILE: &str = "manifest.sig";
 pub const PROVING_KEY_FILE: &str = "ownership.pk";
@@ -27,6 +28,7 @@ pub struct KeyManifest {
     pub circuit_id: String,
     pub curve: String,
     pub backend: String,
+    pub gnark_version: String,
     pub vk_hash: String,
     pub proving_key_sha256: String,
     pub proving_key_blake2b256: String,
@@ -438,6 +440,12 @@ fn validate_manifest_metadata_with_expected(
             manifest.backend
         ));
     }
+    if manifest.gnark_version != GNARK_VERSION {
+        return Err(format!(
+            "manifest gnark version {:?}, want {:?}",
+            manifest.gnark_version, GNARK_VERSION
+        ));
+    }
     if manifest.vk_hash.trim().is_empty() {
         return Err("manifest vk_hash is required".to_string());
     }
@@ -664,6 +672,15 @@ mod tests {
     }
 
     #[test]
+    fn rejects_manifest_from_unsafe_gnark_version() {
+        let fixture = Fixture::new();
+        let mut manifest = read_manifest(&fixture.source_dir().join(MANIFEST_FILE)).unwrap();
+        manifest.gnark_version = "v0.15.0".to_string();
+        let err = validate_manifest_metadata(&manifest).unwrap_err();
+        assert!(err.contains("gnark version"));
+    }
+
+    #[test]
     fn reports_staging_progress_for_each_bundle_file() {
         let fixture = Fixture::new();
         let mut events = Vec::new();
@@ -798,6 +815,7 @@ mod tests {
                 circuit_id: CIRCUIT_ID.to_string(),
                 curve: "BLS12-381".to_string(),
                 backend: "groth16".to_string(),
+                gnark_version: GNARK_VERSION.to_string(),
                 vk_hash: vk_digest.blake2b256,
                 proving_key_sha256: pk_digest.sha256,
                 proving_key_blake2b256: pk_digest.blake2b256,

@@ -2,7 +2,8 @@
 # Regenerates vendor/ from go.mod and applies the reviewed browser-prover patches
 # (gnark ProveStream/MSM seam, opt-W2 domain decoding, opt-W3 CCS release, and
 # opt-W1 dispatch-before-FFT scheduling/yields, opt-W6 scoped computeH
-# coset-table reuse and opt-C8 constant byte-operation folding).
+# coset-table reuse, opt-C8 constant byte-operation folding, and exact-width
+# bounded byte packing).
 # vendor/ is
 # gitignored; this script is the ONLY supported way to (re)create it.
 # A plain `go mod vendor` produces a tree WITHOUT the streaming prover and
@@ -21,6 +22,8 @@ PATCHES=(
   experiments/wasm-prover/patches/dispatch-before-fft.patch
 	experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch
 	experiments/wasm-prover/patches/uints-constant-fold.patch
+	experiments/wasm-prover/patches/uints-bounded-pack.patch
+	experiments/wasm-prover/patches/rangecheck-single-limb.patch
 	experiments/wasm-prover/patches/computeh-parallel-transforms.patch
 )
 

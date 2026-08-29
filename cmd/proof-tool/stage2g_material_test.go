@@ -305,6 +305,7 @@ func writeStage2gTestSignedBundle(t *testing.T) (keysDir, trustedPublicKey, sign
 		CircuitID:            ownershipdest.CircuitID,
 		Curve:                "BLS12-381",
 		Backend:              "groth16",
+		GnarkVersion:         prover.GnarkVersion,
 		VKHash:               vkBlake2b256,
 		ProvingKeySHA256:     pkSHA256,
 		ProvingKeyBlake2b256: pkBlake2b256,

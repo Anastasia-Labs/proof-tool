@@ -79,7 +79,7 @@ second path list.
 
 var commandHelp = map[string]string{
 	"init": `Usage:
-  mpc-ceremony init --key-version ownership-destination-v2 \
+  mpc-ceremony init --key-version ownership-destination-v3 \
     --participants ROSTER.json --policy POLICY.json \
     --coordinator-key-id ID --coordinator-signing-key KEY \
     --created-at RFC3339 --out-dir DIR [--mode rehearsal|production] \
@@ -297,7 +297,7 @@ entropy quality, erasure, public witnessing, mirrors, or attendance.
     --coordinator-public-key-file KEY --draft FILE --out FRESH_FILE
 
 Strictly parses a proof-tool-mpc-production-decision-draft-v1 record, derives
-the release_id and decision_id, and checks ceremony, source, exact K=21
+the release_id and decision_id, and checks ceremony, source, exact K=22
 circuit, and signer-role bindings. The fresh output is the only byte string
 the accountable roles should sign.
 `,

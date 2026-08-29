@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Runs a staged, exact ownership-destination-v2 K=21 ceremony through the
-# participant-facing CLI using same-host rehearsal identities.
+# Runs a staged, exact ownership-destination-v3 K=22 ceremony through the
+# participant-facing CLI using same-host rehearsal identities. The filename is
+# retained for operator compatibility with existing rehearsal automation.
 #
 # This is resource/coherence evidence, not participant-independence evidence.
 # It never fetches a beacon. The operator must close each phase on a future
@@ -1681,7 +1682,7 @@ case "$STAGE" in
       exit 1
     fi
     PARENT=$(dirname "$ROOT")
-    CAPACITY_TEMP=$(mktemp "$PARENT/.mpc-k21-capacity.XXXXXXXX")
+    CAPACITY_TEMP=$(mktemp "$PARENT/.mpc-k22-capacity.XXXXXXXX")
     if ! "$SCRIPT_DIR/check-mpc-k21-capacity.sh" "$PARENT" >"$CAPACITY_TEMP"; then
       rm -f -- "$CAPACITY_TEMP"
       exit 1
@@ -1762,14 +1763,14 @@ case "$STAGE" in
       init \
       --mode rehearsal \
       --created-at "$(timestamp "$CREATED_EPOCH")" \
-      --key-version ownership-destination-v2 \
+      --key-version ownership-destination-v3 \
       --participants "$CONFIG/participants.json" \
       --policy "$CONFIG/policy.json" \
       --coordinator-key-id coordinator-key \
       --coordinator-signing-key "$COORDINATOR_PRIVATE_KEY" \
       --out-dir "$TRANSCRIPT"
     complete_stage prepare
-    echo "OK: prepared exact K=21 local rehearsal at $ROOT"
+    echo "OK: prepared exact K=22 local rehearsal at $ROOT"
     echo "WARNING: same-host identities are not independent ceremony participants."
     ;;
 
@@ -2181,7 +2182,7 @@ NODE
     sync -f "$MEASUREMENTS/retained-directory-sizes.txt"
     sync -f "$MEASUREMENTS/final-filesystem-capacity.txt"
     complete_stage finish
-    echo "OK: exact K=21 local rehearsal finalized, audited twice, signed, and verified"
+    echo "OK: exact K=22 local rehearsal finalized, audited twice, signed, and verified"
     echo "WARNING: this same-host run does not satisfy independent participant, auditor, or witness gates."
     ;;
 

@@ -140,6 +140,13 @@ func TestGenerateChunkManifestAndTamperGuards(t *testing.T) {
 			t.Fatalf("expected vk_hash failure, got %v", err)
 		}
 	})
+	t.Run("gnark version tamper fails", func(t *testing.T) {
+		tampered := cloneChunkManifest(t, manifest)
+		tampered.Coherence.GnarkVersion = "v0.14.0"
+		if err := ValidateChunkManifest(tampered, expect); err == nil || !strings.Contains(err.Error(), "gnark_version") {
+			t.Fatalf("expected gnark version coherence failure, got %v", err)
+		}
+	})
 	t.Run("vk asset digest tamper fails", func(t *testing.T) {
 		tampered := cloneChunkManifest(t, manifest)
 		pin := tampered.Assets["ownership.vk"]

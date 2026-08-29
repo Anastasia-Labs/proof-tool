@@ -93,6 +93,8 @@ function publicManifest() {
 
 function statementBoundV2Manifest() {
   const manifest = publicManifest();
+  manifest.proof.circuit_id = "root-ownership-destination-v3/bls12-381/groth16";
+  manifest.proof.key_version = "ownership-destination-v3";
   manifest.reclaim_global.proof_slot_encoding = "full-proof-plus-public-input-digest-v2";
   manifest.reclaim_global.batch_transcript_vk_hash = manifest.proof.cardano_vk_blake2b256;
   manifest.batching = {

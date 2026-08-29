@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Refuses to start an exact K=21 rehearsal unless the selected local
+# Refuses to start an exact K=22 rehearsal unless the selected local
 # filesystem and current process limits meet explicit, measurable floors.
+# MPC_K21_* environment names are retained for operator compatibility.
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
@@ -315,7 +316,7 @@ if (( READ_BYTES_PER_SECOND < MIN_READ_BYTES_PER_SECOND )); then
   exit 1
 fi
 
-echo "OK: K=21 work volume passed resource, I/O, and publication probes"
+echo "OK: K=22 work volume passed resource, I/O, and publication probes"
 echo "filesystem=$FS_TYPE free_bytes=$FREE_BYTES free_inodes=$FREE_INODES"
 echo "host_available_memory_bytes=$HOST_AVAILABLE_MEMORY_BYTES effective_available_memory_bytes=$EFFECTIVE_AVAILABLE_MEMORY_BYTES"
 echo "cgroup_version=$CGROUP_VERSION cgroup_memory_max=$CGROUP_MEMORY_MAX cgroup_memory_current=$CGROUP_MEMORY_CURRENT cgroup_memory_high=$CGROUP_MEMORY_HIGH"

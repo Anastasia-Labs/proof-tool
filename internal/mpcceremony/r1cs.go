@@ -40,7 +40,7 @@ func CompileDestinationV2() (*CompiledCircuit, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve destination-v2 circuit profile: %w", err)
 	}
-	if profile.KeyVersion != KeyVersionDestinationV2 || profile.CircuitID != CircuitIDDestinationV2 {
+	if profile.KeyVersion != KeyVersionDestinationV3 || profile.CircuitID != CircuitIDDestinationV3 {
 		return nil, fmt.Errorf(
 			"destination-v2 profile identity is key_version=%q circuit_id=%q",
 			profile.KeyVersion,
@@ -207,8 +207,8 @@ func bindDestinationV2R1CS(compiled constraint.ConstraintSystem) (*CompiledCircu
 		return nil, err
 	}
 	binding := CircuitBinding{
-		KeyVersion:        KeyVersionDestinationV2,
-		CircuitID:         CircuitIDDestinationV2,
+		KeyVersion:        KeyVersionDestinationV3,
+		CircuitID:         CircuitIDDestinationV3,
 		Curve:             CurveBLS12381,
 		Backend:           BackendGroth16,
 		R1CS:              ArtifactRef{Name: prover.DestinationConstraintSystemFile, Digest: digest},
@@ -339,8 +339,8 @@ func groth16Commitments(r1cs *bls12381cs.R1CS) (constraint.Groth16Commitments, e
 	return commitments, nil
 }
 
-// phase2ShapeFromR1CS mirrors the length-only part of gnark v0.15.0
-// mpcsetup.Phase2.Initialize. It avoids evaluating the full K=21 QAP merely
+// phase2ShapeFromR1CS mirrors the length-only part of gnark v0.16.3
+// mpcsetup.Phase2.Initialize. It avoids evaluating the full K=22 QAP merely
 // to establish allocation-safe transcript bounds in the ceremony definition.
 // engine_test checks this result against DerivePhase2Shape on an initialized
 // committed circuit.

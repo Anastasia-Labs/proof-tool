@@ -49,7 +49,7 @@ const (
 	GateOperationalEvidence    ProductionGate = "operational-evidence"
 	GateIndependentAudits      ProductionGate = "two-independent-audits"
 	GateExternalAudit          ProductionGate = "third-party-security-audit"
-	GateK21Rehearsal           ProductionGate = "exact-k21-rehearsal"
+	GateK21Rehearsal           ProductionGate = "exact-k22-rehearsal"
 	GateMainnetDeploymentPlan  ProductionGate = "mainnet-deployment-plan"
 	GateFormalChecklist        ProductionGate = "formal-go-no-go-checklist"
 	GateParticipantIndependent ProductionGate = "participant-independence"
@@ -252,6 +252,9 @@ func (e ExternalAuditEvidence) Validate() error {
 	return nil
 }
 
+// K21RehearsalEvidence keeps its Go and JSON field names for canonical v1
+// decision-schema compatibility. The fixed destination-v3 circuit is K22, so
+// validation below requires a 2^22 domain and the gate value is exact-k22.
 type K21RehearsalEvidence struct {
 	KeyVersion  string             `json:"key_version"`
 	CircuitID   string             `json:"circuit_id"`
@@ -293,17 +296,17 @@ func (e SourceReleaseEvidence) Validate() error {
 }
 
 func (e K21RehearsalEvidence) Validate() error {
-	if e.KeyVersion != KeyVersionDestinationV2 ||
-		e.CircuitID != CircuitIDDestinationV2 ||
+	if e.KeyVersion != KeyVersionDestinationV3 ||
+		e.CircuitID != CircuitIDDestinationV3 ||
 		e.Curve != CurveBLS12381 ||
 		e.Backend != BackendGroth16 {
-		return errors.New("K21 rehearsal must bind the exact ownership-destination-v2 BLS12-381 Groth16 circuit")
+		return errors.New("K22 rehearsal must bind the exact ownership-destination-v3 BLS12-381 Groth16 circuit")
 	}
 	if e.Constraints == 0 {
-		return errors.New("K21 rehearsal constraint count must be positive")
+		return errors.New("K22 rehearsal constraint count must be positive")
 	}
-	if e.DomainSize != 1<<21 {
-		return fmt.Errorf("K21 rehearsal domain_size %d, want %d", e.DomainSize, uint64(1<<21))
+	if e.DomainSize != 1<<22 {
+		return fmt.Errorf("K22 rehearsal domain_size %d, want %d", e.DomainSize, uint64(1<<22))
 	}
 	return e.Evidence.Validate()
 }
@@ -781,7 +784,7 @@ func validateProductionDecisionBinding(definition CeremonyDefinition, decision P
 		decision.K21Rehearsal.Backend != definition.Circuit.Backend ||
 		decision.K21Rehearsal.Constraints != definition.Circuit.Constraints ||
 		decision.K21Rehearsal.DomainSize != definition.Circuit.DomainSize {
-		return errors.New("K21 rehearsal does not bind the ceremony definition's exact compiled circuit")
+		return errors.New("K22 rehearsal does not bind the ceremony definition's exact compiled circuit")
 	}
 	for _, audit := range decision.Audits {
 		enrolled, ok := auditorByID(definition, audit.AuditorID)

@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	CircuitID                  = "root-ownership-multi-destination-v1-count2/bls12-381/groth16"
+	CircuitID                  = "root-ownership-multi-destination-v2-count2/bls12-381/groth16"
 	Domain                     = "ROOT-OWNERSHIP-MULTI-v1"
 	DefaultCredentialCount     = 2
 	CredentialCount            = DefaultCredentialCount
@@ -204,15 +204,15 @@ func ValidateCredentialCount(count int) error {
 }
 
 func CircuitIDForCount(count int) string {
-	return fmt.Sprintf("root-ownership-multi-destination-v1-count%d/bls12-381/groth16", count)
+	return fmt.Sprintf("root-ownership-multi-destination-v2-count%d/bls12-381/groth16", count)
 }
 
 func KeyVersionForCount(count int) string {
-	return fmt.Sprintf("ownership-multi-destination-v1-count%d", count)
+	return fmt.Sprintf("ownership-multi-destination-v2-count%d", count)
 }
 
 func CircuitCountFromID(circuitID string) (int, bool) {
-	const prefix = "root-ownership-multi-destination-v1-count"
+	const prefix = "root-ownership-multi-destination-v2-count"
 	const suffix = "/bls12-381/groth16"
 	if !strings.HasPrefix(circuitID, prefix) || !strings.HasSuffix(circuitID, suffix) {
 		return 0, false

@@ -439,8 +439,8 @@ function releaseFixture() {
     candidate_id: candidateID,
     ceremony_id: ceremonyID,
     circuit: {
-      key_version: "ownership-destination-v2",
-      circuit_id: "root-ownership-destination-v2/bls12-381/groth16",
+      key_version: "ownership-destination-v3",
+      circuit_id: "root-ownership-destination-v3/bls12-381/groth16",
       curve: "BLS12-381",
       backend: "groth16",
     },
@@ -458,8 +458,8 @@ function releaseFixture() {
   };
   const manifest = {
     schema: "proof-tool-key-manifest-v1",
-    key_version: "ownership-destination-v2",
-    circuit_id: "root-ownership-destination-v2/bls12-381/groth16",
+    key_version: "ownership-destination-v3",
+    circuit_id: "root-ownership-destination-v3/bls12-381/groth16",
     curve: "BLS12-381",
     backend: "groth16",
     circuit_source_commit: sourceCommit,

@@ -1,0 +1,98 @@
+--- vendor/github.com/consensys/gnark/std/math/uints/bytes.go
++++ vendor/github.com/consensys/gnark/std/math/uints/bytes.go
+@@ -20,6 +20,7 @@
+ 	api             frontend.API
+ 	xorT, andT, orT *logderivprecomp.Precomputed
+ 	constrained     map[[16]byte]struct{} // used to store if a variable is already constrained
++	constrainedBits map[constrainedWidthKey]struct{}
+ 	rchecker        frontend.Rangechecker
+ 	allOne          U8
+ }
+@@ -38,6 +39,11 @@
+ 	internal bool
+ }
+ 
++type constrainedWidthKey struct {
++	hash [16]byte
++	bits int
++}
++
+ // NewU8 creates a new [U8] value. It represents a single byte. It can both be
+ // used in-circuit to initialize a constant or as a witness assignment. For
+ // in-circuit initialization use [Bytes.ValueOf] method instead which ensures
+@@ -83,13 +89,14 @@
+ 	}
+ 	rchecker := rangecheck.New(api)
+ 	bf := &Bytes{
+-		api:         api,
+-		xorT:        xorT,
+-		andT:        andT,
+-		orT:         orT,
+-		rchecker:    rchecker,
+-		constrained: make(map[[16]byte]struct{}),
+-		allOne:      NewU8(0xff),
++		api:             api,
++		xorT:            xorT,
++		andT:            andT,
++		orT:             orT,
++		rchecker:        rchecker,
++		constrained:     make(map[[16]byte]struct{}),
++		constrainedBits: make(map[constrainedWidthKey]struct{}),
++		allOne:          NewU8(0xff),
+ 	}
+ 
+ 	// store the API in the key-value store so that can be easily reused
+@@ -103,6 +110,53 @@
+ 	return U8{Val: val, internal: true}
+ }
+ 
++// PackLSBConstrained range-checks each part to its declared width, packs the
++// parts from least to most significant, and returns a byte that downstream
++// operations may safely treat as width-constrained. Widths must be positive
++// and sum to exactly eight. Reusing the same variable at the same width reuses
++// its already-emitted range constraint; it never assumes a caller-side proof.
++func (bf *Bytes) PackLSBConstrained(parts []frontend.Variable, widths []int) U8 {
++	if len(parts) == 0 || len(parts) != len(widths) {
++		panic("uints: constrained byte parts and widths must have the same nonzero length")
++	}
++	totalWidth := 0
++	for _, width := range widths {
++		if width < 1 || totalWidth+width > 8 {
++			panic("uints: constrained byte widths must be positive and total eight bits")
++		}
++		totalWidth += width
++	}
++	if totalWidth != 8 {
++		panic("uints: constrained byte widths must total eight bits")
++	}
++
++	packed := frontend.Variable(0)
++	offset := 0
++	for i, part := range parts {
++		bf.enforceBitWidth(part, widths[i])
++		packed = bf.api.Add(packed, bf.api.Mul(part, 1<<offset))
++		offset += widths[i]
++	}
++	return bf.packInternal(packed)
++}
++
++func (bf *Bytes) enforceBitWidth(value frontend.Variable, bits int) {
++	if constant, ok := bf.api.ConstantValue(value); ok {
++		if constant.Sign() < 0 || constant.BitLen() > bits {
++			panic(fmt.Sprintf("constant value %d is too large for %d bits", constant, bits))
++		}
++		return
++	}
++	if hashed, ok := value.(interface{ HashCode() [16]byte }); ok {
++		key := constrainedWidthKey{hash: hashed.HashCode(), bits: bits}
++		if _, ok := bf.constrainedBits[key]; ok {
++			return
++		}
++		bf.constrainedBits[key] = struct{}{}
++	}
++	bf.rchecker.Check(value, bits)
++}
++
+ // ValueOf returns a constrainted [U8] variable. For a constant value, use
+ // [NewU8] instead.
+ func (bf *Bytes) ValueOf(a frontend.Variable) U8 {

@@ -1128,7 +1128,7 @@ function proofArtifact(overrides: Record<string, unknown> = {}) {
   return {
     artifact: {
       schema: "root-ownership-proof-artifact-v1",
-      circuit_id: "root-ownership-destination-v2/bls12-381/groth16",
+      circuit_id: "root-ownership-destination-v3/bls12-381/groth16",
       vk_hash: VK_HASH,
       cardano: {
         proof_hex: "aa",
@@ -1269,7 +1269,7 @@ function proofArtifactForDraft(draft: ClaimDraftResponse, index: number): any {
     out_ref: input.outRefId,
     artifact: {
       schema: "root-ownership-proof-artifact-v1",
-      circuit_id: "root-ownership-destination-v2/bls12-381/groth16",
+      circuit_id: "root-ownership-destination-v3/bls12-381/groth16",
       vk_hash: VK_HASH,
       target_credential: input.paymentCredential,
       destination_address_encoding: "destination-address-v1",

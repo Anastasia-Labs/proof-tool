@@ -1,0 +1,23 @@
+--- vendor/github.com/consensys/gnark/std/rangecheck/rangecheck_commit.go
++++ vendor/github.com/consensys/gnark/std/rangecheck/rangecheck_commit.go
+@@ -121,6 +121,20 @@
+ 	for i := range c.collected {
+ 		// collect all vars for commitment input
+ 		collected[i] = c.collected[i].v
++		// A value no wider than the lookup base is already its sole limb. Query
++		// it directly instead of introducing a hint output and constraining that
++		// output equal to the original value. For a partial-width value, retain
++		// both lookups: the original lookup prevents field-wrap aliases, while
++		// the shifted lookup enforces the requested narrower bound.
++		if c.collected[i].bits > 1 && c.collected[i].bits <= baseLength {
++			decomposed = append(decomposed, c.collected[i].v)
++			shift := baseLength - c.collected[i].bits
++			if shift > 0 {
++				shifted := api.Mul(c.collected[i].v, coef.Lsh(one, uint(shift)))
++				decomposed = append(decomposed, shifted)
++			}
++			continue
++		}
+ 		// decompose value into limbs
+ 		nbLimbs := decompSize(c.collected[i].bits, baseLength)
+ 		limbs, err := api.Compiler().NewHint(DecomposeHint, int(nbLimbs), c.collected[i].bits, baseLength, c.collected[i].v)

@@ -150,7 +150,7 @@ the current backlog and reproducing its correctness/performance evidence.
 ## Vendored Gnark Patch
 
 The browser proof experiment needs `groth16/bls12-381.ProveStream`, which is not
-exported by upstream `github.com/consensys/gnark v0.15.0`. The patch source is
+exported by upstream `github.com/consensys/gnark v0.16.3`. The patch source is
 copied from the sibling checkout's locally developed browser-prover branch and
 stored at `experiments/wasm-prover/patches/prove-stream.patch`.
 

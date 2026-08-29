@@ -29,6 +29,8 @@ var gnarkPatchPaths = []string{
 	"experiments/wasm-prover/patches/dispatch-before-fft.patch",
 	"experiments/wasm-prover/patches/computeh-scoped-coset-tables.patch",
 	"experiments/wasm-prover/patches/uints-constant-fold.patch",
+	"experiments/wasm-prover/patches/uints-bounded-pack.patch",
+	"experiments/wasm-prover/patches/rangecheck-single-limb.patch",
 	"experiments/wasm-prover/patches/computeh-parallel-transforms.patch",
 }
 

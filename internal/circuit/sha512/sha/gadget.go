@@ -24,8 +24,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/uints"
 	"github.com/consensys/gnark/std/rangecheck"
-
-	"proof-tool/internal/circuit/u64util"
 )
 
 // _K512 are the 80 SHA-512 round constants (first 64 bits of the fractional
@@ -84,10 +82,10 @@ func Permute512(api frontend.API, uapi *uints.BinaryField[uints.U64], currentHas
 	for i := 16; i < 80; i++ {
 		v1 := w[i-2]
 		// small sigma1(x) = ROTR(x,19) ^ ROTR(x,61) ^ SHR(x,6)
-		s1 := sigmaRot(api, uapi, rc, v1, []int{19, 61}, 6)
+		s1 := sigmaRot(api, uapi, v1, []int{19, 61}, 6)
 		v2 := w[i-15]
 		// small sigma0(x) = ROTR(x,1) ^ ROTR(x,8) ^ SHR(x,7)
-		s0 := sigmaRot(api, uapi, rc, v2, []int{1, 8}, 7)
+		s0 := sigmaRot(api, uapi, v2, []int{1, 8}, 7)
 		// Four U64 terms have carry hi <= 3, hence exactly 2 high bits.
 		w[i] = Add64(api, uapi, rc, 2, s1, w[i-7], s0, w[i-16])
 	}
@@ -95,6 +93,9 @@ func Permute512(api frontend.API, uapi *uints.BinaryField[uints.U64], currentHas
 	ih0, ih1, ih2, ih3 := currentHash[0], currentHash[1], currentHash[2], currentHash[3]
 	ih4, ih5, ih6, ih7 := currentHash[4], currentHash[5], currentHash[6], currentHash[7]
 	a, b, c, d, e, f, g, h := ih0, ih1, ih2, ih3, ih4, ih5, ih6, ih7
+	// After every round b takes the previous a and c takes the previous b, so
+	// this round's b^c is the preceding round's a^b. Seed the first round once.
+	bXorC := uapi.Xor(b, c)
 
 	for i := 0; i < 80; i++ {
 		// big sigma1(e) = ROTR(e,14) ^ ROTR(e,18) ^ ROTR(e,41)
@@ -103,17 +104,19 @@ func Permute512(api frontend.API, uapi *uints.BinaryField[uints.U64], currentHas
 		// t1 < 5*2^64; no bytes are needed until e and a are materialized.
 		t1 := NativeSum64(api, uapi,
 			h,
-			sigmaRot(api, uapi, rc, e, []int{14, 18, 41}, 0),
+			sigmaRot(api, uapi, e, []int{14, 18, 41}, 0),
 			choose(uapi, e, f, g),
 			_K512[i],
 			w[i],
 		)
 		// big sigma0(a) = ROTR(a,28) ^ ROTR(a,34) ^ ROTR(a,39)
-		// Maj(a,b,c) = (a AND b) ^ ((a ^ b) AND c)
+		// Maj(a,b,c) = b ^ ((a ^ b) AND (b ^ c)). Retain a^b for the
+		// next round, where register rotation makes it the new b^c.
 		// t2 is also deferred: two U64 terms give t2 < 2*2^64.
+		aXorB := uapi.Xor(a, b)
 		t2 := NativeSum64(api, uapi,
-			sigmaRot(api, uapi, rc, a, []int{28, 34, 39}, 0),
-			majority(uapi, a, b, c),
+			sigmaRot(api, uapi, a, []int{28, 34, 39}, 0),
+			majorityFromXors(uapi, b, aXorB, bXorC),
 		)
 
 		h = g
@@ -126,6 +129,7 @@ func Permute512(api frontend.API, uapi *uints.BinaryField[uints.U64], currentHas
 		b = a
 		// t1+t2 < 7*2^64, so the high limb is at most 6 (3 bits).
 		a = Materialize64(api, uapi, rc, api.Add(t1, t2), 3)
+		bXorC = aXorB
 	}
 
 	// Each feed-forward is a two-U64 sum, so carry hi <= 1 (1 bit).
@@ -161,7 +165,6 @@ type sigmaByteChunks struct {
 func sigmaRot(
 	api frontend.API,
 	uapi *uints.BinaryField[uints.U64],
-	rc frontend.Rangechecker,
 	word uints.U64,
 	rotations []int,
 	rightShift int,
@@ -173,15 +176,15 @@ func sigmaRot(
 	widths := widthsFromCuts(cuts)
 	var chunks [8]sigmaByteChunks
 	for i := range word {
-		chunks[i] = decomposeSigmaByte(api, uapi, rc, word[i], widths)
+		chunks[i] = decomposeSigmaByte(api, uapi, word[i], widths)
 	}
 
 	terms := make([]uints.U64, 0, len(rotations)+1)
 	for _, rotation := range rotations {
-		terms = append(terms, rotateRightFromSigmaChunks(api, word, chunks, rotation))
+		terms = append(terms, rotateRightFromSigmaChunks(uapi, chunks, rotation))
 	}
 	if rightShift > 0 {
-		terms = append(terms, shiftRightFromSigmaChunks(api, chunks, rightShift))
+		terms = append(terms, shiftRightFromSigmaChunks(uapi, chunks, rightShift))
 	}
 	return uapi.Xor(terms...)
 }
@@ -230,11 +233,28 @@ func widthsFromCuts(cuts []int) []int {
 func decomposeSigmaByte(
 	api frontend.API,
 	uapi *uints.BinaryField[uints.U64],
-	rc frontend.Rangechecker,
 	input uints.U8,
 	widths []int,
 ) sigmaByteChunks {
 	inputValue := uapi.Value(input)
+	if constant, ok := api.Compiler().ConstantValue(inputValue); ok {
+		values := make([]frontend.Variable, len(widths))
+		offsets := make([]int, len(widths))
+		offset := 0
+		for i, width := range widths {
+			if width < 1 || offset+width > 8 {
+				panic("sha: invalid sigma chunk width")
+			}
+			offsets[i] = offset
+			mask := (uint64(1) << width) - 1
+			values[i] = (constant.Uint64() >> offset) & mask
+			offset += width
+		}
+		if offset != 8 {
+			panic("sha: sigma chunk widths do not cover one byte")
+		}
+		return sigmaByteChunks{values: values, widths: widths, offsets: offsets}
+	}
 	hintInputs := make([]frontend.Variable, 1+len(widths))
 	hintInputs[0] = inputValue
 	for i, width := range widths {
@@ -246,41 +266,40 @@ func decomposeSigmaByte(
 	}
 
 	offsets := make([]int, len(widths))
-	recomposition := frontend.Variable(0)
 	offset := 0
 	for i, width := range widths {
 		if width < 1 || offset+width > 8 {
 			panic("sha: invalid sigma chunk width")
 		}
 		offsets[i] = offset
-		rc.Check(values[i], width)
-		recomposition = api.Add(recomposition, api.Mul(1<<offset, values[i]))
 		offset += width
 	}
 	if offset != 8 {
 		panic("sha: sigma chunk widths do not cover one byte")
 	}
-	api.AssertIsEqual(inputValue, recomposition)
+	recomposition := uapi.PackLSBConstrained(values, widths)
+	api.AssertIsEqual(inputValue, uapi.Value(recomposition))
 	return sigmaByteChunks{values: values, widths: widths, offsets: offsets}
 }
 
-func rotateRightFromSigmaChunks(api frontend.API, word uints.U64, chunks [8]sigmaByteChunks, rotation int) uints.U64 {
+func rotateRightFromSigmaChunks(uapi *uints.BinaryField[uints.U64], chunks [8]sigmaByteChunks, rotation int) uints.U64 {
 	byteShift, bitShift := rotation/8, rotation%8
-	if bitShift == 0 {
-		return u64util.RotBytes(word, -rotation)
-	}
 	var out uints.U64
 	for i := range out {
 		source := (i + byteShift) % len(out)
+		if bitShift == 0 {
+			out[i] = uapi.PackLSBConstrained(chunks[source].values, chunks[source].widths)
+			continue
+		}
 		next := (source + 1) % len(out)
-		_, upper := sigmaByteAtCut(api, chunks[source], bitShift)
-		lower, _ := sigmaByteAtCut(api, chunks[next], bitShift)
-		out[i] = uints.U8{Val: api.Add(upper, api.Mul(1<<(8-bitShift), lower))}
+		_, upper := sigmaByteAtCut(chunks[source], bitShift)
+		lower, _ := sigmaByteAtCut(chunks[next], bitShift)
+		out[i] = packSigmaByte(uapi, upper, lower)
 	}
 	return out
 }
 
-func shiftRightFromSigmaChunks(api frontend.API, chunks [8]sigmaByteChunks, shift int) uints.U64 {
+func shiftRightFromSigmaChunks(uapi *uints.BinaryField[uints.U64], chunks [8]sigmaByteChunks, shift int) uints.U64 {
 	byteShift, bitShift := shift/8, shift%8
 	var out uints.U64
 	for i := range out {
@@ -290,39 +309,59 @@ func shiftRightFromSigmaChunks(api frontend.API, chunks [8]sigmaByteChunks, shif
 			continue
 		}
 		if bitShift == 0 {
-			_, upper := sigmaByteAtCut(api, chunks[source], 0)
-			out[i] = uints.U8{Val: upper}
+			out[i] = uapi.PackLSBConstrained(chunks[source].values, chunks[source].widths)
 			continue
 		}
-		_, upper := sigmaByteAtCut(api, chunks[source], bitShift)
-		value := upper
+		_, upper := sigmaByteAtCut(chunks[source], bitShift)
 		if source+1 < len(out) {
-			lower, _ := sigmaByteAtCut(api, chunks[source+1], bitShift)
-			value = api.Add(value, api.Mul(1<<(8-bitShift), lower))
+			lower, _ := sigmaByteAtCut(chunks[source+1], bitShift)
+			out[i] = packSigmaByte(uapi, upper, lower)
+		} else {
+			zeroPad := sigmaByteParts{values: []frontend.Variable{0}, widths: []int{bitShift}}
+			out[i] = packSigmaByte(uapi, upper, zeroPad)
 		}
-		out[i] = uints.U8{Val: value}
 	}
 	return out
 }
 
-func sigmaByteAtCut(api frontend.API, chunks sigmaByteChunks, cut int) (lower, upper frontend.Variable) {
+type sigmaByteParts struct {
+	values []frontend.Variable
+	widths []int
+}
+
+func sigmaByteAtCut(chunks sigmaByteChunks, cut int) (lower, upper sigmaByteParts) {
 	if cut < 0 || cut > 8 {
 		panic("sha: sigma byte cut outside [0,8]")
 	}
-	lower, upper = 0, 0
 	for i, value := range chunks.values {
 		start := chunks.offsets[i]
 		end := start + chunks.widths[i]
 		switch {
 		case end <= cut:
-			lower = api.Add(lower, api.Mul(1<<start, value))
+			lower.values = append(lower.values, value)
+			lower.widths = append(lower.widths, chunks.widths[i])
 		case start >= cut:
-			upper = api.Add(upper, api.Mul(1<<(start-cut), value))
+			upper.values = append(upper.values, value)
+			upper.widths = append(upper.widths, chunks.widths[i])
 		default:
 			panic("sha: requested sigma cut was not decomposed")
 		}
 	}
 	return lower, upper
+}
+
+func packSigmaByte(uapi *uints.BinaryField[uints.U64], groups ...sigmaByteParts) uints.U8 {
+	partCount := 0
+	for _, group := range groups {
+		partCount += len(group.values)
+	}
+	values := make([]frontend.Variable, 0, partCount)
+	widths := make([]int, 0, partCount)
+	for _, group := range groups {
+		values = append(values, group.values...)
+		widths = append(widths, group.widths...)
+	}
+	return uapi.PackLSBConstrained(values, widths)
 }
 
 // sigmaChunksHint decomposes one byte into little-endian chunks whose widths
@@ -358,7 +397,11 @@ func choose(uapi *uints.BinaryField[uints.U64], e, f, g uints.U64) uints.U64 {
 }
 
 func majority(uapi *uints.BinaryField[uints.U64], a, b, c uints.U64) uints.U64 {
-	return uapi.Xor(uapi.And(a, b), uapi.And(uapi.Xor(a, b), c))
+	return majorityFromXors(uapi, b, uapi.Xor(a, b), uapi.Xor(b, c))
+}
+
+func majorityFromXors(uapi *uints.BinaryField[uints.U64], b, aXorB, bXorC uints.U64) uints.U64 {
+	return uapi.Xor(b, uapi.And(aXorB, bXorC))
 }
 
 // padSHA512 applies SHA-512 padding (FIPS 180-4 sec 5.1.2) to a message whose

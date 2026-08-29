@@ -58,7 +58,7 @@ func Materialize64(
 	if hiBits < 1 || 64+hiBits >= api.Compiler().FieldBitLen() {
 		panic("sha: invalid Materialize64 high-limb width")
 	}
-	// gnark 0.15 needs WithNbDigits to select the bounded partition-hint path;
+	// gnark 0.16 needs WithNbDigits to select the bounded partition-hint path;
 	// without it Partition falls back to a full scalar-bit decomposition before
 	// honoring the unconstrained-output option.
 	lo, hi := bitslice.Partition(
