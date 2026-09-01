@@ -6,10 +6,10 @@ require (
 	filippo.io/edwards25519 v1.2.0
 	github.com/consensys/gnark v0.16.3
 	github.com/consensys/gnark-crypto v0.21.0
-	github.com/drand/drand/v2 v2.1.6
-	github.com/klauspost/compress v1.19.0
+	github.com/drand/drand/v2 v2.1.7
+	github.com/klauspost/compress v1.19.2
 	github.com/tyler-smith/go-bip39 v1.1.0
-	golang.org/x/crypto v0.54.0
+	golang.org/x/crypto v0.55.0
 	golang.org/x/sys v0.47.0
 )
 
