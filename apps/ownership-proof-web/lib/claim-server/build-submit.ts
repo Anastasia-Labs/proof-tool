@@ -43,7 +43,9 @@ import {
 } from "../reclaim/validation";
 import { createClaimDraft } from "./draft";
 import { assembleTransactionWithWitnessSet } from "../cardano/transactions";
+import { loadAddressUtxos, loadOutRefUtxos } from "../cardano/provider";
 import { buildBatchTranscriptV2, decodeBlake2b256, decodeHexBytes } from "../reclaim/batch-transcript";
+import { getClaimRewards, invalidateClaimRewards } from "./rewards";
 
 const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v3/bls12-381/groth16";
 const DESTINATION_PUBLIC_INPUT_DOMAIN = "ROOT-OWNERSHIP-DESTINATION-v1";
@@ -166,6 +168,8 @@ export async function buildClaimTx(
   });
 
   const evaluator = createScalusEvaluator();
+  const rewardAddress = reclaimGlobalRewardAddress(deployment);
+  const rewards = await getClaimRewards(provider, deployment.network, rewardAddress);
   const lucid = await Lucid(provider, deployment.network, {
     evaluator,
     presetProtocolParameters: snapshot.protocol,
@@ -176,19 +180,34 @@ export async function buildClaimTx(
     .newTx()
     .readFrom([buildInputs.paramsUtxo, ...buildInputs.referenceScriptUtxos])
     .collectFrom(orderedReclaimUtxos, Data.void())
-    .withdraw(reclaimGlobalRewardAddress(deployment), 0n, globalRedeemer);
+    .withdraw(rewardAddress, rewards, globalRedeemer);
 
   for (const output of orderedDestinationOutputs) {
     tx = tx.pay.ToAddress(output.address, assetsFromStringMap(output.value));
   }
 
-  const signBuilder = await tx.complete({
-    canonical: true,
-    changeAddress: safeWalletChangeAddress,
-    localUPLCEval: true,
-    presetWalletInputs: buildInputs.safeWalletUtxos,
-  });
+  const signBuilder = await tx
+    .complete({
+      canonical: true,
+      changeAddress: safeWalletChangeAddress,
+      localUPLCEval: true,
+      presetWalletInputs: buildInputs.safeWalletUtxos,
+    })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        /maximum transaction size|max(?:imum)?[_ ](?:tx|transaction|value)[_ ]size|value.*too (?:big|large)|exceed.*(?:transaction size|execution budget)/iu.test(
+          message,
+        )
+      ) {
+        throw new ClaimValidationError("claim_batch_capacity_exceeded", "Claim batch exceeds transaction limits.");
+      }
+      throw error;
+    });
   const txCbor = signBuilder.toCBOR({ canonical: true });
+  if (txCbor.length / 2 > snapshot.protocol.maxTxSize) {
+    throw new ClaimValidationError("claim_batch_capacity_exceeded", "Claim batch exceeds the transaction size limit.");
+  }
   const txHash = signBuilder.toHash();
   const inspectedHash = parseTransactionHash(txCbor, "claim unsigned tx");
   if (inspectedHash !== txHash) {
@@ -262,6 +281,9 @@ export async function prepareClaimBuildPreflight(
   if (selectedOutrefs.length === 0) {
     throw new ClaimValidationError("selected_outrefs_empty", "Claim build requires selected reclaim outrefs.");
   }
+  if (!Array.isArray(raw.proofArtifacts) || raw.proofArtifacts.length !== selectedOutrefs.length) {
+    throw new ClaimValidationError("proof_artifacts_count", "Proof artifact count must match selected reclaim inputs.");
+  }
   assertWalletAddress(raw.safeWalletChangeAddress, deployment.network);
   assertWalletAddresses(raw.safeWalletAddresses, deployment.network);
   const draft = await createClaimDraft(provider, deployment, {
@@ -311,9 +333,12 @@ export function validateClaimBuildRequestShape(deployment: ReclaimDeployment, re
   assertExactDeploymentId(raw.deploymentId, deployment.id);
   assertWalletNetwork(raw.networkId, deployment.networkId);
   assertDraftId(raw.draftId);
-  const selectedOutrefs = assertOutRefList(raw.selectedOutrefs, "selectedOutrefs");
+  const selectedOutrefs = assertOutRefList(raw.selectedOutrefs, "selectedOutrefs", 7);
   if (selectedOutrefs.length === 0) {
     throw new ClaimValidationError("selected_outrefs_empty", "Claim build requires selected reclaim outrefs.");
+  }
+  if (!Array.isArray(raw.proofArtifacts) || raw.proofArtifacts.length !== selectedOutrefs.length) {
+    throw new ClaimValidationError("proof_artifacts_count", "Proof artifact count must match selected reclaim inputs.");
   }
   assertWalletAddress(raw.safeWalletChangeAddress, deployment.network);
   assertWalletAddresses(raw.safeWalletAddresses, deployment.network);
@@ -351,8 +376,8 @@ async function loadClaimBuildSnapshot(
 
   const [protocol, loadedOutrefUtxos, walletUtxoGroups] = await Promise.all([
     provider.getProtocolParameters(),
-    provider.getUtxosByOutRef(outrefs),
-    Promise.all(queryAddresses.map((address) => provider.getUtxos(address))),
+    loadOutRefUtxos(provider, outrefs),
+    loadAddressUtxos(provider, queryAddresses),
   ]);
   const outrefUtxos = dedupeUtxos(loadedOutrefUtxos);
   const walletUtxosByAddress = new Map(
@@ -448,6 +473,8 @@ export async function submitClaimTx(
       "claim_submit_provider_rejected",
       `Provider rejected the claim transaction: ${sanitizeProviderSubmitError(error)}`,
     );
+  } finally {
+    invalidateClaimRewards(provider, reclaimGlobalRewardAddress(deployment));
   }
   if (submittedHash !== inspection.txHash) {
     throw new ClaimValidationError(
@@ -647,7 +674,7 @@ async function loadParamsReferenceInput(
     outputIndex: deployment.paramsUtxo.output_index,
   };
   const outRefIdValue = outRefToString(outRef);
-  const utxos = await provider.getUtxosByOutRef([outRef]);
+  const utxos = await loadOutRefUtxos(provider, [outRef]);
   const paramsUtxo = utxos.find((utxo) => outRefToString(utxo) === outRefIdValue);
   if (!paramsUtxo) {
     throw new ClaimValidationError("claim_params_not_found", "Parameter reference UTxO is spent or unavailable.");
@@ -726,7 +753,7 @@ async function loadClaimBuildInputs(
     assertOutRef(outRefIdValue, "selectedOutrefs"),
   );
   const selectedIds = new Set(preflight.selectedOutrefs);
-  const loadedSelected = await provider.getUtxosByOutRef(selectedOutrefs);
+  const loadedSelected = await loadOutRefUtxos(provider, selectedOutrefs);
   const reclaimUtxos = loadedSelected.filter((utxo) => selectedIds.has(outRefToString(utxo)));
   if (reclaimUtxos.length !== preflight.selectedOutrefs.length) {
     throw new ClaimValidationError("selected_outref_not_found", "Selected reclaim UTxOs are spent or unavailable.");
@@ -736,7 +763,7 @@ async function loadClaimBuildInputs(
   }
 
   const paramsOutRef = assertOutRef(preflight.paramsReferenceInput.outRefId, "paramsReferenceInput.outRefId");
-  const paramsUtxos = await provider.getUtxosByOutRef([paramsOutRef]);
+  const paramsUtxos = await loadOutRefUtxos(provider, [paramsOutRef]);
   const paramsUtxo = paramsUtxos.find((utxo) => outRefToString(utxo) === preflight.paramsReferenceInput.outRefId);
   if (!paramsUtxo) {
     throw new ClaimValidationError("claim_params_not_found", "Parameter reference UTxO is spent or unavailable.");
@@ -746,7 +773,7 @@ async function loadClaimBuildInputs(
   const referenceScriptOutrefs = preflight.referenceScripts.inputs.map((input) =>
     assertOutRef(input.outRefId, "referenceScripts.inputs.outRefId"),
   );
-  const loadedReferenceScripts = await provider.getUtxosByOutRef(referenceScriptOutrefs);
+  const loadedReferenceScripts = await loadOutRefUtxos(provider, referenceScriptOutrefs);
   const referenceScriptUtxos = orderUtxosByOutRef(
     loadedReferenceScripts,
     preflight.referenceScripts.inputs.map((input) => input.outRefId),
@@ -847,7 +874,10 @@ async function loadClaimReferenceScripts(
       expectedScriptHash: deployment.reclaimGlobalScriptHash,
     },
   ];
-  const utxos = await provider.getUtxosByOutRef(expected.map((entry) => referenceScriptOutRef(entry.referenceScript)));
+  const utxos = await loadOutRefUtxos(
+    provider,
+    expected.map((entry) => referenceScriptOutRef(entry.referenceScript)),
+  );
   const inputs = expected.map((entry) => {
     const outRefIdValue = referenceScriptOutRefId(entry.referenceScript);
     const utxo = utxos.find((candidate) => outRefToString(candidate) === outRefIdValue);
@@ -1300,6 +1330,7 @@ async function inspectClaimSubmitRequest(
   review: ClaimBuildReview;
   reviewHash: string;
 }> {
+  const token = verifyClaimBuildReviewToken(deployment, request.claimBuildReviewToken);
   const review = assertClaimBuildReview(request.review, deployment);
   const selectedOutrefs = assertOutRefList(request.selectedOutrefs, "selectedOutrefs").map(outRefToString);
   if (selectedOutrefs.join("|") !== review.selectedOutrefs.join("|")) {
@@ -1309,7 +1340,6 @@ async function inspectClaimSubmitRequest(
     );
   }
   const reviewHash = hashClaimBuildReview(review);
-  const token = verifyClaimBuildReviewToken(deployment, request.claimBuildReviewToken);
   if (token.reviewHash !== reviewHash) {
     throw new ClaimValidationError(
       "claim_submit_review_mismatch",
@@ -1438,6 +1468,9 @@ function verifyClaimBuildReviewToken(
   deployment: ReclaimDeployment,
   token: string,
 ): { txHash: string; txCborHash: string; reviewHash: string } {
+  if (token.length > 4096) {
+    throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token is too large.");
+  }
   const [version, encoded, signature, extra] = token.split(".");
   if (version !== "v1" || !encoded || !signature || extra !== undefined) {
     throw new ClaimValidationError("claim_submit_review_mismatch", "Claim build review token is malformed.");

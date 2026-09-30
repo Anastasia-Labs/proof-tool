@@ -21,6 +21,7 @@ import {
   sumUtxoAssets,
 } from "../reclaim/validation";
 import { assembleTransactionWithWitnessSet } from "../cardano/transactions";
+import { loadAddressUtxos } from "../cardano/provider";
 
 export async function loadWalletAssets(
   provider: Provider,
@@ -32,7 +33,7 @@ export async function loadWalletAssets(
   const queryAddresses = walletAddresses.includes(changeAddress)
     ? walletAddresses
     : [changeAddress, ...walletAddresses];
-  const utxoGroups = await Promise.all(queryAddresses.map((address) => provider.getUtxos(address)));
+  const utxoGroups = await loadAddressUtxos(provider, queryAddresses);
   const utxos = dedupeUtxos(utxoGroups.flat());
   return {
     changeAddress,
@@ -140,6 +141,8 @@ export function inspectReclaimTx(
   if (!request.reviewToken) {
     throw new Error("reviewToken is required.");
   }
+  if (request.reviewToken.length > 4096) throw new Error("Review token is too large.");
+  const token = verifyReviewToken(deployment, request.reviewToken);
   const unsignedTxCbor = request.unsignedTxCbor ? assertCbor(request.unsignedTxCbor, "unsignedTxCbor") : "";
   const signedTxCbor = request.signedTxCbor ? assertCbor(request.signedTxCbor, "signedTxCbor") : "";
   const txCbor = signedTxCbor || unsignedTxCbor;
@@ -157,7 +160,6 @@ export function inspectReclaimTx(
   }
 
   const reviewHash = hashReview(request.review);
-  const token = verifyReviewToken(deployment, request.reviewToken);
   if (token.reviewHash !== reviewHash) {
     throw new Error("review token does not match the reviewed protected output.");
   }

@@ -59,6 +59,7 @@ import type {
   ReclaimNetwork,
 } from "../lib/reclaim/types";
 import { LOVELACE_UNIT } from "../lib/reclaim/types";
+import { buildClaimBatch } from "../lib/claim/build-batches";
 import {
   ProvingCancelledError,
   checkBrowserProving,
@@ -886,6 +887,8 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
   const submittedRefreshInFlightRef = useRef(false);
   const [build, setBuild] = useState<ClaimBuildResponse | null>(null);
   const [buildError, setBuildError] = useState("");
+  const [deferredOutrefs, setDeferredOutrefs] = useState<string[]>([]);
+  const [batchNotice, setBatchNotice] = useState("");
   const [submitError, setSubmitError] = useState("");
   const [submitFailureKind, setSubmitFailureKind] = useState<ClaimSubmitFailureKind | null>(null);
   const [submitPhase, setSubmitPhase] = useState<ClaimSubmitPhase>("ready-to-sign");
@@ -1450,6 +1453,8 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
   };
 
   const refreshClaimMatches = async (credentials = impactedWallet?.credentials ?? []) => {
+    setDeferredOutrefs([]);
+    setBatchNotice("");
     if (!deployment?.available || credentials.length === 0) {
       return;
     }
@@ -1552,7 +1557,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     }
     const selectedRows = selectClaimBatchRows(
       rows,
-      pendingOutrefs,
+      [...pendingOutrefs, ...deferredOutrefs],
       deployment,
       useExplicitSevenSlot ? CLAIM_HARD_BATCH_CAP : undefined,
     );
@@ -1561,7 +1566,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       .filter((outRefId): outRefId is string => Boolean(outRefId));
     if (selectedOutrefs.length === 0) {
       setDraftError("No matching locked funds remain for the next claim batch.");
-      setScreen("claim-review-complete");
+      setScreen(deferredOutrefs.length > 0 ? "available-claims-page-1" : "claim-review-complete");
       return null;
     }
 
@@ -2047,19 +2052,61 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       buildInFlightRef.current = true;
       setBuildError("");
       setSubmitError("");
+      setSubmitFailureKind(null);
       setSubmitPhase("building-transaction");
       try {
-        const nextBuild = await postJSON<ClaimBuildResponse>("/claim-api/build", {
-          deploymentId: deployment.deployment.id,
-          networkId: deployment.deployment.networkId,
-          draftId: draft.draftId,
-          selectedOutrefs: draft.orderedInputs.map((input) => input.outRefId),
-          maxUtxos: draft.batchCap.requested,
-          safeWalletChangeAddress: safeWallet.changeAddress,
-          safeWalletAddresses: safeWallet.addresses,
-          proofArtifacts,
+        const deferred: string[] = [];
+        const next = await buildClaimBatch(draft, proofArtifacts, {
+          draft: (selectedOutrefs) =>
+            postJSON<ClaimDraftResponse>("/claim-api/draft", {
+              deploymentId: deployment.deployment.id,
+              networkId: deployment.deployment.networkId,
+              safeWalletChangeAddress: safeWallet.changeAddress,
+              safeWalletAddresses: safeWallet.addresses,
+              selectedOutrefs,
+              maxUtxos: draft.batchCap.requested,
+            }),
+          build: (subset, proofs) =>
+            postJSON<ClaimBuildResponse>("/claim-api/build", {
+              deploymentId: deployment.deployment.id,
+              networkId: deployment.deployment.networkId,
+              draftId: subset.draftId,
+              selectedOutrefs: subset.orderedInputs.map((input) => input.outRefId),
+              maxUtxos: subset.batchCap.requested,
+              safeWalletChangeAddress: safeWallet.changeAddress,
+              safeWalletAddresses: safeWallet.addresses,
+              proofArtifacts: proofs,
+            }),
+          defer: (outref) => {
+            deferred.push(outref);
+            setDeferredOutrefs((current) => [...new Set([...current, outref])]);
+            setBatchNotice(
+              `Deferred ${deferred.length} ${deferred.length === 1 ? "UTxO" : "UTxOs"} exceeding transaction limits even alone. Deferred funds remain unclaimed; rescan to retry.`,
+            );
+          },
         });
-        setBuild(nextBuild);
+        if (!next) {
+          const excluded = new Set([...pendingOutrefs, ...deferredOutrefs, ...deferred]);
+          const remaining = claimRows.filter((row) => !excluded.has(row.outRefId ?? ""));
+          if (remaining.length === 0) {
+            setDraft(null);
+            setSubmitPhase("failed");
+            setScreen("available-claims-page-1");
+            return;
+          }
+          const nextDraft = await createOrRefreshClaimDraft(safeWallet, remaining);
+          if (nextDraft) setScreen("create-proofs-ready");
+          return;
+        }
+        if (next.draft.draftId !== draft.draftId) {
+          setDraft(next.draft);
+          setProofArtifacts(next.artifacts);
+          setBatchNotice(
+            `The batch was reduced to ${next.draft.orderedInputs.length} ${next.draft.orderedInputs.length === 1 ? "UTxO" : "UTxOs"} to fit transaction limits. Remaining funds stay unclaimed for later batches or a rescan.`,
+          );
+        }
+        setBuild(next.build);
+        setScreen("current-batch");
         setSubmitPhase(safeWalletApiRef.current ? "ready-to-sign" : "reconnect-required");
       } catch (error) {
         setBuild(null);
@@ -2139,6 +2186,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       // transaction was not submitted. Check current chain status passively
       // before the user is offered a re-sign (C14).
       setSubmitFailureKind("post-sign-submit");
+      setBuild(null);
       setSubmitError(
         "Submission failed after signing — the transaction may or may not have reached the chain. Checking current status...",
       );
@@ -2317,6 +2365,8 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
     setClaimIndexerTotal(0);
     setClaimDiscoveryError("");
     setPendingOutrefs([]);
+    setDeferredOutrefs([]);
+    setBatchNotice("");
     setDraft(null);
     setDraftError("");
     setInsufficientAdaDetails(null);
@@ -2395,6 +2445,11 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
                 </div>
               </div>
             </Localize>
+          ) : null}
+          {batchNotice ? (
+            <Notice tone="info" icon={CircleAlert} title="Claim batch updated">
+              {batchNotice}
+            </Notice>
           ) : null}
           {renderScreen(visibleScreen, goNext, goBack, setScreen, {
             deployment,
@@ -5077,11 +5132,11 @@ function submitButtonLabel({
     case "submitted-refreshing":
       return "Refreshing status";
     default:
-      if (rejected) {
-        return submitFailureKind === "post-sign-submit" ? "Re-sign claim (may double-submit)" : "Retry signature";
-      }
       if (!buildReady) {
         return "Build transaction for review";
+      }
+      if (rejected) {
+        return submitFailureKind === "post-sign-submit" ? "Re-sign claim (may double-submit)" : "Retry signature";
       }
       return needsSignerReconnect ? "Reconnect and submit claim" : "Sign and submit claim";
   }

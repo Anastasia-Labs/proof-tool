@@ -40,6 +40,17 @@ index/draft/build/submit/progress logic lives under
 or wallet signature rejection returns to a retryable review state without
 forcing proof regeneration when the draft is still valid.
 
+Capacity failures split a batch into smaller, freshly drafted subsets. Proofs
+are reused only when their credential, destination, and deployment still
+match. Each successful subset returns to unsigned transaction review. Inputs
+that exceed limits alone remain unclaimed and are deferred until a rescan;
+service and proof failures do not trigger splitting.
+
+The Global withdrawal uses the full reward balance. The server caches it until
+the epoch boundary, with a short cache during the transition, and invalidates
+it after every submit attempt. A provider rejection clears the unsigned build
+so the next attempt rebuilds and requires review/signing again.
+
 ## API And Code Map
 
 | Route | Server implementation | Main responsibility |
@@ -54,6 +65,14 @@ forcing proof regeneration when the draft is still valid.
 Shared Cardano parsing and transaction helpers live under
 `apps/ownership-proof-web/lib/cardano` and
 `apps/ownership-proof-web/lib/claim`.
+
+Claim and funding APIs share per-instance admission budgets: eight requests,
+one build, bounded JSON bodies, and wallet/outref lookup batches of four.
+Request deadlines abort provider fetches through a request-local
+`AsyncLocalStorage` signal; the SDK does not expose cancellation for most
+operations. Timeouts and client disconnects release admission slots, and
+failed index reads are evicted. Hosting must enforce fleet-wide limits when
+functions scale across instances.
 
 ## Wallet And Secret Boundaries
 
@@ -89,7 +108,8 @@ See `browser-proving.md` for runtime and asset details.
 
 ## Batching And Review Invariants
 
-The default batch cap is 4 and hard maximum is 5. The backend fixes input order
+Batch caps come from the deployment. Statement-bound V2 uses six automatic
+inputs and allows seven by explicit opt-in. The backend fixes input order
 and destination output order; the contract consumes proofs in that order. A
 draft is stale if the deployment, network, selected/matched UTxOs, pending
 outrefs, or safe-wallet destination changes.

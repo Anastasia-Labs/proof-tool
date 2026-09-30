@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaimFlow, selectClaimBatchRows } from "./ClaimFlow";
 import { I18nProvider } from "./I18nProvider";
 import { acknowledgePairing, broadcastPairing, subscribeToPairing } from "../lib/proving/helper-pairing-relay";
+import { buildClaimBatch } from "../lib/claim/build-batches";
+import type { ClaimBuildResponse, ClaimDraftResponse } from "../lib/claim/types";
 
 const credential = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
 const usedCredential = "22222222222222222222222222222222222222222222222222222222";
@@ -29,6 +31,81 @@ afterEach(() => {
   Reflect.deleteProperty(window.navigator, "clipboard");
   window.localStorage.clear();
   window.history.replaceState(null, "", "/");
+});
+
+describe("claim capacity fallback", () => {
+  const outrefs = [`${"01".repeat(32)}#0`, `${"02".repeat(32)}#0`, `${"03".repeat(32)}#0`];
+  const draftFor = (selected: string[]) => claimDraft(selected) as ClaimDraftResponse;
+  const capacityError = () => Object.assign(new Error("capacity"), { code: "claim_batch_capacity_exceeded" });
+
+  it("defers an input that fails alone and returns a freshly drafted good input for review", async () => {
+    const original = draftFor(outrefs);
+    const proofs = destinationProofResponse(claimDraft(outrefs)).artifacts;
+    const defer = vi.fn();
+    const draft = vi.fn(async (selected: string[]) => draftFor(selected));
+    const build = vi.fn(async (subset: ClaimDraftResponse) => {
+      if (subset.orderedInputs.some((input) => input.outRefId === outrefs[0])) throw capacityError();
+      return claimBuild(claimDraft(subset.orderedInputs.map((input) => input.outRefId))) as ClaimBuildResponse;
+    });
+    const next = await buildClaimBatch(original, proofs, { draft, build, defer });
+    expect(defer).toHaveBeenCalledExactlyOnceWith(outrefs[0]);
+    expect(next?.draft.orderedInputs.map((input) => input.outRefId)).toEqual([outrefs[1]]);
+    expect(next?.artifacts).toEqual([proofs[1]]);
+    expect(next?.build.review.selectedOutrefs).toEqual([outrefs[1]]);
+    expect(draft).toHaveBeenLastCalledWith([outrefs[1]]);
+  });
+
+  it("stops after bounded attempts when every input fails alone", async () => {
+    const defer = vi.fn();
+    const build = vi.fn(async () => {
+      throw capacityError();
+    });
+    const next = await buildClaimBatch(draftFor(outrefs), destinationProofResponse(claimDraft(outrefs)).artifacts, {
+      draft: async (selected) => draftFor(selected),
+      build,
+      defer,
+    });
+    expect(next).toBeNull();
+    expect(defer.mock.calls.flat()).toEqual(outrefs);
+    expect(build.mock.calls.length).toBeLessThanOrEqual(outrefs.length * 2 - 1);
+  });
+
+  it("rejects a changed destination before reusing a proof", async () => {
+    const build = vi.fn(async () => {
+      throw capacityError();
+    });
+    const defer = vi.fn();
+    await expect(
+      buildClaimBatch(draftFor(outrefs), destinationProofResponse(claimDraft(outrefs)).artifacts, {
+        draft: async (selected) => {
+          const changed = draftFor(selected);
+          changed.proofRequests[0].destination_address = changedSafeWalletAddressHex;
+          return changed;
+        },
+        build,
+        defer,
+      }),
+    ).rejects.toThrow("Generate new proofs");
+    expect(build).toHaveBeenCalledTimes(1);
+    expect(defer).not.toHaveBeenCalled();
+  });
+
+  it("propagates service failures without shrinking or deferring the batch", async () => {
+    const draft = vi.fn();
+    const defer = vi.fn();
+    const build = vi.fn(async () => {
+      throw new Error("service unavailable");
+    });
+    await expect(
+      buildClaimBatch(draftFor(outrefs), destinationProofResponse(claimDraft(outrefs)).artifacts, {
+        draft,
+        build,
+        defer,
+      }),
+    ).rejects.toThrow("service unavailable");
+    expect(draft).not.toHaveBeenCalled();
+    expect(defer).not.toHaveBeenCalled();
+  });
 });
 
 function cip30HexAddressToBech32(value: string): string {
@@ -989,6 +1066,54 @@ describe("ClaimFlow", () => {
     expect(screen.getByText(/No transaction has been signed or submitted yet/i)).toBeInTheDocument();
     expect(fetch.mock.calls.some(([url]) => String(url) === "/claim-api/build")).toBe(true);
     expect(fetch.mock.calls.some(([url]) => String(url) === "/claim-api/submit")).toBe(false);
+  });
+
+  it("rebuilds for review after a submit timeout without automatically signing again", async () => {
+    window.history.replaceState(null, "", "/claim#helper=127.0.0.1:49152&pair=pair-secret");
+    const draft = claimDraft([`${"a".repeat(64)}#0`]);
+    const signTx = vi.fn().mockResolvedValue("84a100");
+    installWallets({
+      impacted: walletApi({ getChangeAddress: walletAddressHex, getUsedAddresses: [usedWalletAddressHex] }),
+      safe: walletApi({ getChangeAddress: safeWalletAddressHex, getUsedAddresses: [safeWalletAddressHex], signTx }),
+    });
+    writeResumeSnapshotForTest({ screen: "current-batch", draft, build: claimBuild(draft) });
+    const fallback = claimFlowFetch({ draft });
+    const fetching = vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url) === "/claim-api/submit")
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: "Request timed out.",
+              code: "request_timeout",
+            }),
+            { status: 408, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      if (String(url).startsWith("/claim-api/progress"))
+        return Promise.resolve(
+          jsonResponse({
+            deploymentId: draft.deploymentId,
+            providerAvailable: true,
+            outrefs: draft.orderedInputs.map((input) => ({
+              outRef: input.outRef,
+              outRefId: input.outRefId,
+              state: "unspent",
+            })),
+            nextBatch: { available: true, count: 1 },
+          }),
+        );
+      return fallback(url, init);
+    });
+    vi.stubGlobal("fetch", fetching);
+    render(<ClaimFlow createWorker={createWorkerSuccess()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect and submit claim" }));
+    const rebuild = await screen.findByRole("button", { name: "Build transaction for review" });
+    expect(await screen.findByText(/claim inputs are still unspent/i)).toBeInTheDocument();
+    expect(signTx).toHaveBeenCalledTimes(1);
+    fireEvent.click(rebuild);
+    expect(await screen.findByText("Review hash")).toBeInTheDocument();
+    expect(fetching.mock.calls.filter(([url]) => String(url) === "/claim-api/build")).toHaveLength(1);
+    expect(signTx).toHaveBeenCalledTimes(1);
   });
 
   it("blocks wrong-network safe-wallet reconnect without clearing the resumed build", async () => {

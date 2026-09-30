@@ -8,6 +8,36 @@ import { supportsAddressUtxoIndex } from "./provider";
 
 const DEFAULT_PAGE_LIMIT = 50;
 const HARD_PAGE_LIMIT = 100;
+const indexCache = new WeakMap<Provider, Map<string, { expiresAt: number; result: Promise<UTxO[]> }>>();
+
+export function loadReclaimIndex(provider: Provider, address: string): Promise<UTxO[]> {
+  let cache = indexCache.get(provider);
+  if (!cache) {
+    cache = new Map();
+    indexCache.set(provider, cache);
+  }
+  const cached = cache.get(address);
+  if (cached && Date.now() < cached.expiresAt) return cached.result;
+  const entry = {
+    expiresAt: Date.now() + 30_000,
+    result: provider
+      .getUtxos(address)
+      .then((utxos) =>
+        utxos
+          .filter((utxo) => utxo.address === address)
+          .sort((left, right) => compareByAge(confirmationSlot(left), confirmationSlot(right), left, right)),
+      ),
+  };
+  const result = entry.result;
+  cache.set(address, entry);
+  const expire = () => {
+    entry.expiresAt = Date.now() + 5000;
+  };
+  void result.then(expire, () => {
+    if (cache.get(address) === entry) cache.delete(address);
+  });
+  return result;
+}
 
 export async function listReclaimUtxos(
   provider: Provider,
@@ -31,12 +61,9 @@ export async function listReclaimUtxos(
   const pending = new Set(assertOutRefList(input.pendingOutrefs, "pendingOutrefs").map(outRefToString));
   const cursor = parseCursor(input.cursor);
   const limit = parseLimit(input.limit);
-  const utxos = (await provider.getUtxos(deployment.reclaimBaseAddress))
-    .filter((utxo) => utxo.address === deployment.reclaimBaseAddress)
-    .map((utxo) => toIndexedReclaimUtxo(utxo, deployment, pending))
-    .sort(compareIndexedUtxos);
+  const utxos = await loadReclaimIndex(provider, deployment.reclaimBaseAddress);
 
-  const page = utxos.slice(cursor, cursor + limit);
+  const page = utxos.slice(cursor, cursor + limit).map((utxo) => toIndexedReclaimUtxo(utxo, deployment, pending));
   const nextCursor = cursor + limit < utxos.length ? String(cursor + limit) : null;
 
   return {
@@ -82,17 +109,24 @@ export function toIndexedReclaimUtxo(
 }
 
 export function compareIndexedUtxos(left: IndexedReclaimUtxo, right: IndexedReclaimUtxo): number {
-  const leftSlot = left.confirmation.slot;
-  const rightSlot = right.confirmation.slot;
+  return compareByAge(left.confirmation.slot, right.confirmation.slot, left.outRef, right.outRef);
+}
+
+function compareByAge(
+  leftSlot: number | null,
+  rightSlot: number | null,
+  left: ClaimOutRef,
+  right: ClaimOutRef,
+): number {
   if (leftSlot !== null || rightSlot !== null) {
     if (leftSlot === null) return 1;
     if (rightSlot === null) return -1;
     if (leftSlot !== rightSlot) return leftSlot - rightSlot;
   }
-  if (left.outRef.txHash !== right.outRef.txHash) {
-    return left.outRef.txHash < right.outRef.txHash ? -1 : 1;
+  if (left.txHash !== right.txHash) {
+    return left.txHash < right.txHash ? -1 : 1;
   }
-  return left.outRef.outputIndex - right.outRef.outputIndex;
+  return left.outputIndex - right.outputIndex;
 }
 
 export function confirmationSlot(utxo: UTxO): number | null {

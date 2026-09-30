@@ -1,11 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { withApiLimits } from "../../../lib/reclaim-server/api-limits";
 import { ClaimValidationError } from "../../../lib/claim/validation";
 import { getProvider, getReclaimDeployment } from "../../../lib/reclaim-server/config";
 import { getClaimProgress } from "../../../lib/claim-server/progress";
 
 export const runtime = "nodejs";
 
-export async function GET(request: NextRequest) {
+export const GET = withApiLimits(handleRequest);
+
+async function handleRequest(request: NextRequest) {
   try {
     const deploymentConfig = getReclaimDeployment();
     if (!deploymentConfig.available) {

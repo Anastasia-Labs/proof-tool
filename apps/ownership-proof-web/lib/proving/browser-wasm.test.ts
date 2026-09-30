@@ -820,6 +820,27 @@ describe("proveDestinationInBrowser", () => {
 });
 
 describe("prepared browser prover session", () => {
+  it.each([
+    "runtime_base_url",
+    "runtime_manifest_url",
+    "prover_worker_js_url",
+    "wasm_exec_js_url",
+  ] as const)("replaces the worker when only %s changes", async (field) => {
+    stubCapableEnvironment();
+    const workers: FakeProverWorker[] = [];
+    const options = {
+      createWorker: () => {
+        const worker = new FakeProverWorker({ init: (message) => [{ id: message.id as string, type: "ready" }] });
+        workers.push(worker);
+        return worker;
+      },
+    };
+    await checkBrowserProving(descriptor(), EXPECTED_VK_HASH, options);
+    await checkBrowserProving(descriptor({ [field]: `${descriptor()[field]}-changed` }), EXPECTED_VK_HASH, options);
+    expect(workers).toHaveLength(2);
+    expect(workers[0].terminated).toBe(true);
+    expect(workers[1].terminated).toBe(false);
+  });
   it("reuses readiness preflight for the proof flow", async () => {
     stubCapableEnvironment();
     let initCalls = 0;

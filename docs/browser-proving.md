@@ -37,7 +37,16 @@ contract semantics.
 ## Execution Flow
 
 The claim UI checks runtime capability before reading the recovery phrase. The
-prover worker loads `wasm_exec.js` and `proof-destination.wasm`, then performs
+trusted application authenticates all five runtime executables against hashes
+compiled into its bundle before creating the prover worker. It executes those
+same verified bytes through Blob URLs. The launcher at
+`/claim-api/prover-bootstrap` serves application code with a network-denying
+Worker CSP; nested workers inherit that policy. Public asset reads go through
+the page's GET-only broker and the signed chunk manifest's URL/size allowlist.
+`verify:proof-release` checks the bundled runtime pins against the active
+release. The application page and its bundle remain the trust root.
+
+The prover worker then performs
 automatic local credential discovery for all distinct proof targets in one
 pass — unless every proof request already carries an explicit CIP-1852 `path`,
 in which case discovery is skipped and each path is verified against its

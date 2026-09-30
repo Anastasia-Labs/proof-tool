@@ -48,6 +48,9 @@ export function assertWalletAddresses(value: unknown, network: ReclaimNetwork): 
       "Wallet addresses must be provided by the connected wallet.",
     );
   }
+  if (value.length > 50) {
+    throw new ReclaimValidationError("wallet_addresses_too_many", "Wallet address list cannot exceed 50 entries.");
+  }
   const addresses = [...new Set(value.map((address) => assertWalletAddress(address, network)))];
   if (addresses.length === 0) {
     throw new ReclaimValidationError(

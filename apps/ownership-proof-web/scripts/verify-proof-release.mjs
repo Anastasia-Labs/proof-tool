@@ -3,7 +3,7 @@
 import { createHash, createPublicKey, verify as verifySignature } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, URL as NodeURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { blake2b } from "@noble/hashes/blake2b";
 
@@ -144,6 +144,15 @@ export async function verifyProofRelease(options = {}) {
   const { value: runtimeManifest } = await loadJSON(descriptor.runtime_manifest_url, "runtime manifest");
   check(Array.isArray(runtimeManifest?.files) && runtimeManifest.files.length > 0, "runtime manifest has no files");
   const runtimeFiles = new Map(runtimeManifest.files.map((entry) => [entry.filename, entry]));
+  const runtimePins = JSON.parse(
+    await readFile(new NodeURL("../lib/proving/runtime-pins.json", import.meta.url), "utf8"),
+  );
+  equal(runtimePins.runtime_manifest_url, descriptor.runtime_manifest_url, "application runtime manifest pin");
+  equal(
+    JSON.stringify(runtimePins.files),
+    JSON.stringify(runtimeManifest.files),
+    "application runtime executable pins",
+  );
   for (const filename of [
     "proof-destination.wasm",
     "msmworker.wasm",

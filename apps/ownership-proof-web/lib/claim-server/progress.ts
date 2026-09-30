@@ -2,8 +2,9 @@ import type { Provider } from "@lucid-evolution/lucid";
 import type { ReclaimDeployment } from "../reclaim/types";
 import type { ClaimProgressEntry, ClaimProgressResponse } from "../claim/types";
 import { assertOutRefList, outRefToString } from "../claim/validation";
-import { toIndexedReclaimUtxo } from "./indexer";
+import { loadReclaimIndex, toIndexedReclaimUtxo } from "./indexer";
 import { outRefsForProvider, supportsAddressUtxoIndex, supportsOutRefLookup } from "./provider";
+import { loadOutRefUtxos } from "../cardano/provider";
 
 export async function getClaimProgress(
   provider: Provider | null,
@@ -30,7 +31,7 @@ export async function getClaimProgress(
     };
   }
 
-  const unspent = new Set((await provider.getUtxosByOutRef(outRefsForProvider(requestedOutrefs))).map(outRefToString));
+  const unspent = new Set((await loadOutRefUtxos(provider, outRefsForProvider(requestedOutrefs))).map(outRefToString));
   const outrefs: ClaimProgressEntry[] = requestedOutrefs.map((outRef) => {
     const outRefId = outRefToString(outRef);
     const isPending = pendingOutrefs.has(outRefId);
@@ -49,7 +50,7 @@ export async function getClaimProgress(
   });
 
   const remainingCount = supportsAddressUtxoIndex(provider)
-    ? (await provider.getUtxos(deployment.reclaimBaseAddress))
+    ? (await loadReclaimIndex(provider, deployment.reclaimBaseAddress))
         .filter((utxo) => utxo.address === deployment.reclaimBaseAddress)
         .map((utxo) => toIndexedReclaimUtxo(utxo, deployment, pendingOutrefs))
         .filter((utxo) => utxo.state === "unspent" && utxo.datum.status === "valid").length
