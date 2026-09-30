@@ -28,7 +28,7 @@ import {
   validatorToScriptHash,
 } from "@lucid-evolution/lucid";
 import { blake2b } from "@noble/hashes/blake2b";
-import { assertReclaimGlobalProofSlotEncoding, reclaimGlobalExportArgs } from "../preprod/deploy-reclaim-preprod.mjs";
+import { assertReclaimGlobalProofSlotEncoding, reclaimGlobalExportArgs } from "../deploy-reclaim.mjs";
 
 const execFileAsync = promisify(execFile);
 

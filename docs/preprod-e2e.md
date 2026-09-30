@@ -17,9 +17,9 @@ must not be run with `NODE_ENV=production`.
 - `preflight.mjs`: explicit live gate, wallet-role file, clean Git state,
   deployment-source ancestry and manifest coherence, provider and server-secret
   checks.
-- `deploy-reclaim-preprod.mjs`: one-shot NFT, parameter holder, parameterized
+- `../deploy-reclaim.mjs`: one-shot NFT, parameter holder, parameterized
   ReclaimGlobalV2/ReclaimBase scripts, reference scripts, reward-account
-  registration, and enabled manifest creation.
+  registration, and enabled manifest creation. Argument is `preprod` or `mainnet`.
 - `app-server.mjs`: starts a local Next app or targets `RECLAIM_E2E_APP_URL`.
 - `wallet-driver.mjs`, `cip30-harness.mjs`, `real-lace-driver.mjs`: wallet mode
   abstraction.

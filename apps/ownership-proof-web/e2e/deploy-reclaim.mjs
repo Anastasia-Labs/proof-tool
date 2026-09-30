@@ -20,26 +20,59 @@ import {
   walletFromSeed,
 } from "@lucid-evolution/lucid";
 import { createScalusEvaluator } from "@lucid-evolution/scalus-uplc";
-import { normalizePreprodWalletRoles } from "./preflight.mjs";
+import { normalizePreprodWalletRoles } from "./preprod/preflight.mjs";
 
 const execFileAsync = promisify(execFile);
 
-const NETWORK = "Preprod";
-const NETWORK_ID = 0;
 const FULL_PROOF_PLUS_PUBLIC_INPUT_DIGEST_V2 = "full-proof-plus-public-input-digest-v2";
-const REQUIRED_LIVE_GATE = "RECLAIM_E2E_LIVE_PREPROD";
-const REQUIRED_GATE = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
+const SUBMIT_GATE_ENV = "RECLAIM_E2E_SUBMIT_TRANSACTIONS";
 const STAGE2G_V2_MANIFEST_PUBLIC_KEY_FILE_ENV = "RECLAIM_E2E_STAGE2G_V2_MANIFEST_PUBLIC_KEY_FILE";
 const STAGE2G_V2_SIGNATURE_KEY_ID_ENV = "RECLAIM_E2E_STAGE2G_V2_SIGNATURE_KEY_ID";
-const DEFAULT_MANIFEST_PATH = "deployments/reclaim/preprod/live.local.json";
-const DEFAULT_CARDANO_VK_DIR = "output/preprod-e2e/destination-cardano-vk.local";
 const PARAMS_TOKEN_NAME = "5245434c41494d504152414d53"; // RECLAIMPARAMS
 const FEE_BUFFER_LOVELACE = 2_000_000n;
 const REFERENCE_DATUM = Data.void();
 
+export const PREPROD_DEPLOY_PROFILE = Object.freeze({
+  network: "Preprod",
+  networkId: 0,
+  liveGateEnv: "RECLAIM_E2E_LIVE_PREPROD",
+  walletFileEnv: "PREPROD_TEST_WALLETS_FILE",
+  manifestPathEnv: "RECLAIM_PREPROD_DEPLOYMENT_MANIFEST_PATH",
+  defaultManifestPath: "deployments/reclaim/preprod/live.local.json",
+  defaultBlockfrostUrl: "https://cardano-preprod.blockfrost.io/api/v0",
+  defaultKoiosUrl: "https://preprod.koios.rest/api/v1",
+  defaultCardanoVkDir: "output/preprod-e2e/destination-cardano-vk.local",
+  notesKey: "preprod_notes",
+  holderModel: "local-preprod-unspendable-params-holder",
+  destinationKeyProvenance: "single-actor local Preprod setup; not an MPC ceremony",
+  statusSchema: "proof-tool-preprod-deploy-status-v1",
+  liveGateCode: "live_preprod_gate_missing",
+  networkCode: "network_not_preprod",
+  networkIdCode: "network_id_not_preprod",
+});
+
+export const MAINNET_DEPLOY_PROFILE = Object.freeze({
+  network: "Mainnet",
+  networkId: 1,
+  liveGateEnv: "RECLAIM_E2E_LIVE_MAINNET",
+  walletFileEnv: "MAINNET_DEPLOYER_WALLETS_FILE",
+  manifestPathEnv: "RECLAIM_MAINNET_DEPLOYMENT_MANIFEST_PATH",
+  defaultManifestPath: "deployments/reclaim/mainnet/live.local.json",
+  defaultBlockfrostUrl: "https://cardano-mainnet.blockfrost.io/api/v0",
+  defaultKoiosUrl: "https://api.koios.rest/api/v1",
+  defaultCardanoVkDir: "output/mainnet/destination-cardano-vk.local",
+  notesKey: "mainnet_notes",
+  holderModel: "unspendable-params-holder",
+  destinationKeyProvenance: "supplied destination key bundle",
+  statusSchema: "proof-tool-mainnet-deploy-status-v1",
+  liveGateCode: "live_mainnet_gate_missing",
+  networkCode: "network_not_mainnet",
+  networkIdCode: "network_id_not_mainnet",
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.resolve(__dirname, "../../../..");
+const REPO_ROOT = path.resolve(__dirname, "../../..");
 const CONTRACT_DIR = path.join(REPO_ROOT, "contracts", "ownership-verifier");
 
 class DeployPreprodError extends Error {
@@ -50,34 +83,58 @@ class DeployPreprodError extends Error {
   }
 }
 
-export async function deployReclaimPreprod(options = {}) {
+export function deployReclaimPreprod(options = {}) {
+  return deployReclaim(PREPROD_DEPLOY_PROFILE, options);
+}
+
+export function deployReclaimMainnet(options = {}) {
+  return deployReclaim(MAINNET_DEPLOY_PROFILE, options);
+}
+
+const DEPLOY_PROFILES = Object.freeze({
+  preprod: PREPROD_DEPLOY_PROFILE,
+  mainnet: MAINNET_DEPLOY_PROFILE,
+});
+
+export function resolveDeployProfile(networkArgument) {
+  const profile = DEPLOY_PROFILES[networkArgument];
+  if (!profile) {
+    throw new DeployPreprodError("network_argument_invalid", "Pass preprod or mainnet.");
+  }
+  return profile;
+}
+
+export async function deployReclaim(profile, options = {}) {
   const repoRoot = options.repoRoot ?? REPO_ROOT;
   const env = { ...process.env, ...(options.env ?? {}) };
   const assertCleanPushedSourceFn = options.assertCleanPushedSourceFn ?? assertCleanPushedSource;
   const prepareDestinationKeysFn = options.prepareDestinationKeysFn ?? prepareDestinationKeys;
   const loadWalletFileFn = options.loadWalletFileFn ?? loadWalletFile;
   loadLocalEnv(env, repoRoot);
-  assertPreprodOnly(env);
+  assertDeployNetwork(profile, env);
 
-  const git = await assertCleanPushedSourceFn(repoRoot);
-  const destination = await prepareDestinationKeysFn({ env, repoRoot, git });
-  const walletFile = loadWalletFileFn(env, repoRoot);
+  const git = await assertCleanPushedSourceFn(repoRoot, profile);
+  const destination = await prepareDestinationKeysFn({ env, repoRoot, git, profile });
+  const walletFile = loadWalletFileFn(env, repoRoot, profile);
   const deployer = walletRole(walletFile, "deployer");
-  const provider = createProvider(env);
+  const provider = createProvider(profile, env);
   const protocol = await provider.getProtocolParameters();
-  const lucid = await Lucid(provider, NETWORK, {
+  const lucid = await Lucid(provider, profile.network, {
     evaluator: createScalusEvaluator(),
     presetProtocolParameters: protocol,
   });
   lucid.selectWallet.fromSeed(deployer.mnemonic, { accountIndex: 0 });
-  const deployerAddress = walletFromSeed(deployer.mnemonic, { network: NETWORK }).address;
+  const deployerAddress = walletFromSeed(deployer.mnemonic, { network: profile.network }).address;
   const deployerDetails = getAddressDetails(deployerAddress);
-  if (deployerDetails.networkId !== NETWORK_ID) {
-    throw new DeployPreprodError("deployer_network_invalid", "Deployer wallet must derive a Preprod address.");
+  if (deployerDetails.networkId !== profile.networkId) {
+    throw new DeployPreprodError(
+      "deployer_network_invalid",
+      `Deployer wallet must derive a ${profile.network} address.`,
+    );
   }
 
   const deployerUtxos = await provider.getUtxos(deployerAddress);
-  const seedUtxo = selectSeedUtxo(deployerUtxos);
+  const seedUtxo = selectSeedUtxo(deployerUtxos, profile);
   const oneShotScript = await exportScript("one-shot", seedUtxo.txHash, String(seedUtxo.outputIndex));
   const paramsPolicyId = mintingPolicyToId(oneShotScript);
   const globalScript = await exportScript(
@@ -99,10 +156,10 @@ export async function deployReclaimPreprod(options = {}) {
   const baseScriptHash = validatorToScriptHash(baseScript).toLowerCase();
   const holderScript = await exportScript("params-holder");
   const holderScriptHash = validatorToScriptHash(holderScript).toLowerCase();
-  const holderAddress = validatorToAddress(NETWORK, holderScript);
-  const baseAddress = validatorToAddress(NETWORK, baseScript);
-  const globalRewardAddress = credentialToRewardAddress(NETWORK, scriptHashToCredential(globalScriptHash));
-  const globalRewardAccountRegistered = await isRewardAccountRegistered(env, globalRewardAddress);
+  const holderAddress = validatorToAddress(profile.network, holderScript);
+  const baseAddress = validatorToAddress(profile.network, baseScript);
+  const globalRewardAddress = credentialToRewardAddress(profile.network, scriptHashToCredential(globalScriptHash));
+  const globalRewardAccountRegistered = await isRewardAccountRegistered(profile, env, globalRewardAddress);
   const registerGlobalRewardAccount = !globalRewardAccountRegistered;
   const paramsUnit = `${paramsPolicyId}${PARAMS_TOKEN_NAME}`;
   const paramsDatum = Data.to(new Constr(0, [baseScriptHash]));
@@ -171,7 +228,7 @@ export async function deployReclaimPreprod(options = {}) {
   const summary = {
     ok: false,
     submitted: false,
-    network: NETWORK,
+    network: profile.network,
     sourceCommit: git.commit,
     txHash,
     deployer: redactAddress(deployerAddress),
@@ -189,7 +246,7 @@ export async function deployReclaimPreprod(options = {}) {
     destinationVkHash: destination.vkHash,
     destinationCardanoVkBlake2b256: destination.cardanoVkBlake2b256,
     destinationKeysDir: path.relative(repoRoot, destination.keysDir),
-    manifestPath: resolveManifestPath(env, repoRoot).relative,
+    manifestPath: resolveManifestPath(profile, env, repoRoot).relative,
     outputLovelace: {
       params: paramsLovelace.toString(),
       reclaimBaseReference: baseReferenceLovelace.toString(),
@@ -199,7 +256,7 @@ export async function deployReclaimPreprod(options = {}) {
 
   console.error(
     JSON.stringify({
-      schema: "proof-tool-preprod-deploy-status-v1",
+      schema: profile.statusSchema,
       stage: "pre-submit",
       txHash,
       sourceCommit: git.commit,
@@ -215,10 +272,11 @@ export async function deployReclaimPreprod(options = {}) {
     signed,
     lucid,
     txHash,
+    statusSchema: profile.statusSchema,
   });
   console.error(
     JSON.stringify({
-      schema: "proof-tool-preprod-deploy-status-v1",
+      schema: profile.statusSchema,
       stage: "submitted",
       txHash: submittedHash,
     }),
@@ -236,6 +294,7 @@ export async function deployReclaimPreprod(options = {}) {
     globalScriptHash,
   });
   const manifest = buildManifest({
+    profile,
     sourceCommit: git.commit,
     baseAddress,
     baseScriptHash,
@@ -251,7 +310,7 @@ export async function deployReclaimPreprod(options = {}) {
     providerName: providerName(env),
     globalRewardAccountRegistered: true,
   });
-  const manifestPath = writeManifest(env, repoRoot, manifest);
+  const manifestPath = writeManifest(profile, env, repoRoot, manifest);
   await runNode(repoRoot, [
     path.join("apps", "ownership-proof-web", "scripts", "verify-reclaim-manifest.mjs"),
     manifestPath,
@@ -301,33 +360,36 @@ function unquoteEnvValue(value) {
   return value;
 }
 
-function assertPreprodOnly(env) {
-  if ((env[REQUIRED_LIVE_GATE] ?? "").trim() !== "1") {
+export function assertDeployNetwork(profile, env) {
+  if ((env[profile.liveGateEnv] ?? "").trim() !== "1") {
     throw new DeployPreprodError(
-      "live_preprod_gate_missing",
-      `${REQUIRED_LIVE_GATE}=1 is required before live Preprod deployment.`,
+      profile.liveGateCode,
+      `${profile.liveGateEnv}=1 is required before live ${profile.network} deployment.`,
     );
   }
-  if ((env[REQUIRED_GATE] ?? "").trim() !== "1") {
+  if ((env[SUBMIT_GATE_ENV] ?? "").trim() !== "1") {
     throw new DeployPreprodError(
       "submit_gate_missing",
-      `${REQUIRED_GATE}=1 is required before submitting the Preprod deployment transaction.`,
+      `${SUBMIT_GATE_ENV}=1 is required before submitting the ${profile.network} deployment transaction.`,
     );
   }
-  if ((env.RECLAIM_NETWORK ?? "").trim() !== NETWORK) {
-    throw new DeployPreprodError("network_not_preprod", "RECLAIM_NETWORK must be Preprod.");
+  if ((env.RECLAIM_NETWORK ?? "").trim() !== profile.network) {
+    throw new DeployPreprodError(profile.networkCode, `RECLAIM_NETWORK must be ${profile.network}.`);
   }
-  if ((env.RECLAIM_NETWORK_ID ?? "0").trim() !== "0") {
-    throw new DeployPreprodError("network_id_not_preprod", "RECLAIM_NETWORK_ID must be 0 when set.");
+  if ((env.RECLAIM_NETWORK_ID ?? String(profile.networkId)).trim() !== String(profile.networkId)) {
+    throw new DeployPreprodError(
+      profile.networkIdCode,
+      `RECLAIM_NETWORK_ID must be ${profile.networkId} when set.`,
+    );
   }
 }
 
-async function assertCleanPushedSource(repoRoot) {
+async function assertCleanPushedSource(repoRoot, profile) {
   const status = (await execGit(repoRoot, ["status", "--porcelain", "--untracked-files=all"])).trim();
   if (status) {
     throw new DeployPreprodError(
       "git_worktree_dirty",
-      "Git worktree must be clean before a Preprod deployment transaction.",
+      `Git worktree must be clean before a ${profile.network} deployment transaction.`,
     );
   }
   const commit = (await execGit(repoRoot, ["rev-parse", "HEAD"])).trim();
@@ -335,7 +397,7 @@ async function assertCleanPushedSource(repoRoot) {
   if (origin.ok && origin.stdout.trim() !== commit) {
     throw new DeployPreprodError(
       "git_not_pushed",
-      "HEAD must match origin/main before a Preprod deployment transaction.",
+      `HEAD must match origin/main before a ${profile.network} deployment transaction.`,
     );
   }
   return { commit };
@@ -355,14 +417,14 @@ async function execGitMaybe(repoRoot, args) {
   }
 }
 
-function loadWalletFile(env, repoRoot) {
-  const configured = env.PREPROD_TEST_WALLETS_FILE?.trim();
+function loadWalletFile(env, repoRoot, profile = PREPROD_DEPLOY_PROFILE) {
+  const configured = env[profile.walletFileEnv]?.trim();
   if (!configured) {
-    throw new DeployPreprodError("wallet_file_missing", "PREPROD_TEST_WALLETS_FILE is required.");
+    throw new DeployPreprodError("wallet_file_missing", `${profile.walletFileEnv} is required.`);
   }
   const resolved = path.isAbsolute(configured) ? configured : path.resolve(repoRoot, configured);
   if (!existsSync(resolved)) {
-    throw new DeployPreprodError("wallet_file_missing", "PREPROD_TEST_WALLETS_FILE does not exist.");
+    throw new DeployPreprodError("wallet_file_missing", `${profile.walletFileEnv} does not exist.`);
   }
   return JSON.parse(readFileSync(resolved, "utf8"));
 }
@@ -395,20 +457,25 @@ function normalizeMnemonic(value) {
   return "";
 }
 
-function createProvider(env) {
+export function resolveBlockfrostUrl(profile, env) {
+  return env.RECLAIM_BLOCKFROST_URL?.trim() || profile.defaultBlockfrostUrl;
+}
+
+export function resolveKoiosUrl(profile, env) {
+  return env.RECLAIM_KOIOS_URL?.trim() || profile.defaultKoiosUrl;
+}
+
+function createProvider(profile, env) {
   const name = providerName(env);
   if (name === "blockfrost") {
     const projectId = env.RECLAIM_BLOCKFROST_PROJECT_ID?.trim() || env.BLOCKFROST_PROJECT_ID?.trim();
     if (!projectId) {
       throw new DeployPreprodError("blockfrost_project_id_missing", "RECLAIM_BLOCKFROST_PROJECT_ID is required.");
     }
-    return new Blockfrost(
-      env.RECLAIM_BLOCKFROST_URL?.trim() || "https://cardano-preprod.blockfrost.io/api/v0",
-      projectId,
-    );
+    return new Blockfrost(resolveBlockfrostUrl(profile, env), projectId);
   }
   if (name === "koios") {
-    const koiosUrl = env.RECLAIM_KOIOS_URL?.trim() || "https://preprod.koios.rest/api/v1";
+    const koiosUrl = resolveKoiosUrl(profile, env);
     const koiosToken = env.RECLAIM_KOIOS_TOKEN?.trim();
     return koiosToken ? new Koios(koiosUrl, koiosToken) : new Koios(koiosUrl);
   }
@@ -419,17 +486,14 @@ function providerName(env) {
   return (env.RECLAIM_PROVIDER?.trim() || "blockfrost").toLowerCase();
 }
 
-async function isRewardAccountRegistered(env, rewardAddress) {
+async function isRewardAccountRegistered(profile, env, rewardAddress) {
   const name = providerName(env);
   if (name === "blockfrost") {
     const projectId = env.RECLAIM_BLOCKFROST_PROJECT_ID?.trim() || env.BLOCKFROST_PROJECT_ID?.trim();
     if (!projectId) {
       throw new DeployPreprodError("blockfrost_project_id_missing", "RECLAIM_BLOCKFROST_PROJECT_ID is required.");
     }
-    const baseUrl = (env.RECLAIM_BLOCKFROST_URL?.trim() || "https://cardano-preprod.blockfrost.io/api/v0").replace(
-      /\/+$/u,
-      "",
-    );
+    const baseUrl = resolveBlockfrostUrl(profile, env).replace(/\/+$/u, "");
     const response = await fetch(`${baseUrl}/accounts/${rewardAddress}`, {
       headers: { project_id: projectId },
     });
@@ -445,7 +509,7 @@ async function isRewardAccountRegistered(env, rewardAddress) {
     );
   }
   if (name === "koios") {
-    const baseUrl = (env.RECLAIM_KOIOS_URL?.trim() || "https://preprod.koios.rest/api/v1").replace(/\/+$/u, "");
+    const baseUrl = resolveKoiosUrl(profile, env).replace(/\/+$/u, "");
     const headers = { "content-type": "application/json" };
     const token = env.RECLAIM_KOIOS_TOKEN?.trim();
     if (token) {
@@ -468,7 +532,13 @@ async function isRewardAccountRegistered(env, rewardAddress) {
   throw new DeployPreprodError("provider_unsupported", "RECLAIM_PROVIDER must be blockfrost or koios.");
 }
 
-export async function prepareDestinationKeys({ env, repoRoot, git, runGoFn = runGo }) {
+export async function prepareDestinationKeys({
+  env,
+  repoRoot,
+  git,
+  runGoFn = runGo,
+  profile = PREPROD_DEPLOY_PROFILE,
+}) {
   void git;
   const configured = env.RECLAIM_DESTINATION_KEYS_DIR?.trim() || env.RECLAIM_E2E_DESTINATION_KEYS_DIR?.trim();
   if (!configured) {
@@ -506,7 +576,10 @@ export async function prepareDestinationKeys({ env, repoRoot, git, runGoFn = run
     "--signature-key-id",
     signatureKeyID,
   ]);
-  const cardanoDir = path.resolve(repoRoot, env.RECLAIM_DESTINATION_CARDANO_VK_DIR?.trim() || DEFAULT_CARDANO_VK_DIR);
+  const cardanoDir = path.resolve(
+    repoRoot,
+    env.RECLAIM_DESTINATION_CARDANO_VK_DIR?.trim() || profile.defaultCardanoVkDir,
+  );
   mkdirSync(cardanoDir, { recursive: true });
   const cardanoVkPath = path.join(cardanoDir, "vk.hex");
   const formatPath = path.join(cardanoDir, "format.txt");
@@ -649,12 +722,12 @@ export function reclaimGlobalExportArgs(mode, paramsPolicyId, cardanoVkHex, card
   return [mode, paramsPolicyId, PARAMS_TOKEN_NAME, cardanoVkHex];
 }
 
-function selectSeedUtxo(utxos) {
+function selectSeedUtxo(utxos, profile) {
   const candidates = utxos
     .filter((utxo) => (utxo.assets?.lovelace ?? 0n) > 0n)
     .sort((left, right) => Number((right.assets?.lovelace ?? 0n) - (left.assets?.lovelace ?? 0n)));
   if (candidates.length === 0) {
-    throw new DeployPreprodError("seed_utxo_missing", "Deployer wallet needs a spendable Preprod UTxO.");
+    throw new DeployPreprodError("seed_utxo_missing", `Deployer wallet needs a spendable ${profile.network} UTxO.`);
   }
   return candidates[0];
 }
@@ -667,7 +740,7 @@ async function waitForTx(lucid, txHash) {
   }
 }
 
-async function submitDeploymentTxOrRecover({ signed, lucid, txHash }) {
+async function submitDeploymentTxOrRecover({ signed, lucid, txHash, statusSchema }) {
   try {
     return await signed.submit({ canonical: true });
   } catch (error) {
@@ -676,7 +749,7 @@ async function submitDeploymentTxOrRecover({ signed, lucid, txHash }) {
     }
     console.error(
       JSON.stringify({
-        schema: "proof-tool-preprod-deploy-status-v1",
+        schema: statusSchema,
         stage: "submit-recovered",
         txHash,
         reason: "provider_reported_inputs_already_spent",
@@ -781,6 +854,7 @@ export function assertReclaimGlobalProofSlotEncoding(
 }
 
 export function buildManifest({
+  profile = PREPROD_DEPLOY_PROFILE,
   sourceCommit,
   baseAddress,
   baseScriptHash,
@@ -798,9 +872,9 @@ export function buildManifest({
 }) {
   return {
     schema: "proof-tool-reclaim-deployment-v1",
-    deployment_id: `${NETWORK.toLowerCase()}:${baseScriptHash}:${sourceCommit}`,
-    network: NETWORK,
-    network_id: NETWORK_ID,
+    deployment_id: `${profile.network.toLowerCase()}:${baseScriptHash}:${sourceCommit}`,
+    network: profile.network,
+    network_id: profile.networkId,
     source_commit: sourceCommit,
     contract_version: "ownership-verifier-0.1.0.0",
     reclaim_base: {
@@ -854,25 +928,25 @@ export function buildManifest({
       reclaim_global: referenceGlobal,
     },
     enabled: true,
-    preprod_notes: {
-      holder_model: "local-preprod-unspendable-params-holder",
+    [profile.notesKey]: {
+      holder_model: profile.holderModel,
       holder_script_hash: holderScriptHash,
-      destination_key_provenance: "single-actor local Preprod setup; not an MPC ceremony",
+      destination_key_provenance: profile.destinationKeyProvenance,
       global_reward_address: globalRewardAddress,
       global_reward_account_registered: globalRewardAccountRegistered,
     },
   };
 }
 
-function writeManifest(env, repoRoot, manifest) {
-  const manifestPath = resolveManifestPath(env, repoRoot).absolute;
+function writeManifest(profile, env, repoRoot, manifest) {
+  const manifestPath = resolveManifestPath(profile, env, repoRoot).absolute;
   mkdirSync(path.dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
   return manifestPath;
 }
 
-function resolveManifestPath(env, repoRoot) {
-  const configured = env.RECLAIM_PREPROD_DEPLOYMENT_MANIFEST_PATH?.trim() || DEFAULT_MANIFEST_PATH;
+function resolveManifestPath(profile, env, repoRoot) {
+  const configured = env[profile.manifestPathEnv]?.trim() || profile.defaultManifestPath;
   const absolute = path.isAbsolute(configured) ? configured : path.resolve(repoRoot, configured);
   return { absolute, relative: path.relative(repoRoot, absolute) };
 }
@@ -939,8 +1013,11 @@ function sleep(ms) {
 }
 
 async function main() {
+  let networkName;
   try {
-    const result = await deployReclaimPreprod();
+    const profile = resolveDeployProfile(process.argv[2]);
+    networkName = profile.network;
+    const result = await deployReclaim(profile);
     console.log(JSON.stringify(result, null, 2));
     if (!result.ok) {
       process.exitCode = 1;
@@ -948,7 +1025,8 @@ async function main() {
   } catch (error) {
     const code = error?.code ?? "deploy_failed";
     const message = error?.message ?? String(error);
-    console.error(`Preprod reclaim deployment failed closed: ${code}: ${message}`);
+    const label = networkName ? `${networkName} reclaim deployment` : "Reclaim deployment";
+    console.error(`${label} failed closed: ${code}: ${message}`);
     if (process.env.RECLAIM_E2E_DEBUG_STACK === "1" && error?.stack) {
       console.error(error.stack);
     }

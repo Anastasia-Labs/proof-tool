@@ -6,9 +6,10 @@ import {
   assertReclaimGlobalProofSlotEncoding,
   buildManifest,
   deployReclaimPreprod,
+  PREPROD_DEPLOY_PROFILE,
   prepareDestinationKeys,
   reclaimGlobalExportArgs,
-} from "./deploy-reclaim-preprod.mjs";
+} from "../deploy-reclaim.mjs";
 
 const POLICY_ID = "ab".repeat(28);
 const VERIFIER_KEY = "cd".repeat(672);
@@ -158,6 +159,7 @@ describe("destination key-bundle trust anchor", () => {
       env: expect.objectContaining({ RECLAIM_NETWORK: "Preprod" }),
       repoRoot,
       git: { commit: "12".repeat(20) },
+      profile: PREPROD_DEPLOY_PROFILE,
     });
     expect(loadWalletFileFn).not.toHaveBeenCalled();
   });
