@@ -1,5 +1,6 @@
 import type { ClaimDraftResponse } from "../claim/types";
 import type { BrowserProvingDescriptor } from "../reclaim/types";
+import type { VerifiedRuntimeConfig } from "./runtime";
 
 export type ProofProviderKind = "desktop-helper" | "browser-wasm";
 
@@ -133,6 +134,7 @@ export type ProverDiscoverResult = {
 // JSON crossing this boundary contains master_xprv_hex; nothing that carries it
 // may be logged, thrown, or surfaced outside the provider modules.
 export type ProverWorkerRequest =
+  | { id: string; type: "bootstrap"; config: VerifiedRuntimeConfig }
   | {
       id: string;
       type: "init";
@@ -147,6 +149,7 @@ export type ProverWorkerRequest =
   | { id: string; type: "prove"; requestJson: string };
 
 export type ProverWorkerResponse =
+  | { id: string; type: "bootstrapped" }
   | { id: string; type: "ready" }
   | { id: string; type: "preflight-result"; result: ProverPreflightResult }
   | { id: string; type: "discover-result"; result: ProverDiscoverResult }

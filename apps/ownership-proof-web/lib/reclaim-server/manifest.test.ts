@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { credentialToAddress, keyHashToCredential, scriptHashToCredential } from "@lucid-evolution/lucid";
 import {
   DESTINATION_ADDRESS_ENCODING,
   DESTINATION_CIRCUIT_ID,
@@ -23,6 +24,21 @@ afterEach(() => {
 });
 
 describe("reclaim deployment manifest validation", () => {
+  it("rejects a malformed, key, wrong-script, or wrong-network funding address", () => {
+    const manifest = validManifest();
+    for (const address of [
+      "addr_test1invalid",
+      credentialToAddress("Preprod", keyHashToCredential(manifest.reclaim_base.script_hash)),
+      credentialToAddress("Preprod", scriptHashToCredential(manifest.reclaim_global.script_hash)),
+      credentialToAddress("Mainnet", scriptHashToCredential(manifest.reclaim_base.script_hash)),
+    ]) {
+      expect(
+        errorCodes(
+          validateReclaimDeploymentManifest({ ...manifest, reclaim_base: { ...manifest.reclaim_base, address } }),
+        ),
+      ).toContain("reclaim_base_address_mismatch");
+    }
+  });
   it("accepts a coherent destination-bound preprod manifest", () => {
     const result = validateReclaimDeploymentManifest(validManifest());
 
@@ -390,7 +406,7 @@ function validManifest(): ReclaimDeploymentManifest {
     source_commit: sourceCommit,
     contract_version: "v1.0.0-preprod",
     reclaim_base: {
-      address: "addr_test1wreclaimbase00000000000000000000000000000000000000000",
+      address: credentialToAddress("Preprod", scriptHashToCredential(baseScriptHash)),
       script_hash: baseScriptHash,
       required_global_credential: globalCredential,
     },

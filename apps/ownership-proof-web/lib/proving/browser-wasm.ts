@@ -2,6 +2,7 @@ import type { BrowserProvingDescriptor, BrowserProvingTuning } from "../reclaim/
 import type { ClaimProofRequest } from "../claim/types";
 import { calibrateBrowserWorkerCapacity, checkBrowserProvingCapability } from "./capability";
 import { BrowserProvingDiagnosticCollector, browserDiagnosticHostSignals } from "./diagnostic";
+import { loadVerifiedRuntime, type VerifiedRuntimeConfig } from "./runtime";
 import type {
   BrowserProvingCheckResult,
   DestinationProofResponse,
@@ -72,10 +73,6 @@ export type BrowserWasmOptions = {
   // descriptor.
   createWorker?: () => ProverWorkerLike;
 };
-
-function defaultCreateProverWorker(workerURL: string): ProverWorkerLike {
-  return new Worker(absolutize(workerURL)) as unknown as ProverWorkerLike;
-}
 
 type PreparedProverSession = {
   publicKey: string;
@@ -378,12 +375,19 @@ async function createProverSession(
     : await calibrateBrowserWorkerCapacity(descriptor);
   const workerCount = calibration.appliedWorkerCount;
   const collector = new BrowserProvingDiagnosticCollector(browserDiagnosticHostSignals(calibration));
+  const runtime = options.createWorker ? null : await loadVerifiedRuntime(descriptor);
   const client = new ProverWorkerClient(
-    options.createWorker ?? (() => defaultCreateProverWorker(descriptor.prover_worker_js_url)),
+    options.createWorker ??
+      (() => {
+        const worker = new Worker(absolutize("/claim-api/prover-bootstrap"));
+        if (runtime) worker.addEventListener("message", runtime.onMessage);
+        return worker as unknown as ProverWorkerLike;
+      }),
+    runtime?.dispose,
   );
   try {
     const initializationStarted = nowMS();
-    await client.init(descriptor);
+    await client.init(descriptor, runtime?.config);
     collector.recordInitialization(nowMS() - initializationStarted);
     const session: PreparedProverSession = {
       publicKey,
@@ -443,6 +447,10 @@ function resetPreparedSessionExpiry(session: PreparedProverSession): void {
 
 function preparedSessionPublicKey(descriptor: BrowserProvingDescriptor, expectedVkHash: string): string {
   return JSON.stringify({
+    runtimeBase: descriptor.runtime_base_url,
+    runtimeManifest: descriptor.runtime_manifest_url,
+    proverWorker: descriptor.prover_worker_js_url,
+    wasmExec: descriptor.wasm_exec_js_url,
     artifacts: buildArtifactsBlock(descriptor),
     tuning: descriptor.tuning ?? null,
     expectedVkHash,
@@ -717,17 +725,29 @@ class ProverWorkerClient {
     this.failAllPending(new Error("The proving worker failed to load."));
   };
 
-  constructor(createWorker: () => ProverWorkerLike) {
+  constructor(
+    createWorker: () => ProverWorkerLike,
+    private readonly disposeRuntime?: () => void,
+  ) {
     this.createWorker = createWorker;
   }
 
-  async init(descriptor: BrowserProvingDescriptor): Promise<void> {
+  async init(descriptor: BrowserProvingDescriptor, runtime?: VerifiedRuntimeConfig): Promise<void> {
     if (this.worker) {
       return;
     }
     this.worker = this.createWorker();
     this.worker.addEventListener("message", this.onMessage);
     this.worker.addEventListener("error", this.onError);
+    if (runtime) {
+      await this.request(
+        { type: "bootstrap", config: runtime },
+        {
+          timeoutMs: PROVER_WORKER_INIT_TIMEOUT_MS,
+          expected: "bootstrapped",
+        },
+      );
+    }
     const tuning = { ...DEFAULT_TUNING, ...descriptor.tuning };
     await this.request(
       {
@@ -778,6 +798,7 @@ class ProverWorkerClient {
       this.worker.terminate();
       this.worker = null;
     }
+    this.disposeRuntime?.();
   }
 
   private failAllPending(error: unknown): void {

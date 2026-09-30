@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { credentialToAddress, scriptHashToCredential } from "@lucid-evolution/lucid";
 import type {
   BrowserProvingDescriptor,
   BrowserProvingTuning,
@@ -606,6 +607,16 @@ export function validateReclaimDeploymentManifest(
   }
   if (network && networkId !== NETWORK_IDS[network]) {
     errors.push({ code: "network_id_mismatch", field: "network_id", message: "network_id does not match network." });
+  }
+  if (/^[0-9a-f]{56}$/u.test(manifest.reclaim_base.script_hash)) {
+    const expectedAddress = credentialToAddress(network, scriptHashToCredential(manifest.reclaim_base.script_hash));
+    if (manifest.reclaim_base.address !== expectedAddress) {
+      errors.push({
+        code: "reclaim_base_address_mismatch",
+        field: "reclaim_base.address",
+        message: "ReclaimBase address must be the enterprise script address for its script hash and network.",
+      });
+    }
   }
   if (deploymentId && network && manifest.reclaim_base.script_hash && sourceCommit) {
     const expected = `${network.toLowerCase()}:${manifest.reclaim_base.script_hash}:${sourceCommit}`;

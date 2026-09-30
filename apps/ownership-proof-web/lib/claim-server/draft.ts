@@ -31,8 +31,9 @@ import {
   ClaimValidationError,
   outRefToString,
 } from "../claim/validation";
-import { compareIndexedUtxos, confirmationSlot, toIndexedReclaimUtxo } from "./indexer";
+import { compareIndexedUtxos, confirmationSlot, loadReclaimIndex, toIndexedReclaimUtxo } from "./indexer";
 import { outRefsForProvider, supportsOutRefLookup } from "./provider";
+import { loadAddressUtxos, loadOutRefUtxos } from "../cardano/provider";
 
 const MIN_SAFE_WALLET_LOVELACE = 5_000_000n;
 type ClaimBatchPolicy = {
@@ -49,11 +50,17 @@ export async function createClaimDraft(
   assertExactDeploymentId(raw.deploymentId, deployment.id);
   assertWalletNetwork(raw.networkId, deployment.networkId);
 
-  const safeWallet = await loadSafeWallet(provider, deployment, raw);
   const batchPolicy = deploymentBatchPolicy(deployment);
   const requestedCap = assertBatchCap(raw.maxUtxos, batchPolicy);
   const pendingOutrefs = new Set(assertOutRefList(raw.pendingOutrefs, "pendingOutrefs").map(outRefToString));
-  const selectedOutrefs = assertOutRefList(raw.selectedOutrefs, "selectedOutrefs");
+  const selectedOutrefs = assertOutRefList(raw.selectedOutrefs, "selectedOutrefs", requestedCap);
+  if (selectedOutrefs.length === 0 && raw.nextBatch !== true) {
+    throw new ClaimValidationError(
+      "claim_batch_selection_required",
+      "Claim draft requires selected outrefs or nextBatch=true.",
+    );
+  }
+  const safeWallet = await loadSafeWallet(provider, deployment, raw);
 
   let reclaimUtxos: UTxO[];
   const reductions: string[] = [];
@@ -73,7 +80,7 @@ export async function createClaimDraft(
         "Claim draft requires selected outrefs or nextBatch=true.",
       );
     }
-    const allUtxos = await provider.getUtxos(deployment.reclaimBaseAddress);
+    const allUtxos = await loadReclaimIndex(provider, deployment.reclaimBaseAddress);
     const eligible = allUtxos
       .filter((utxo) => !pendingOutrefs.has(outRefToString(utxo)))
       .filter((utxo) => utxo.address === deployment.reclaimBaseAddress)
@@ -156,7 +163,7 @@ async function loadSafeWallet(
     assertSafeWalletAddress(address, deployment.networkId);
   }
 
-  const utxoGroups = await Promise.all(queryAddresses.map((address) => provider.getUtxos(address)));
+  const utxoGroups = await loadAddressUtxos(provider, queryAddresses);
   const utxos = dedupeUtxos(utxoGroups.flat());
   const totalAssets = sumUtxoAssets(utxos);
   const totalLovelace = totalAssets.lovelace ?? 0n;
@@ -190,7 +197,7 @@ async function loadSelectedReclaimUtxos(provider: Provider, selectedOutrefs: Cla
     );
   }
   const selectedIds = new Set(selectedOutrefs.map(outRefToString));
-  const utxos = (await provider.getUtxosByOutRef(outRefsForProvider(selectedOutrefs))).filter((utxo) =>
+  const utxos = (await loadOutRefUtxos(provider, outRefsForProvider(selectedOutrefs))).filter((utxo) =>
     selectedIds.has(outRefToString(utxo)),
   );
   const foundIds = new Set(utxos.map(outRefToString));
