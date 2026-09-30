@@ -581,7 +581,8 @@ describe("claim build and submit fail closed", () => {
   it.each([
     "success",
     "rejection",
-  ])("withdraws all rewards and invalidates the cache after submit %s", async (outcome) => {
+    "hash mismatch",
+  ])("withdraws all rewards and updates the cache after submit %s", async (outcome) => {
     vi.stubEnv("RECLAIM_REVIEW_TOKEN_SECRET", "reward-withdrawal-test-secret");
     const deployment = deploymentWithReferenceScripts({
       ...STATEMENT_BOUND_V2_DEPLOYMENT,
@@ -619,12 +620,10 @@ describe("claim build and submit fail closed", () => {
     expect(built.review.destinationOutputs).toEqual(draft.destinationOutputs);
     await getClaimRewards(provider, deployment.network, rewardAddress);
     expect(rewards).toHaveBeenCalledTimes(1);
-    provider.submitTx =
-      outcome === "success"
-        ? vi.fn(async () => built.txHash)
-        : vi.fn(async () => {
-            throw new Error("rejected");
-          });
+    provider.submitTx = vi.fn(async () => {
+      if (outcome === "rejection") throw new Error("rejected");
+      return outcome === "success" ? built.txHash : "aa".repeat(32);
+    });
     const submitting = submitClaimTx(provider, deployment, {
       deploymentId: deployment.id,
       selectedOutrefs: selected.map(outRefToString),
@@ -633,10 +632,13 @@ describe("claim build and submit fail closed", () => {
       review: built.review,
     });
     if (outcome === "success") await expect(submitting).resolves.toMatchObject({ txHash: built.txHash });
-    else await expect(submitting).rejects.toMatchObject({ code: "claim_submit_provider_rejected" });
+    else
+      await expect(submitting).rejects.toMatchObject({
+        code: outcome === "hash mismatch" ? "claim_submit_hash_mismatch" : "claim_submit_provider_rejected",
+      });
     rewards.mockResolvedValue({ poolId: null, rewards: 0n });
     expect(await getClaimRewards(provider, deployment.network, rewardAddress)).toBe(0n);
-    expect(rewards).toHaveBeenCalledTimes(2);
+    expect(rewards).toHaveBeenCalledTimes(outcome === "success" ? 1 : 2);
   });
 
   it("enforces V2's measured 90/80 margins", () => {

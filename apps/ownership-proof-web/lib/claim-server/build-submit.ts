@@ -45,7 +45,7 @@ import { createClaimDraft } from "./draft";
 import { assembleTransactionWithWitnessSet } from "../cardano/transactions";
 import { loadAddressUtxos, loadOutRefUtxos } from "../cardano/provider";
 import { buildBatchTranscriptV2, decodeBlake2b256, decodeHexBytes } from "../reclaim/batch-transcript";
-import { getClaimRewards, invalidateClaimRewards } from "./rewards";
+import { getClaimRewards, invalidateClaimRewards, markClaimRewardsWithdrawn } from "./rewards";
 
 const DESTINATION_CIRCUIT_ID = "root-ownership-destination-v3/bls12-381/groth16";
 const DESTINATION_PUBLIC_INPUT_DOMAIN = "ROOT-OWNERSHIP-DESTINATION-v1";
@@ -465,23 +465,25 @@ export async function submitClaimTx(
   validateClaimSubmitRequest(deployment, request);
   const raw = request as Required<Pick<ClaimSubmitRequest, "claimBuildReviewToken" | "review">> & ClaimSubmitRequest;
   const inspection = await inspectClaimSubmitRequest(provider, deployment, raw);
+  const rewardAddress = reclaimGlobalRewardAddress(deployment);
   let submittedHash: string;
   try {
     submittedHash = await provider.submitTx(inspection.signedTxCbor);
   } catch (error) {
+    invalidateClaimRewards(provider, rewardAddress);
     throw new ClaimValidationError(
       "claim_submit_provider_rejected",
       `Provider rejected the claim transaction: ${sanitizeProviderSubmitError(error)}`,
     );
-  } finally {
-    invalidateClaimRewards(provider, reclaimGlobalRewardAddress(deployment));
   }
   if (submittedHash !== inspection.txHash) {
+    invalidateClaimRewards(provider, rewardAddress);
     throw new ClaimValidationError(
       "claim_submit_hash_mismatch",
       "Provider returned a transaction hash that does not match the reviewed claim transaction.",
     );
   }
+  markClaimRewardsWithdrawn(provider, rewardAddress);
   return {
     txHash: submittedHash,
     deploymentId: deployment.id,

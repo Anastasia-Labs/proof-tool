@@ -47,8 +47,9 @@ that exceed limits alone remain unclaimed and are deferred until a rescan;
 service and proof failures do not trigger splitting.
 
 The Global withdrawal uses the full reward balance. The server caches it until
-the epoch boundary, with a short cache during the transition, and invalidates
-it after every submit attempt. A provider rejection clears the unsigned build
+the epoch boundary, with a short cache during the transition. A successful
+submission caches the fully withdrawn balance as zero; failed or ambiguous
+submissions invalidate it. A provider rejection clears the unsigned build
 so the next attempt rebuilds and requires review/signing again.
 
 ## API And Code Map

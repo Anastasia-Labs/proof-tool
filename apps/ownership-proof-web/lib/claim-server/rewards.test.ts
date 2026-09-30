@@ -1,12 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { credentialToRewardAddress, scriptHashToCredential, type Provider } from "@lucid-evolution/lucid";
 import deployment from "../../public/proof-assets/reclaim-deployment.json";
-import { getClaimRewards, invalidateClaimRewards } from "./rewards";
+import { getClaimRewards, invalidateClaimRewards, markClaimRewardsWithdrawn } from "./rewards";
 
 const address = credentialToRewardAddress("Preprod", scriptHashToCredential(deployment.reclaim_global.script_hash));
 afterEach(() => vi.useRealTimers());
 
 describe("claim reward cache", () => {
+  it("keeps a successful full withdrawal cached as zero until the epoch boundary", async () => {
+    vi.useFakeTimers();
+    const boundary = Date.parse("2022-06-06T00:00:00Z");
+    vi.setSystemTime(boundary - 1);
+    const getDelegation = vi.fn().mockResolvedValue({ poolId: null, rewards: 2_000_000n });
+    const provider = { getDelegation } as unknown as Provider;
+    await getClaimRewards(provider, "Preprod", address);
+    markClaimRewardsWithdrawn(provider, address);
+    expect(await getClaimRewards(provider, "Preprod", address)).toBe(0n);
+    expect(getDelegation).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(boundary);
+    expect(await getClaimRewards(provider, "Preprod", address)).toBe(2_000_000n);
+    expect(getDelegation).toHaveBeenCalledTimes(2);
+  });
+
   it("shares concurrent reads, caches within an epoch, and refreshes after invalidation", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-29T12:00:00Z"));

@@ -2,7 +2,8 @@ import type { Provider } from "@lucid-evolution/lucid";
 import type { ReclaimNetwork } from "../reclaim/types";
 
 // Public-network genesis schedules. Withdrawals can change balances within an
-// epoch, so every submission (including ambiguous failures) invalidates this cache.
+// epoch. Successful claims withdraw the full balance; failed submissions must
+// invalidate it because their effect on chain may be ambiguous.
 const EPOCH_START: Record<ReclaimNetwork, number> = {
   Mainnet: Date.parse("2017-09-23T21:44:51Z"),
   Preprod: Date.parse("2022-06-01T00:00:00Z"),
@@ -13,6 +14,12 @@ const rewardCache = new WeakMap<Provider, Map<string, RewardEntry>>();
 
 export function invalidateClaimRewards(provider: Provider, address: string): void {
   rewardCache.get(provider)?.delete(address);
+}
+
+export function markClaimRewardsWithdrawn(provider: Provider, address: string): void {
+  const cache = rewardCache.get(provider);
+  const entry = cache?.get(address);
+  if (cache && entry) cache.set(address, { ...entry, balance: Promise.resolve(0n) });
 }
 
 export async function getClaimRewards(provider: Provider, network: ReclaimNetwork, address: string): Promise<bigint> {
