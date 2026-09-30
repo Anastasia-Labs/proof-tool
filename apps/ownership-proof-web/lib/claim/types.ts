@@ -162,6 +162,7 @@ export type ClaimDraftResponse = {
 };
 
 export type ClaimBuildRequest = {
+  refreshRewards?: boolean;
   deploymentId?: string;
   networkId?: number;
   draftId?: string;

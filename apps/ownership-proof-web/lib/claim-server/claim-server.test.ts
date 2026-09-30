@@ -605,7 +605,7 @@ describe("claim build and submit fail closed", () => {
     });
     const artifact = proofArtifactForDraft(draft, 0);
     artifact.artifact.cardano.proof_hex = "ab".repeat(336);
-    const built = await buildClaimTx(provider, deployment, {
+    const buildRequest = {
       deploymentId: deployment.id,
       networkId: 0,
       draftId: draft.draftId,
@@ -613,7 +613,8 @@ describe("claim build and submit fail closed", () => {
       safeWalletChangeAddress: SAFE_ADDRESS,
       safeWalletAddresses: [SAFE_ADDRESS],
       proofArtifacts: [artifact],
-    });
+    };
+    const built = await buildClaimTx(provider, deployment, buildRequest);
     const withdrawals = CML.Transaction.from_cbor_hex(built.txCbor).body().withdrawals();
     const rewardAddress = credentialToRewardAddress(deployment.network, scriptHashToCredential(RECLAIM_GLOBAL_SCRIPT));
     expect(withdrawals?.get(withdrawals.keys().get(0))).toBe(2_000_000n);
@@ -639,6 +640,12 @@ describe("claim build and submit fail closed", () => {
     rewards.mockResolvedValue({ poolId: null, rewards: 0n });
     expect(await getClaimRewards(provider, deployment.network, rewardAddress)).toBe(0n);
     expect(rewards).toHaveBeenCalledTimes(outcome === "success" ? 1 : 2);
+    // The build server may retain its own cache after another instance submits.
+    rewards.mockResolvedValue({ poolId: null, rewards: 2_000_000n });
+    const refreshed = await buildClaimTx(provider, deployment, { ...buildRequest, refreshRewards: true });
+    const freshWithdrawals = CML.Transaction.from_cbor_hex(refreshed.txCbor).body().withdrawals();
+    expect(freshWithdrawals?.get(freshWithdrawals.keys().get(0))).toBe(2_000_000n);
+    expect(rewards).toHaveBeenCalledTimes(outcome === "success" ? 2 : 3);
   });
 
   it("enforces V2's measured 90/80 margins", () => {

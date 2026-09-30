@@ -169,6 +169,7 @@ export async function buildClaimTx(
 
   const evaluator = createScalusEvaluator();
   const rewardAddress = reclaimGlobalRewardAddress(deployment);
+  if (raw.refreshRewards) invalidateClaimRewards(provider, rewardAddress);
   const rewards = await getClaimRewards(provider, deployment.network, rewardAddress);
   const lucid = await Lucid(provider, deployment.network, {
     evaluator,
@@ -330,6 +331,9 @@ export async function prepareClaimBuildPreflight(
 
 export function validateClaimBuildRequestShape(deployment: ReclaimDeployment, request: ClaimBuildRequest): void {
   const raw = assertObject(request, "claim build request") as ClaimBuildRequest;
+  if (raw.refreshRewards !== undefined && typeof raw.refreshRewards !== "boolean") {
+    throw new ClaimValidationError("invalid_refresh_rewards", "refreshRewards must be a boolean.");
+  }
   assertExactDeploymentId(raw.deploymentId, deployment.id);
   assertWalletNetwork(raw.networkId, deployment.networkId);
   assertDraftId(raw.draftId);

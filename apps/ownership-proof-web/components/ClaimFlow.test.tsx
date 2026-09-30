@@ -1113,6 +1113,8 @@ describe("ClaimFlow", () => {
     fireEvent.click(rebuild);
     expect(await screen.findByText("Review hash")).toBeInTheDocument();
     expect(fetching.mock.calls.filter(([url]) => String(url) === "/claim-api/build")).toHaveLength(1);
+    const retry = fetching.mock.calls.find(([url]) => String(url) === "/claim-api/build");
+    expect(JSON.parse(String(retry?.[1]?.body))).toMatchObject({ refreshRewards: true });
     expect(signTx).toHaveBeenCalledTimes(1);
   });
 

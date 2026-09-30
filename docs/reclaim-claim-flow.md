@@ -51,6 +51,8 @@ the epoch boundary, with a short cache during the transition. A successful
 submission caches the fully withdrawn balance as zero; failed or ambiguous
 submissions invalidate it. A provider rejection clears the unsigned build
 so the next attempt rebuilds and requires review/signing again.
+The retry requests a fresh reward balance from the build server, including
+when build and submit run on different instances.
 
 ## API And Code Map
 

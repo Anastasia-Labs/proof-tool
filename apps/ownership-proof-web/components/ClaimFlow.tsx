@@ -886,6 +886,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
   const [claimScanProgress, setClaimScanProgress] = useState(0);
   const submittedRefreshInFlightRef = useRef(false);
   const [build, setBuild] = useState<ClaimBuildResponse | null>(null);
+  const refreshRewardsRef = useRef(false);
   const [buildError, setBuildError] = useState("");
   const [deferredOutrefs, setDeferredOutrefs] = useState<string[]>([]);
   const [batchNotice, setBatchNotice] = useState("");
@@ -2068,6 +2069,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
             }),
           build: (subset, proofs) =>
             postJSON<ClaimBuildResponse>("/claim-api/build", {
+              refreshRewards: refreshRewardsRef.current,
               deploymentId: deployment.deployment.id,
               networkId: deployment.deployment.networkId,
               draftId: subset.draftId,
@@ -2106,6 +2108,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
           );
         }
         setBuild(next.build);
+        refreshRewardsRef.current = false;
         setScreen("current-batch");
         setSubmitPhase(safeWalletApiRef.current ? "ready-to-sign" : "reconnect-required");
       } catch (error) {
@@ -2186,6 +2189,7 @@ export function ClaimFlow({ createWorker = defaultCreateWorker }: ClaimFlowProps
       // transaction was not submitted. Check current chain status passively
       // before the user is offered a re-sign (C14).
       setSubmitFailureKind("post-sign-submit");
+      refreshRewardsRef.current = true;
       setBuild(null);
       setSubmitError(
         "Submission failed after signing — the transaction may or may not have reached the chain. Checking current status...",
