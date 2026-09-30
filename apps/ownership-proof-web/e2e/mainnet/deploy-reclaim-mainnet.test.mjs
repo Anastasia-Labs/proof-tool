@@ -80,9 +80,7 @@ describe("mainnet deploy gates", () => {
 
 describe("mainnet provider defaults", () => {
   it("selects the Mainnet Blockfrost and Koios URLs", () => {
-    expect(resolveBlockfrostUrl(MAINNET_DEPLOY_PROFILE, {})).toBe(
-      "https://cardano-mainnet.blockfrost.io/api/v0",
-    );
+    expect(resolveBlockfrostUrl(MAINNET_DEPLOY_PROFILE, {})).toBe("https://cardano-mainnet.blockfrost.io/api/v0");
     expect(resolveKoiosUrl(MAINNET_DEPLOY_PROFILE, {})).toBe("https://api.koios.rest/api/v1");
   });
 });

@@ -377,10 +377,7 @@ export function assertDeployNetwork(profile, env) {
     throw new DeployPreprodError(profile.networkCode, `RECLAIM_NETWORK must be ${profile.network}.`);
   }
   if ((env.RECLAIM_NETWORK_ID ?? String(profile.networkId)).trim() !== String(profile.networkId)) {
-    throw new DeployPreprodError(
-      profile.networkIdCode,
-      `RECLAIM_NETWORK_ID must be ${profile.networkId} when set.`,
-    );
+    throw new DeployPreprodError(profile.networkIdCode, `RECLAIM_NETWORK_ID must be ${profile.networkId} when set.`);
   }
 }
 
