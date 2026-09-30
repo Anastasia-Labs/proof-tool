@@ -46,6 +46,12 @@ the page's GET-only broker and the signed chunk manifest's URL/size allowlist.
 `verify:proof-release` checks the bundled runtime pins against the active
 release. The application page and its bundle remain the trust root.
 
+After runtime authentication, the page retains one release's immutable public
+Blob contents (about 33 MiB) for subsequent sessions. Each session still gets
+fresh Blob URLs and workers, verifies the signed manifest again, and disposes
+its URLs and workers after use. The cache contains no secret inputs or worker
+state.
+
 The prover worker then performs
 automatic local credential discovery for all distinct proof targets in one
 pass — unless every proof request already carries an explicit CIP-1852 `path`,

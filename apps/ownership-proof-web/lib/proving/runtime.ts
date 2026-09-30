@@ -24,6 +24,10 @@ const RUNTIME_FIELDS = {
   "msmworker.wasm": "msm_worker_wasm_url",
 } as const;
 
+// One immutable public release per page. Worker state and secrets are never
+// cached; each session creates and disposes its own Blob URLs.
+let verifiedExecutables: { base: string; files: Array<{ url: string; blob: Blob }> } | null = null;
+
 function absolute(url: string): string {
   return new URL(url, window.location.origin).href;
 }
@@ -114,26 +118,32 @@ export async function loadVerifiedRuntime(descriptor: BrowserProvingDescriptor) 
       throw new Error("Chunk manifest authentication failed.");
     const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as ChunkManifest;
     const allowed = publicAssetReads(descriptor, manifest);
+    const executables =
+      verifiedExecutables?.base === runtimeBase
+        ? verifiedExecutables.files
+        : await Promise.all(
+            pins.files.map(async (pin) => {
+              const url = new URL(pin.filename, `${runtimeBase}/`).href;
+              const bytes = await fetchBytes(url, pin.size_bytes);
+              if (
+                bytes.byteLength !== pin.size_bytes ||
+                hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))) !== pin.sha256
+              )
+                throw new Error("Prover executable authentication failed.");
+              return {
+                url,
+                blob: new Blob([bytes], {
+                  type: pin.filename.endsWith(".wasm") ? "application/wasm" : "text/javascript",
+                }),
+              };
+            }),
+          );
     // Complete every executable check before creating any Worker or sending a key.
-    const executables = await Promise.all(
-      pins.files.map(async (pin) => {
-        const url = new URL(pin.filename, `${runtimeBase}/`).href;
-        const bytes = await fetchBytes(url, pin.size_bytes);
-        if (
-          bytes.byteLength !== pin.size_bytes ||
-          hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))) !== pin.sha256
-        ) {
-          throw new Error("Prover executable authentication failed.");
-        }
-        return { url, bytes, filename: pin.filename };
-      }),
-    );
-    for (const { url, bytes, filename } of executables) {
-      const blob = URL.createObjectURL(
-        new Blob([bytes], { type: filename.endsWith(".wasm") ? "application/wasm" : "text/javascript" }),
-      );
-      blobs.push(blob);
-      assets[url] = blob;
+    verifiedExecutables = { base: runtimeBase, files: executables };
+    for (const { url, blob } of executables) {
+      const objectURL = URL.createObjectURL(blob);
+      blobs.push(objectURL);
+      assets[url] = objectURL;
     }
     const config: VerifiedRuntimeConfig = {
       runtimeBase,

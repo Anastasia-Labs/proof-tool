@@ -2,10 +2,10 @@
 import { readFileSync } from "node:fs";
 import { webcrypto } from "node:crypto";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import deployment from "../../public/proof-assets/reclaim-deployment.json";
 import type { BrowserProvingDescriptor } from "../reclaim/types";
-import { loadVerifiedRuntime } from "./runtime";
+let loadVerifiedRuntime: typeof import("./runtime").loadVerifiedRuntime;
 
 const descriptor = deployment.proof.browser_proving as BrowserProvingDescriptor;
 const origin = "https://app.test";
@@ -24,6 +24,10 @@ function publishedAssets(tamper?: string) {
 }
 
 afterEach(() => vi.unstubAllGlobals());
+beforeEach(async () => {
+  vi.resetModules();
+  ({ loadVerifiedRuntime } = await import("./runtime"));
+});
 
 describe("runtime authentication", () => {
   it("authenticates the published signed manifest and all five executables", async () => {
@@ -48,6 +52,8 @@ describe("runtime authentication", () => {
     "prover-worker.js",
     "wasm_exec.js",
     "proof-destination.wasm",
+    "msm-worker.js",
+    "msmworker.wasm",
   ])("rejects modified %s bytes", async (filename) => {
     publishedAssets(filename);
     await expect(loadVerifiedRuntime(descriptor)).rejects.toThrow("Prover executable authentication failed");
@@ -59,5 +65,58 @@ describe("runtime authentication", () => {
       loadVerifiedRuntime({ ...descriptor, runtime_manifest_url: "/untrusted/runtime-manifest.json" }),
     ).rejects.toThrow("application release");
     expect(fetching).not.toHaveBeenCalled();
+  });
+
+  it("reuses immutable verified bytes with fresh session URLs and still authenticates the manifest", async () => {
+    const fetching = publishedAssets();
+    const first = await loadVerifiedRuntime(descriptor);
+    first.dispose();
+    const second = await loadVerifiedRuntime(descriptor);
+    try {
+      expect(fetching).toHaveBeenCalledTimes(9);
+      expect(Object.values(second.config.assets)).not.toEqual(Object.values(first.config.assets));
+    } finally {
+      second.dispose();
+    }
+    publishedAssets("chunk-manifest.json");
+    await expect(loadVerifiedRuntime(descriptor)).rejects.toThrow("Chunk manifest authentication failed");
+  });
+
+  it("does not cache a failed executable check", async () => {
+    publishedAssets("msmworker.wasm");
+    await expect(loadVerifiedRuntime(descriptor)).rejects.toThrow("Prover executable authentication failed");
+    const fetching = publishedAssets();
+    const runtime = await loadVerifiedRuntime(descriptor);
+    runtime.dispose();
+    expect(fetching).toHaveBeenCalledTimes(7);
+  });
+
+  it("checks executable URLs even when verified bytes are cached", async () => {
+    const fetching = publishedAssets();
+    const runtime = await loadVerifiedRuntime(descriptor);
+    runtime.dispose();
+    await expect(loadVerifiedRuntime({ ...descriptor, prover_worker_js_url: "/untrusted/worker.js" })).rejects.toThrow(
+      "Runtime executable URL is inconsistent",
+    );
+    expect(fetching).toHaveBeenCalledTimes(7);
+  });
+
+  it("authenticates another runtime base instead of reusing the previous base's cache", async () => {
+    publishedAssets();
+    const runtime = await loadVerifiedRuntime(descriptor);
+    runtime.dispose();
+    const changed = { ...descriptor };
+    for (const field of [
+      "runtime_base_url",
+      "prover_worker_js_url",
+      "wasm_exec_js_url",
+      "proof_wasm_url",
+      "worker_js_url",
+      "msm_worker_wasm_url",
+    ] as const)
+      changed[field] = new URL(descriptor[field], "https://other.test").href;
+    const fetching = publishedAssets("msmworker.wasm");
+    await expect(loadVerifiedRuntime(changed)).rejects.toThrow("Prover executable authentication failed");
+    expect(fetching).toHaveBeenCalledTimes(7);
   });
 });
