@@ -112,6 +112,12 @@ export async function deployReclaim(profile, options = {}) {
   const loadWalletFileFn = options.loadWalletFileFn ?? loadWalletFile;
   loadLocalEnv(env, repoRoot);
   assertDeployNetwork(profile, env);
+  if (profile.network === "Mainnet") {
+    throw new DeployPreprodError(
+      "mainnet_submission_disabled",
+      "Live Mainnet submission is disabled until it enforces the verified MPC release and signed production GO plan. Use deploy:reclaim:mainnet:prepare for offline preparation.",
+    );
+  }
 
   const git = await assertCleanPushedSourceFn(repoRoot, profile);
   const destination = await prepareDestinationKeysFn({ env, repoRoot, git, profile });

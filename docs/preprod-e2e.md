@@ -19,7 +19,10 @@ must not be run with `NODE_ENV=production`.
   checks.
 - `../deploy-reclaim.mjs`: one-shot NFT, parameter holder, parameterized
   ReclaimGlobalV2/ReclaimBase scripts, reference scripts, reward-account
-  registration, and enabled manifest creation. Argument is `preprod` or `mainnet`.
+  registration, and enabled manifest creation. The `preprod` route can submit;
+  live `mainnet` submission remains disabled until it enforces the verified MPC
+  release and signed production GO plan. Use `deploy:reclaim:mainnet:prepare`
+  for offline Mainnet preparation.
 - `app-server.mjs`: starts a local Next app or targets `RECLAIM_E2E_APP_URL`.
 - `wallet-driver.mjs`, `cip30-harness.mjs`, `real-lace-driver.mjs`: wallet mode
   abstraction.

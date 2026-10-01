@@ -63,7 +63,15 @@ export type ReclaimDeploymentManifest = {
     destination_address_encoding: typeof DESTINATION_ADDRESS_ENCODING;
     vk_hash: string;
     cardano_vk_blake2b256: string;
+    setup_transcript_hash?: string;
+    mpc_ceremony_id?: string;
+    mpc_candidate_id?: string;
     browser_proving?: BrowserProvingDescriptor;
+  };
+  planning?: {
+    production_decision_id: string;
+    mpc_release_id: string;
+    release_manifest_sha256: string;
   };
   batching: {
     default_utxo_count: number;
@@ -586,6 +594,42 @@ export function validateReclaimDeploymentManifest(
       fallback: providerField(provider.fallback, "provider.fallback", errors),
     },
   };
+  if (network === "Mainnet") {
+    manifest.proof.setup_transcript_hash = prefixedDigestField(
+      proof.setup_transcript_hash,
+      "proof.setup_transcript_hash",
+      "blake2b256",
+      errors,
+    );
+    manifest.proof.mpc_ceremony_id = prefixedDigestField(
+      proof.mpc_ceremony_id,
+      "proof.mpc_ceremony_id",
+      "sha256",
+      errors,
+    );
+    manifest.proof.mpc_candidate_id = prefixedDigestField(
+      proof.mpc_candidate_id,
+      "proof.mpc_candidate_id",
+      "sha256",
+      errors,
+    );
+    const planning = objectField(root.planning, "planning", errors);
+    manifest.planning = {
+      production_decision_id: prefixedDigestField(
+        planning.production_decision_id,
+        "planning.production_decision_id",
+        "sha256",
+        errors,
+      ),
+      mpc_release_id: prefixedDigestField(planning.mpc_release_id, "planning.mpc_release_id", "sha256", errors),
+      release_manifest_sha256: prefixedDigestField(
+        planning.release_manifest_sha256,
+        "planning.release_manifest_sha256",
+        "sha256",
+        errors,
+      ),
+    };
+  }
   if (referenceScripts) {
     manifest.reference_scripts = referenceScripts;
   }
@@ -1529,6 +1573,23 @@ function hashField(value: unknown, field: string, errors: ManifestValidationErro
     });
   }
   return hash;
+}
+
+function prefixedDigestField(
+  value: unknown,
+  field: string,
+  algorithm: "sha256" | "blake2b256",
+  errors: ManifestValidationError[],
+): string {
+  const digest = stringField(value, field, errors);
+  if (digest && !new RegExp(`^${algorithm}:[0-9a-f]{64}$`, "u").test(digest)) {
+    errors.push({
+      code: "malformed_hash",
+      field,
+      message: `${field} must be a ${algorithm}: prefixed 32-byte digest.`,
+    });
+  }
+  return digest;
 }
 
 function normalizedHash(value: string): string {

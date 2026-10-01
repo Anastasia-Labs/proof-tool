@@ -212,9 +212,10 @@ export async function verifyProofRelease(options = {}) {
     );
     check(runtimePointer?.available === true, "runtime deployment pointer is unavailable");
     const runtimeComparableDeployment = structuredClone(deployment);
-    // The server-side validator intentionally drops the informational
-    // preprod_notes extension from the runtime response.
+    // Informational deployment notes are omitted by the server normalizer;
+    // ceremony and production-decision bindings must still match exactly.
     delete runtimeComparableDeployment.preprod_notes;
+    delete runtimeComparableDeployment.mainnet_notes;
     deepEqual(runtimePointer.manifest, runtimeComparableDeployment, "runtime and static deployment manifests");
     deepEqual(runtimePointer.deployment?.proof?.browser_proving, descriptor, "runtime browser-proving descriptor");
     check(

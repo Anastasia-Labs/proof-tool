@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MAINNET_DEPLOY_PROFILE,
   PREPROD_DEPLOY_PROFILE,
@@ -43,6 +43,29 @@ describe("deploy network argument", () => {
 });
 
 describe("mainnet deploy gates", () => {
+  it("blocks live submission before source, key, or wallet access even with every environment gate set", async () => {
+    const source = vi.fn();
+    const keys = vi.fn();
+    const wallets = vi.fn();
+    await expect(
+      deployReclaimMainnet({
+        repoRoot: tempRepo(),
+        env: {
+          RECLAIM_E2E_LIVE_MAINNET: "1",
+          RECLAIM_E2E_SUBMIT_TRANSACTIONS: "1",
+          RECLAIM_NETWORK: "Mainnet",
+          RECLAIM_NETWORK_ID: "1",
+        },
+        assertCleanPushedSourceFn: source,
+        prepareDestinationKeysFn: keys,
+        loadWalletFileFn: wallets,
+      }),
+    ).rejects.toMatchObject({ code: "mainnet_submission_disabled" });
+    expect(source).not.toHaveBeenCalled();
+    expect(keys).not.toHaveBeenCalled();
+    expect(wallets).not.toHaveBeenCalled();
+  });
+
   it("rejects a run without the live mainnet gate", async () => {
     await expect(
       deployReclaimMainnet({
