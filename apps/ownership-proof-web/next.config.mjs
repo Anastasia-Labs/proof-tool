@@ -1,5 +1,11 @@
+import { isLocalPreprodClaimDeployment } from "./lib/reclaim-server/local-test-deployment.mjs";
+
+const localPreprodClaim = isLocalPreprodClaimDeployment(process.env, process.cwd());
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  distDir: localPreprodClaim ? ".next/preprod-claim" : ".next",
+  env: { NEXT_PUBLIC_RECLAIM_LOCAL_PREPROD: localPreprodClaim ? "1" : "0" },
   reactStrictMode: true,
   serverExternalPackages: [
     "@anastasia-labs/cardano-multiplatform-lib-nodejs",

@@ -4,14 +4,15 @@ import { webcrypto } from "node:crypto";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import deployment from "../../public/proof-assets/reclaim-deployment.json";
+import preprodDeployment from "../../public/proof-releases/proof-assets-ownership-destination-v3-preprod-191ca93-opt-reclaim-07d48bc5-r1/assets/reclaim-deployment.json";
 import type { BrowserProvingDescriptor } from "../reclaim/types";
 let loadVerifiedRuntime: typeof import("./runtime").loadVerifiedRuntime;
 
 const descriptor = deployment.proof.browser_proving as BrowserProvingDescriptor;
 const origin = "https://app.test";
 
-function publishedAssets(tamper?: string) {
-  vi.stubGlobal("window", { location: { origin } });
+function publishedAssets(tamper?: string, pageOrigin = origin) {
+  vi.stubGlobal("window", { location: { origin: pageOrigin } });
   vi.stubGlobal("crypto", webcrypto);
   const fetchAsset = vi.fn(async (url: string) => {
     const filename = new URL(url).pathname;
@@ -23,13 +24,54 @@ function publishedAssets(tamper?: string) {
   return fetchAsset;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 beforeEach(async () => {
   vi.resetModules();
   ({ loadVerifiedRuntime } = await import("./runtime"));
 });
 
 describe("runtime authentication", () => {
+  it("authenticates the separately pinned Preprod runtime only for the local test build", async () => {
+    vi.stubEnv("NEXT_PUBLIC_RECLAIM_LOCAL_PREPROD", "1");
+    const fetching = publishedAssets(undefined, "http://127.0.0.1:3917");
+    const runtime = await loadVerifiedRuntime(preprodDeployment.proof.browser_proving as BrowserProvingDescriptor);
+    try {
+      expect(Object.keys(runtime.config.assets)).toHaveLength(5);
+      expect(fetching).toHaveBeenCalledTimes(7);
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("rejects Preprod runtime substitution in a normal localhost build", async () => {
+    vi.stubEnv("NEXT_PUBLIC_RECLAIM_LOCAL_PREPROD", "0");
+    const fetching = publishedAssets(undefined, "http://127.0.0.1:3917");
+    await expect(
+      loadVerifiedRuntime(preprodDeployment.proof.browser_proving as BrowserProvingDescriptor),
+    ).rejects.toThrow("application release");
+    expect(fetching).not.toHaveBeenCalled();
+  });
+
+  it("rejects Preprod runtime substitution on a hosted origin even with the local flag", async () => {
+    vi.stubEnv("NEXT_PUBLIC_RECLAIM_LOCAL_PREPROD", "1");
+    const fetching = publishedAssets();
+    await expect(
+      loadVerifiedRuntime(preprodDeployment.proof.browser_proving as BrowserProvingDescriptor),
+    ).rejects.toThrow("application release");
+    expect(fetching).not.toHaveBeenCalled();
+  });
+
+  it("still rejects altered executable bytes in the local Preprod runtime", async () => {
+    vi.stubEnv("NEXT_PUBLIC_RECLAIM_LOCAL_PREPROD", "1");
+    publishedAssets("msmworker.wasm", "http://127.0.0.1:3917");
+    await expect(
+      loadVerifiedRuntime(preprodDeployment.proof.browser_proving as BrowserProvingDescriptor),
+    ).rejects.toThrow("Prover executable authentication failed");
+  });
+
   it("authenticates the published signed manifest and all five executables", async () => {
     const fetching = publishedAssets();
     const runtime = await loadVerifiedRuntime(descriptor);
