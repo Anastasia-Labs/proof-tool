@@ -222,7 +222,11 @@ browser identity. The existing initialized wallet profile is still required.
 
 When the stable pointer targets Mainnet, test against the committed Preprod
 release with `RECLAIM_E2E_LOCAL_MANIFEST_PATH` pointing to its versioned
-`assets/reclaim-deployment.json`. This is a Preprod transaction rehearsal of
+`assets/reclaim-deployment.json` under
+`proof-assets-ownership-destination-v3-preprod-191ca93-opt-reclaim-07d48bc5-r1`.
+The server accepts only that committed release, only in localhost production
+emulation, and never when `VERCEL` identifies a hosted deployment.
+This is a Preprod transaction rehearsal of
 the exact app commit with Preprod keys and contracts; it does not establish a
 Mainnet claim using the new ceremony keys. Keep the Mainnet artifact and
 contract verification evidence alongside the Preprod transaction record.

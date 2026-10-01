@@ -1,6 +1,8 @@
 import { Blockfrost, Koios, type Provider } from "@lucid-evolution/lucid";
 import type { ReclaimDeployment, ReclaimNetwork } from "../reclaim/types";
 import bundledReclaimDeployment from "../../public/proof-assets/reclaim-deployment.json";
+import preprodClaimDeployment from "../../public/proof-releases/proof-assets-ownership-destination-v3-preprod-191ca93-opt-reclaim-07d48bc5-r1/assets/reclaim-deployment.json";
+import { isLocalPreprodClaimDeployment } from "./local-test-deployment.mjs";
 import {
   loadClaimDeployment,
   loadReclaimDeployment,
@@ -29,7 +31,7 @@ function reuseProvider(key: string, create: () => Provider): Provider {
 
 export function getReclaimDeployment(): DeploymentConfigResult {
   return loadReclaimDeployment({
-    manifest: bundledReclaimDeployment,
+    manifest: committedDeployment(),
     // The committed descriptor is the release-coherence root for Vercel.
     // Provider credentials still come from process.env, but stale deployment
     // selector/pin variables must not override a merge-reviewed release.
@@ -39,9 +41,13 @@ export function getReclaimDeployment(): DeploymentConfigResult {
 
 export function getClaimDeployment(): ClaimDeploymentConfigResult {
   return loadClaimDeployment({
-    manifest: bundledReclaimDeployment,
+    manifest: committedDeployment(),
     enforceEnvCoherence: false,
   });
+}
+
+function committedDeployment() {
+  return isLocalPreprodClaimDeployment(process.env, process.cwd()) ? preprodClaimDeployment : bundledReclaimDeployment;
 }
 
 export function getProvider(deployment: ReclaimDeployment): ProviderConfigResult {
