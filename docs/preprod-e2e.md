@@ -214,6 +214,19 @@ existing PR, commit the intended changes and run from the repository root:
 node scripts/push-pr-with-local-lace-claim-flow.mjs --live-preprod
 ```
 
+For Microsoft Edge, set `RECLAIM_E2E_LACE_BROWSER_CHANNEL=msedge`. An extracted
+Edge installation can additionally use `RECLAIM_E2E_LACE_BROWSER_EXECUTABLE`
+with its absolute executable path. Both fixture funding and the persistent
+Lace journey use that browser; the claim record verifies and records Edge's
+browser identity. The existing initialized wallet profile is still required.
+
+When the stable pointer targets Mainnet, test against the committed Preprod
+release with `RECLAIM_E2E_LOCAL_MANIFEST_PATH` pointing to its versioned
+`assets/reclaim-deployment.json`. This is a Preprod transaction rehearsal of
+the exact app commit with Preprod keys and contracts; it does not establish a
+Mainnet claim using the new ceremony keys. Keep the Mainnet artifact and
+contract verification evidence alongside the Preprod transaction record.
+
 This command requires a clean non-main branch with an open PR and working Git
 push authentication for the selected remote. It resolves the PR through
 GitHub's API without requiring the `gh` CLI; public repositories need no token,
@@ -224,8 +237,9 @@ ignored root `.env.local` and dedicated Lace `profile.env`, runs a production
 `next build`/`next start` server on `127.0.0.1`, and verifies that the
 commit's Vercel stable-pointer manifest keeps the proving key and optimized CCS
 on the approved remote R2-backed asset hosts. The ignored environment still
-supplies provider/review configuration, but cannot replace the committed
-deployment manifest. The command then performs the same real browser-WASM/Lace
+supplies provider/review configuration. The default manifest is the committed
+stable pointer; an explicit Preprod release selection is recorded through the
+deployment endpoint before fixture funding. The command performs the real browser-WASM/Lace
 journey, twenty screenshots, Preprod submission, and provider confirmation.
 The Next build and server stay in production mode. Only the
 separate fixture-funding driver drops production mode from its own process; it
