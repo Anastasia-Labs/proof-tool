@@ -38,18 +38,6 @@
       "size_bytes": 18306,
       "sha256": "c0dc56625cd93191afa3aa18f5205be061d88da1a5100b0f11364e37ff133027",
       "blake2b256": "0530e1369a193ed17b20e6d77b2cf05dd0b795ee5ba4cb1fa9cff017fe5e272f"
-    },
-    {
-      "filename": "msm-worker.js",
-      "size_bytes": 22008,
-      "sha256": "743e73bfd3a2fa48301c5cd63a7e9e1c3258143041aad00a4d70e1787b78cee0",
-      "blake2b256": "4cc299e2e1abd240390c17e703da77d31c251a0a121203425abf872ecad015f6"
-    },
-    {
-      "filename": "prover-worker.js",
-      "size_bytes": 18306,
-      "sha256": "c0dc56625cd93191afa3aa18f5205be061d88da1a5100b0f11364e37ff133027",
-      "blake2b256": "0530e1369a193ed17b20e6d77b2cf05dd0b795ee5ba4cb1fa9cff017fe5e272f"
     }
   ]
 }

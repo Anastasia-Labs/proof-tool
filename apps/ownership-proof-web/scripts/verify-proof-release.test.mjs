@@ -23,7 +23,7 @@ describe("proof release coherence verifier", () => {
     ).resolves.toMatchObject({
       ok: true,
       mode: "local",
-      release: "proof-assets-ownership-destination-v3-preprod-191ca93-opt-reclaim-07d48bc5-r1",
+      release: "proof-assets-ownership-v3-mainnet-8471106-6eff",
     });
   });
 
