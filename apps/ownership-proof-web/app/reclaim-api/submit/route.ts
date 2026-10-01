@@ -1,11 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { readApiJson, withApiLimits } from "../../../lib/reclaim-server/api-limits";
 import type { SubmitReclaimTxRequest } from "../../../lib/reclaim/types";
 import { getProvider, getReclaimDeployment } from "../../../lib/reclaim-server/config";
 import { submitReclaimTx } from "../../../lib/reclaim-server/transactions";
 
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
+export const POST = withApiLimits(handleRequest);
+
+async function handleRequest(request: NextRequest) {
   try {
     const deploymentConfig = getReclaimDeployment();
     if (!deploymentConfig.available) {
@@ -31,7 +34,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = (await request.json()) as SubmitReclaimTxRequest;
+    const body = (await readApiJson(request)) as SubmitReclaimTxRequest;
     return NextResponse.json(await submitReclaimTx(providerConfig.provider, deploymentConfig.deployment, body));
   } catch (error) {
     return NextResponse.json(

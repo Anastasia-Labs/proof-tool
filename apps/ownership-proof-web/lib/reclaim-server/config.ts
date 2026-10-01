@@ -20,6 +20,13 @@ const BLOCKFROST_URLS: Record<ReclaimNetwork, string> = {
   Preview: "https://cardano-preview.blockfrost.io/api/v0",
 };
 
+let cachedProvider: { key: string; provider: Provider } | null = null;
+
+function reuseProvider(key: string, create: () => Provider): Provider {
+  if (cachedProvider?.key !== key) cachedProvider = { key, provider: create() };
+  return cachedProvider.provider;
+}
+
 export function getReclaimDeployment(): DeploymentConfigResult {
   return loadReclaimDeployment({
     manifest: bundledReclaimDeployment,
@@ -48,9 +55,13 @@ export function getProvider(deployment: ReclaimDeployment): ProviderConfigResult
         missing: ["RECLAIM_BLOCKFROST_PROJECT_ID"],
       };
     }
+    const url = env("RECLAIM_BLOCKFROST_URL") || BLOCKFROST_URLS[deployment.network];
     return {
       available: true,
-      provider: new Blockfrost(env("RECLAIM_BLOCKFROST_URL") || BLOCKFROST_URLS[deployment.network], projectId),
+      provider: reuseProvider(
+        JSON.stringify(["blockfrost", deployment.network, url, projectId]),
+        () => new Blockfrost(url, projectId),
+      ),
       missing: [],
     };
   }
@@ -67,7 +78,10 @@ export function getProvider(deployment: ReclaimDeployment): ProviderConfigResult
   const koiosToken = env("RECLAIM_KOIOS_TOKEN");
   return {
     available: true,
-    provider: koiosToken ? new Koios(koiosUrl, koiosToken) : new Koios(koiosUrl),
+    provider: reuseProvider(
+      JSON.stringify(["koios", deployment.network, koiosUrl, koiosToken]),
+      () => new Koios(koiosUrl, koiosToken),
+    ),
     missing: [],
   };
 }

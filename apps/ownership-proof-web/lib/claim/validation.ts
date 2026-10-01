@@ -65,12 +65,15 @@ export function assertOutRef(value: unknown, field = "outref"): ClaimOutRef {
   return { txHash, outputIndex };
 }
 
-export function assertOutRefList(value: unknown, field: string): ClaimOutRef[] {
+export function assertOutRefList(value: unknown, field: string, maxCount = 256): ClaimOutRef[] {
   if (value === undefined || value === null) {
     return [];
   }
   if (!Array.isArray(value)) {
     throw new ClaimValidationError(`${field}_invalid`, `${field} must be an array.`);
+  }
+  if (value.length > maxCount) {
+    throw new ClaimValidationError(`${field}_too_many`, `${field} cannot exceed ${maxCount} outrefs.`);
   }
 
   const seen = new Set<string>();

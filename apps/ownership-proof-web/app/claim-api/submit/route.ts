@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { readApiJson, withApiLimits } from "../../../lib/reclaim-server/api-limits";
 import type { ClaimSubmitRequest } from "../../../lib/claim/types";
 import { ClaimValidationError } from "../../../lib/claim/validation";
 import { getProvider, getReclaimDeployment } from "../../../lib/reclaim-server/config";
@@ -6,7 +7,9 @@ import { submitClaimTx } from "../../../lib/claim-server/build-submit";
 
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
+export const POST = withApiLimits(handleRequest);
+
+async function handleRequest(request: NextRequest) {
   try {
     const deploymentConfig = getReclaimDeployment();
     if (!deploymentConfig.available) {
@@ -32,7 +35,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = (await request.json()) as ClaimSubmitRequest;
+    const body = (await readApiJson(request)) as ClaimSubmitRequest;
     const response = await submitClaimTx(providerConfig.provider, deploymentConfig.deployment, body);
     return NextResponse.json(response);
   } catch (error) {

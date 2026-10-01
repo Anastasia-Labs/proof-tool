@@ -7,8 +7,10 @@ import {
   Constr,
   Data,
   credentialToAddress,
+  credentialToRewardAddress,
   keyHashToCredential,
   scriptHashToCredential,
+  CML,
   type OutRef,
   type Provider,
   type UTxO,
@@ -29,9 +31,13 @@ import {
   assertMeasuredEvaluationWithinDeploymentMargin,
   buildClaimTx,
   prepareClaimBuildPreflight,
+  submitClaimTx,
   validateClaimBuildRequest,
   validateClaimSubmitRequest,
 } from "./build-submit";
+import { buildClaimBatch } from "../claim/build-batches";
+import { getClaimRewards } from "./rewards";
+import { loadReclaimIndex } from "./indexer";
 
 const CREDENTIAL_1 = "19e07fbcc7577359d6c51f1e49cf1b0bf4c943b48ba4e4905a8702e4";
 const CREDENTIAL_2 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -473,8 +479,8 @@ describe("claim build and submit fail closed", () => {
     expect(built.txCbor).not.toHaveLength(0);
     expect(getProtocolParameters).toHaveBeenCalledTimes(1);
     expect(getUtxos).toHaveBeenCalledTimes(1);
-    expect(getUtxosByOutRef).toHaveBeenCalledTimes(1);
-    expect(getUtxosByOutRef.mock.calls[0]?.[0]).toHaveLength(CLAIM_HARD_BATCH_CAP + 3);
+    expect(getUtxosByOutRef.mock.calls.every(([outrefs]) => outrefs.length <= 4)).toBe(true);
+    expect(getUtxosByOutRef.mock.calls.flatMap(([outrefs]) => outrefs)).toHaveLength(CLAIM_HARD_BATCH_CAP + 3);
     expect(evaluateTx).not.toHaveBeenCalled();
   });
 
@@ -516,6 +522,130 @@ describe("claim build and submit fail closed", () => {
 
     expect(built.evaluation.redeemers).toHaveLength(2);
     expect(evaluateTx).not.toHaveBeenCalled();
+  });
+
+  it("reduces an oversized real-CBOR build and keeps the subset bound to its original proofs", async () => {
+    vi.stubEnv("RECLAIM_REVIEW_TOKEN_SECRET", "capacity-fallback-test-secret");
+    const deployment = deploymentWithReferenceScripts({
+      ...STATEMENT_BOUND_V2_DEPLOYMENT,
+      reclaimGlobalRewardingCredential: RECLAIM_GLOBAL_SCRIPT,
+    });
+    const selected = Array.from({ length: CLAIM_HARD_BATCH_CAP }, (_, index) =>
+      reclaimUtxo((index + 1).toString(16).padStart(2, "0"), 0, CREDENTIAL_1, index + 1),
+    );
+    const provider = providerWith({
+      reclaimUtxos: selected,
+      selectedUtxos: selected,
+      safeUtxos: [safeUtxo()],
+      referenceScriptUtxos: referenceScriptUtxos(deployment),
+    });
+    const draftFor = (selectedOutrefs: string[]) =>
+      createClaimDraft(provider, deployment, {
+        deploymentId: deployment.id,
+        networkId: 0,
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        selectedOutrefs,
+        maxUtxos: CLAIM_HARD_BATCH_CAP,
+      });
+    const draft = await draftFor(selected.map(outRefToString));
+    const proofs = draft.orderedInputs.map((_, index) => {
+      const artifact = proofArtifactForDraft(draft, index);
+      artifact.artifact.cardano.proof_hex = "ab".repeat(336);
+      return artifact;
+    });
+    const build = (subset: ClaimDraftResponse, proofArtifacts: Record<string, unknown>[]) =>
+      buildClaimTx(provider, deployment, {
+        deploymentId: deployment.id,
+        networkId: 0,
+        draftId: subset.draftId,
+        selectedOutrefs: subset.orderedInputs.map((input) => input.outRefId),
+        maxUtxos: CLAIM_HARD_BATCH_CAP,
+        safeWalletChangeAddress: SAFE_ADDRESS,
+        safeWalletAddresses: [SAFE_ADDRESS],
+        proofArtifacts,
+      });
+    const full = await build(draft, proofs);
+    const single = await build(await draftFor([draft.orderedInputs[0].outRefId]), [proofs[0]]);
+    const maxTxSize = Math.floor((full.txCbor.length + single.txCbor.length) / 4);
+    vi.spyOn(provider, "getProtocolParameters").mockResolvedValue({ ...preprodProtocolParameters(), maxTxSize });
+    await expect(build(draft, proofs)).rejects.toMatchObject({ code: "claim_batch_capacity_exceeded" });
+    const next = await buildClaimBatch(draft, proofs, { draft: draftFor, build, defer: vi.fn() });
+    expect(next).not.toBeNull();
+    expect(next?.build.txCbor.length).toBeLessThanOrEqual(maxTxSize * 2);
+    expect(next?.draft.orderedInputs.length).toBeLessThan(draft.orderedInputs.length);
+    expect(next?.build.review.selectedOutrefs).toEqual(next?.draft.orderedInputs.map((input) => input.outRefId));
+    expect(next?.artifacts).toEqual(proofs.slice(0, next?.draft.orderedInputs.length));
+  });
+
+  it.each([
+    "success",
+    "rejection",
+    "hash mismatch",
+  ])("withdraws all rewards and updates the cache after submit %s", async (outcome) => {
+    vi.stubEnv("RECLAIM_REVIEW_TOKEN_SECRET", "reward-withdrawal-test-secret");
+    const deployment = deploymentWithReferenceScripts({
+      ...STATEMENT_BOUND_V2_DEPLOYMENT,
+      reclaimGlobalRewardingCredential: RECLAIM_GLOBAL_SCRIPT,
+    });
+    const selected = [reclaimUtxo("01", 0, CREDENTIAL_1, 1)];
+    const provider = providerWith({
+      reclaimUtxos: selected,
+      selectedUtxos: selected,
+      safeUtxos: [safeUtxo()],
+      referenceScriptUtxos: referenceScriptUtxos(deployment),
+    });
+    const rewards = vi.spyOn(provider, "getDelegation").mockResolvedValue({ poolId: null, rewards: 2_000_000n });
+    const draft = await createClaimDraft(provider, deployment, {
+      deploymentId: deployment.id,
+      networkId: 0,
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      selectedOutrefs: selected.map(outRefToString),
+    });
+    const artifact = proofArtifactForDraft(draft, 0);
+    artifact.artifact.cardano.proof_hex = "ab".repeat(336);
+    const buildRequest = {
+      deploymentId: deployment.id,
+      networkId: 0,
+      draftId: draft.draftId,
+      selectedOutrefs: selected.map(outRefToString),
+      safeWalletChangeAddress: SAFE_ADDRESS,
+      safeWalletAddresses: [SAFE_ADDRESS],
+      proofArtifacts: [artifact],
+    };
+    const built = await buildClaimTx(provider, deployment, buildRequest);
+    const withdrawals = CML.Transaction.from_cbor_hex(built.txCbor).body().withdrawals();
+    const rewardAddress = credentialToRewardAddress(deployment.network, scriptHashToCredential(RECLAIM_GLOBAL_SCRIPT));
+    expect(withdrawals?.get(withdrawals.keys().get(0))).toBe(2_000_000n);
+    expect(built.review.destinationOutputs).toEqual(draft.destinationOutputs);
+    await getClaimRewards(provider, deployment.network, rewardAddress);
+    expect(rewards).toHaveBeenCalledTimes(1);
+    provider.submitTx = vi.fn(async () => {
+      if (outcome === "rejection") throw new Error("rejected");
+      return outcome === "success" ? built.txHash : "aa".repeat(32);
+    });
+    const submitting = submitClaimTx(provider, deployment, {
+      deploymentId: deployment.id,
+      selectedOutrefs: selected.map(outRefToString),
+      signedTxCbor: built.txCbor,
+      claimBuildReviewToken: built.reviewToken,
+      review: built.review,
+    });
+    if (outcome === "success") await expect(submitting).resolves.toMatchObject({ txHash: built.txHash });
+    else
+      await expect(submitting).rejects.toMatchObject({
+        code: outcome === "hash mismatch" ? "claim_submit_hash_mismatch" : "claim_submit_provider_rejected",
+      });
+    rewards.mockResolvedValue({ poolId: null, rewards: 0n });
+    expect(await getClaimRewards(provider, deployment.network, rewardAddress)).toBe(0n);
+    expect(rewards).toHaveBeenCalledTimes(outcome === "success" ? 1 : 2);
+    // The build server may retain its own cache after another instance submits.
+    rewards.mockResolvedValue({ poolId: null, rewards: 2_000_000n });
+    const refreshed = await buildClaimTx(provider, deployment, { ...buildRequest, refreshRewards: true });
+    const freshWithdrawals = CML.Transaction.from_cbor_hex(refreshed.txCbor).body().withdrawals();
+    expect(freshWithdrawals?.get(freshWithdrawals.keys().get(0))).toBe(2_000_000n);
+    expect(rewards).toHaveBeenCalledTimes(outcome === "success" ? 2 : 3);
   });
 
   it("enforces V2's measured 90/80 margins", () => {
@@ -981,6 +1111,25 @@ describe("claim build and submit fail closed", () => {
 });
 
 describe("claim progress", () => {
+  it("evicts a failed index read so the next request can recover", async () => {
+    const utxo = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
+    const provider = providerWith({ reclaimUtxos: [utxo], selectedUtxos: [utxo], safeUtxos: [] });
+    const reading = vi.spyOn(provider, "getUtxos").mockRejectedValueOnce(new Error("cancelled"));
+    await expect(loadReclaimIndex(provider, RECLAIM_ADDRESS)).rejects.toThrow("cancelled");
+    expect(await loadReclaimIndex(provider, RECLAIM_ADDRESS)).toEqual([utxo]);
+    expect(reading).toHaveBeenCalledTimes(2);
+  });
+  it("bounds provider fanout while preserving all requested progress entries", async () => {
+    const utxos = Array.from({ length: 12 }, (_, index) =>
+      reclaimUtxo((index + 1).toString(16).padStart(2, "0"), 0, CREDENTIAL_1, index),
+    );
+    const provider = providerWith({ reclaimUtxos: [], selectedUtxos: utxos, safeUtxos: [] });
+    const lookup = vi.spyOn(provider, "getUtxosByOutRef");
+    const progress = await getClaimProgress(provider, DEPLOYMENT, { outrefs: utxos.map(outRefToString) });
+    expect(lookup.mock.calls.every(([outrefs]) => outrefs.length <= 4)).toBe(true);
+    expect(progress.outrefs.map((entry) => entry.outRefId)).toEqual(utxos.map(outRefToString));
+    expect(progress.outrefs.every((entry) => entry.state === "unspent")).toBe(true);
+  });
   it("returns provider-aware pending and confirmed-spent states", async () => {
     const stillUnspent = reclaimUtxo("01", 0, CREDENTIAL_1, 1);
     const spent = reclaimUtxo("02", 0, CREDENTIAL_2, 2);
@@ -1056,6 +1205,7 @@ function providerWith(input: {
 }): Provider {
   return {
     getProtocolParameters: async () => preprodProtocolParameters(),
+    getDelegation: async () => ({ poolId: null, rewards: 0n }),
     getUtxos: async (addressOrCredential: string) => {
       if (addressOrCredential === RECLAIM_ADDRESS) {
         return input.reclaimUtxos;

@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { readApiJson, withApiLimits } from "../../../lib/reclaim-server/api-limits";
 import type { WalletAssetsRequest, WalletAssetsResponse } from "../../../lib/reclaim/types";
 import { getProvider, getReclaimDeployment } from "../../../lib/reclaim-server/config";
 import { loadWalletAssets } from "../../../lib/reclaim-server/transactions";
@@ -6,7 +7,9 @@ import { assertWalletNetwork, assetMapToStringMap, ReclaimValidationError } from
 
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
+export const POST = withApiLimits(handleRequest);
+
+async function handleRequest(request: NextRequest) {
   try {
     const deploymentConfig = getReclaimDeployment();
     if (!deploymentConfig.available) {
@@ -32,7 +35,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = (await request.json()) as WalletAssetsRequest;
+    const body = (await readApiJson(request)) as WalletAssetsRequest;
     assertWalletNetwork(body.networkId, deploymentConfig.deployment.networkId);
     const wallet = await loadWalletAssets(providerConfig.provider, deploymentConfig.deployment, {
       changeAddress: body.changeAddress,
