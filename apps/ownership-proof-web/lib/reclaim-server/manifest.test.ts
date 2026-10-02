@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { credentialToAddress, keyHashToCredential, scriptHashToCredential } from "@lucid-evolution/lucid";
+import mainnetDeployment from "../../public/proof-assets/reclaim-deployment.json";
 import {
   DESTINATION_ADDRESS_ENCODING,
   DESTINATION_CIRCUIT_ID,
@@ -24,6 +25,36 @@ afterEach(() => {
 });
 
 describe("reclaim deployment manifest validation", () => {
+  it("preserves the committed Mainnet ceremony and approval bindings", () => {
+    const result = validateReclaimDeploymentManifest(mainnetDeployment);
+    expect(result.available).toBe(true);
+    if (!result.available) throw new Error("expected committed Mainnet release to validate");
+    expect(result.manifest.proof.setup_transcript_hash).toBe(mainnetDeployment.proof.setup_transcript_hash);
+    expect(result.manifest.proof.mpc_ceremony_id).toBe(mainnetDeployment.proof.mpc_ceremony_id);
+    expect(result.manifest.proof.mpc_candidate_id).toBe(mainnetDeployment.proof.mpc_candidate_id);
+    expect(result.manifest.planning).toEqual(mainnetDeployment.planning);
+  });
+
+  it("rejects missing or malformed Mainnet ceremony and approval bindings", () => {
+    for (const [section, field] of [
+      ["proof", "setup_transcript_hash"],
+      ["proof", "mpc_ceremony_id"],
+      ["proof", "mpc_candidate_id"],
+      ["planning", "production_decision_id"],
+      ["planning", "mpc_release_id"],
+      ["planning", "release_manifest_sha256"],
+    ] as const) {
+      for (const value of [undefined, "sha256:invalid", "blake2b256:invalid"]) {
+        const raw = structuredClone(mainnetDeployment);
+        Object.assign(raw[section], { [field]: value });
+        expect(errorFields(validateReclaimDeploymentManifest(raw))).toContain(`${section}.${field}`);
+      }
+    }
+    const raw = structuredClone(mainnetDeployment) as Record<string, unknown>;
+    delete raw.planning;
+    expect(errorFields(validateReclaimDeploymentManifest(raw))).toContain("planning");
+  });
+
   it("rejects a malformed, key, wrong-script, or wrong-network funding address", () => {
     const manifest = validManifest();
     for (const address of [

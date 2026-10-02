@@ -1,0 +1,53 @@
+{
+  "schema": "proof-tool-exact-circuit-review-evidence-v1",
+  "ceremony_id": "sha256:3214ca88b33f5f5d7f39a5e5d3fb5e781e68423eb91a74c46689ace4e779b8a7",
+  "candidate_id": "sha256:f3222cf2afd7a2bb19b27c7038220f4bc1402478f82582ca1202a17c6f25e980",
+  "circuit": {
+    "key_version": "ownership-destination-v3",
+    "circuit_id": "root-ownership-destination-v3/bls12-381/groth16",
+    "curve": "BLS12-381",
+    "backend": "groth16",
+    "r1cs": {
+      "name": "ownership-destination.ccs",
+      "digest": {
+        "sha256": "sha256:bb0bc9891e4ed73c408f0f5d781040c542753540c6baad44b1419506451d209b",
+        "blake2b256": "blake2b256:d1215047c4e53cba141fa1b25debd2b060330baf893ba90a6ac75fac19ca302c",
+        "size": 101185815
+      }
+    },
+    "constraints": 1444667,
+    "internal_variables": 2128070,
+    "secret_variables": 157,
+    "public_variables": 2,
+    "domain_size": 2097152,
+    "phase2_shape": {
+      "Commitments": 1,
+      "PKK": 1250243,
+      "Z": 2097151,
+      "SigmaCKK": [
+        877983
+      ],
+      "ChallengeLength": 0
+    }
+  },
+  "native_vk_hash": "blake2b256:6eff516979c0563834254a14640ca9206d28bc53118f599d9bbbd5695ea040a2",
+  "cardano_vk_hash": "blake2b256:6b17843af8d76dc0c63fcd0904537ac2c61d15d44f8f8785f8481c8f0eca05da",
+  "native_negative_checks": {
+    "native_proof_verified": true,
+    "wrong_credential_rejected": true,
+    "wrong_destination_rejected": true,
+    "wrong_digest_rejected": true,
+    "wrong_proof_rejected": true,
+    "wrong_vk_rejected": true,
+    "proof_truncation_rejected": true,
+    "proof_append_rejected": true
+  },
+  "browser_proof_and_contract": {
+    "valid_browser_proof_accepted": true,
+    "tampered_proof_rejected": true,
+    "tampered_destination_rejected": true,
+    "cardano_proof_bytes": 336,
+    "cardano_vk_bytes": 672
+  },
+  "scope": "Public golden-vector proof with supplied production MPC keys; no Mainnet claim transaction submitted. Live Preprod Lace claim uses its separate committed key set; exact app commit 9049b29aae7f24ac1161bc040cd2c056198fc820 passed in Microsoft Edge with confirmed destination output."
+}

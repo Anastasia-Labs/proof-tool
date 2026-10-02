@@ -1,0 +1,187 @@
+{
+  "schema": "proof-tool-preprod-web-app-claim-flow-wasm-lace-v1",
+  "runId": "2026-10-02T00-09-42-337Z-9049b29aae7f",
+  "status": "complete",
+  "createdAt": "2026-10-02T00:09:42.338Z",
+  "target": {
+    "mode": "local-production",
+    "origin": "http://127.0.0.1:3931",
+    "expectedCommitSha": "9049b29aae7f24ac1161bc040cd2c056198fc820",
+    "expectedPrNumber": 59,
+    "githubPullRequestMergeSha": null,
+    "provenance": {
+      "environment": "preview",
+      "deploymentHost": "127.0.0.1:3931",
+      "commitSha": "9049b29aae7f24ac1161bc040cd2c056198fc820",
+      "commitRef": "codex/pr58-mainnet-release",
+      "pullRequestId": "59"
+    },
+    "claimDeployment": {
+      "deploymentId": "preprod:07d48bc524203241391a83d9c68d331a0fc1d4c654f53a7e98d714d0:693b6ada6f640619355029642d22e3f05cb8588e",
+      "network": "Preprod",
+      "networkId": 0,
+      "sourceCommit": "693b6ada6f640619355029642d22e3f05cb8588e",
+      "verifierVkHash": "blake2b256:b953a5133901bee9832254df08b76f28a8f5e5aba58683815623f6e1ec660fa7",
+      "proofVkHash": "blake2b256:bb62fb1ab0bbc2d63f0e86dca668ee339dba8d3bc3c83f063a781261b2462ce7",
+      "proofAssetId": null
+    },
+    "browser": {
+      "channel": "msedge",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0"
+    }
+  },
+  "journey": {
+    "startsAtLandingPage": true,
+    "proofMethod": "browser-wasm",
+    "walletProvider": "Lace",
+    "directClaimApiTransitions": false,
+    "fixtureMode": "prepare",
+    "preparedOutref": "b5131e093be54667d3927e0d05050934950b1a78579df314bb365fce7e2228a9#0",
+    "screens": [
+      {
+        "index": 0,
+        "file": "00-landing.png",
+        "state": "landing",
+        "url": "http://127.0.0.1:3931/"
+      },
+      {
+        "index": 1,
+        "file": "01-service-review.png",
+        "state": "deployment-review",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 2,
+        "file": "02-impacted-wallet.png",
+        "state": "impacted-wallet",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 3,
+        "file": "03-lace-impacted-connect.png",
+        "state": "lace-impacted-connect",
+        "url": "chrome-extension://gafhhkghbfjjkeiendhlofajokpaflmk/expo/index.html"
+      },
+      {
+        "index": 4,
+        "file": "04-impacted-connected.png",
+        "state": "impacted-connected",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 5,
+        "file": "05-scanning-claims.png",
+        "state": "scanning-claims",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 6,
+        "file": "06-available-claims.png",
+        "state": "available-claims",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 7,
+        "file": "07-safe-wallet.png",
+        "state": "safe-wallet",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 8,
+        "file": "08-lace-impacted-disconnect.png",
+        "state": "lace-impacted-disconnect",
+        "url": "chrome-extension://gafhhkghbfjjkeiendhlofajokpaflmk/expo/index.html"
+      },
+      {
+        "index": 9,
+        "file": "09-lace-safe-connect.png",
+        "state": "lace-safe-connect",
+        "url": "chrome-extension://gafhhkghbfjjkeiendhlofajokpaflmk/expo/index.html"
+      },
+      {
+        "index": 10,
+        "file": "10-safe-destination.png",
+        "state": "safe-destination",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 11,
+        "file": "11-proof-method.png",
+        "state": "proof-method-browser-ready",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 12,
+        "file": "12-create-proofs-ready.png",
+        "state": "create-proofs-ready",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 13,
+        "file": "13-proofs-generating.png",
+        "state": "create-proofs-generating",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 14,
+        "file": "14-proofs-ready.png",
+        "state": "create-proofs-complete",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 15,
+        "file": "15-current-batch.png",
+        "state": "current-batch",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 16,
+        "file": "16-transaction-review.png",
+        "state": "transaction-review",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 17,
+        "file": "17-lace-signing.png",
+        "state": "lace-signing",
+        "url": "chrome-extension://gafhhkghbfjjkeiendhlofajokpaflmk/expo/index.html"
+      },
+      {
+        "index": 18,
+        "file": "18-submitted.png",
+        "state": "submitted-refreshing",
+        "url": "http://127.0.0.1:3931/claim"
+      },
+      {
+        "index": 19,
+        "file": "19-recovery-complete.png",
+        "state": "claim-review-complete",
+        "url": "http://127.0.0.1:3931/claim"
+      }
+    ],
+    "fixturePreparation": {
+      "source": "funded-by-lane",
+      "fundingTransactionHash": "b5131e093be54667d3927e0d05050934950b1a78579df314bb365fce7e2228a9"
+    },
+    "fixture": {
+      "outRefId": "b5131e093be54667d3927e0d05050934950b1a78579df314bb365fce7e2228a9#0",
+      "state": "unspent",
+      "lovelace": "2000000",
+      "nativeAssetCount": 0
+    },
+    "browserProof": {
+      "startedAt": "2026-10-02T00:11:42.577Z",
+      "historicalBaselineMilliseconds": 56565,
+      "completedAt": "2026-10-02T00:12:41.102Z",
+      "durationMilliseconds": 58525
+    }
+  },
+  "failure": null,
+  "completedAt": "2026-10-02T00:13:13.583Z",
+  "result": {
+    "transactionHash": "276c54f04711a56189fab0fc9f6890df23762d1b307f3550182926262237d89d",
+    "preparedOutref": "b5131e093be54667d3927e0d05050934950b1a78579df314bb365fce7e2228a9#0",
+    "providerState": "spent_or_unknown",
+    "screenshotCount": 20
+  }
+}

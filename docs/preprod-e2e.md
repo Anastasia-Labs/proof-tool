@@ -17,9 +17,12 @@ must not be run with `NODE_ENV=production`.
 - `preflight.mjs`: explicit live gate, wallet-role file, clean Git state,
   deployment-source ancestry and manifest coherence, provider and server-secret
   checks.
-- `deploy-reclaim-preprod.mjs`: one-shot NFT, parameter holder, parameterized
+- `../deploy-reclaim.mjs`: one-shot NFT, parameter holder, parameterized
   ReclaimGlobalV2/ReclaimBase scripts, reference scripts, reward-account
-  registration, and enabled manifest creation.
+  registration, and enabled manifest creation. The `preprod` route can submit;
+  live `mainnet` submission remains disabled until it enforces the verified MPC
+  release and signed production GO plan. Use `deploy:reclaim:mainnet:prepare`
+  for offline Mainnet preparation.
 - `app-server.mjs`: starts a local Next app or targets `RECLAIM_E2E_APP_URL`.
 - `wallet-driver.mjs`, `cip30-harness.mjs`, `real-lace-driver.mjs`: wallet mode
   abstraction.
@@ -211,6 +214,27 @@ existing PR, commit the intended changes and run from the repository root:
 node scripts/push-pr-with-local-lace-claim-flow.mjs --live-preprod
 ```
 
+For Microsoft Edge, set `RECLAIM_E2E_LACE_BROWSER_CHANNEL=msedge`. An extracted
+Edge installation can additionally use `RECLAIM_E2E_LACE_BROWSER_EXECUTABLE`
+with its absolute executable path. Both fixture funding and the persistent
+Lace journey use that browser; the claim record verifies and records Edge's
+browser identity. The existing initialized wallet profile is still required.
+
+When the stable pointer targets Mainnet, test against the committed Preprod
+release with `RECLAIM_E2E_LOCAL_MANIFEST_PATH` pointing to its versioned
+`assets/reclaim-deployment.json` under
+`proof-assets-ownership-destination-v3-preprod-191ca93-opt-reclaim-07d48bc5-r1`.
+The server accepts only that committed release, only in localhost production
+emulation, and never when `VERCEL` identifies a hosted deployment.
+The build selects its matching compiled browser runtime pins. The browser
+additionally requires loopback; hosted builds compile the local runtime
+selector to zero. Both builds use Next's standard output directory so the
+guarded lane preserves the committed TypeScript configuration and type references.
+This is a Preprod transaction rehearsal of
+the exact app commit with Preprod keys and contracts; it does not establish a
+Mainnet claim using the new ceremony keys. Keep the Mainnet artifact and
+contract verification evidence alongside the Preprod transaction record.
+
 This command requires a clean non-main branch with an open PR and working Git
 push authentication for the selected remote. It resolves the PR through
 GitHub's API without requiring the `gh` CLI; public repositories need no token,
@@ -221,8 +245,9 @@ ignored root `.env.local` and dedicated Lace `profile.env`, runs a production
 `next build`/`next start` server on `127.0.0.1`, and verifies that the
 commit's Vercel stable-pointer manifest keeps the proving key and optimized CCS
 on the approved remote R2-backed asset hosts. The ignored environment still
-supplies provider/review configuration, but cannot replace the committed
-deployment manifest. The command then performs the same real browser-WASM/Lace
+supplies provider/review configuration. The default manifest is the committed
+stable pointer; an explicit Preprod release selection is recorded through the
+deployment endpoint before fixture funding. The command performs the real browser-WASM/Lace
 journey, twenty screenshots, Preprod submission, and provider confirmation.
 The Next build and server stay in production mode. Only the
 separate fixture-funding driver drops production mode from its own process; it

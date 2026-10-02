@@ -3,6 +3,7 @@
 .env.local
 .env.*.local
 deployments/reclaim/preprod/*.local.json
+*.DS_Store
 *.pk
 *.vk
 .playwright-cli/

@@ -1,5 +1,7 @@
-import pins from "./runtime-pins.json";
-import deployment from "../../public/proof-assets/reclaim-deployment.json";
+import productionPins from "./runtime-pins.json";
+import productionDeployment from "../../public/proof-assets/reclaim-deployment.json";
+import preprodPins from "./runtime-pins-preprod.json";
+import preprodDeployment from "../../public/proof-releases/proof-assets-ownership-destination-v3-preprod-191ca93-opt-reclaim-07d48bc5-r1/assets/reclaim-deployment.json";
 import type { BrowserProvingDescriptor } from "../reclaim/types";
 
 export type VerifiedRuntimeConfig = {
@@ -70,6 +72,12 @@ function decodeHex(value: string, bytes: number): Uint8Array<ArrayBuffer> {
 // Pins are compiled into the trusted app, rather than accepted from the runtime
 // being checked. verify:proof-release keeps them coherent with the active release.
 export async function loadVerifiedRuntime(descriptor: BrowserProvingDescriptor) {
+  // Hosted builds compile the guarded local test flag to zero. Also require
+  // loopback before accepting the separately pinned Preprod rehearsal runtime.
+  const localPreprod =
+    process.env.NEXT_PUBLIC_RECLAIM_LOCAL_PREPROD === "1" && new URL(window.location.origin).hostname === "127.0.0.1";
+  const pins = localPreprod ? preprodPins : productionPins;
+  const deployment = localPreprod ? preprodDeployment : productionDeployment;
   if (
     absolute(descriptor.runtime_manifest_url) !== absolute(pins.runtime_manifest_url) ||
     descriptor.chunk_manifest_public_key_hex !== deployment.proof.browser_proving.chunk_manifest_public_key_hex

@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 import { createPreprodProviderFromEnv } from "./cip30-harness.mjs";
 import { assertNoPreprodArtifactSecretLeakage } from "./run.mjs";
 import { createRealLaceProfileDriverFromEnv } from "./real-lace-driver.mjs";
+import { assertLaceBrowserIdentity, createLaceBrowserLauncher } from "./lace-browser-launcher.mjs";
 import { prepareOrResumeAdaOnlyClaimFixture } from "./web-app-claim-fixture.mjs";
 import { waitForSafeDestinationOutput } from "./web-app-claim-provider.mjs";
 import {
@@ -39,7 +40,7 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const now = options.now ?? (() => new Date());
   const fetchFn = options.fetch ?? globalThis.fetch;
-  const browserLauncher = options.browserLauncher ?? chromium;
+  const browserLauncher = options.browserLauncher ?? createLaceBrowserLauncher(chromium, env);
   const providerLoader = options.providerLoader ?? createPreprodProviderFromEnv;
   const walletDriverLoader = options.walletDriverLoader ?? createRealLaceProfileDriverFromEnv;
   const config = loadWebAppClaimFlowConfig(env, { cwd, now });
@@ -110,10 +111,10 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
     persistRun(runPath, run);
 
     const walletDriver = await walletDriverLoader({ env, cwd, repoRoot: options.repoRoot });
-    if (walletDriver.browserChannel !== "chromium") {
+    if (walletDriver.browserChannel !== "chromium" && walletDriver.browserChannel !== "msedge") {
       throw new WebAppClaimFlowContractError(
-        "lace_browser_not_bundled_chromium",
-        "The PR acceptance lane requires Playwright's bundled Chromium channel.",
+        "lace_browser_unsupported",
+        "The PR acceptance lane requires bundled Chromium or Microsoft Edge (msedge).",
       );
     }
     if (
@@ -196,6 +197,15 @@ export async function runWebAppClaimFlowWasmLace(options = {}) {
       viewport: { width: 1440, height: 1000 },
     });
     recoveryPhraseEgressGuard = await installRecoveryPhraseEgressGuard(context, compromisedMnemonic);
+    const browserProbe = await context.newPage();
+    try {
+      const userAgent = await browserProbe.evaluate(() => navigator.userAgent);
+      assertLaceBrowserIdentity(userAgent, walletDriver.browserChannel);
+      run.target.browser = { channel: walletDriver.browserChannel, userAgent };
+      persistRun(runPath, run);
+    } finally {
+      await browserProbe.close();
+    }
     await prepareLaceRoleBeforeNavigation(walletDriver, COMPROMISED_ROLE, config.baseUrl);
     page = await context.newPage();
     page.setDefaultTimeout(DEFAULT_UI_TIMEOUT_MS);

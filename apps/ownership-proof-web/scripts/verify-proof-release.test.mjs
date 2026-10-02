@@ -3,6 +3,7 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { loadClaimDeployment } from "../lib/reclaim-server/manifest";
 import { verifyProofRelease, waitForExpectedBuildProvenance } from "./verify-proof-release.mjs";
 
 const publicRoot = path.resolve("public");
@@ -14,6 +15,34 @@ afterEach(async () => {
 });
 
 describe("proof release coherence verifier", () => {
+  it("accepts the live Mainnet response produced by the server normalizer", { timeout: 30_000 }, async () => {
+    const deployment = JSON.parse(await readFile(deploymentPath, "utf8"));
+    const runtime = loadClaimDeployment({ manifest: deployment, env: {}, enforceEnvCoherence: false });
+    expect(runtime.available).toBe(true);
+    const fetchImpl = async (location) => {
+      const pathname = new URL(location).pathname;
+      const body =
+        pathname === "/claim-api/deployment"
+          ? JSON.stringify(runtime)
+          : pathname === "/claim"
+            ? "<html><body>Claim</body></html>"
+            : await readFile(path.join(publicRoot, pathname.slice(1)));
+      return new Response(body, {
+        status: 200,
+        headers: {
+          "cache-control": pathname.startsWith("/proof-releases/") ? "public, max-age=31536000, immutable" : "no-store",
+          "cross-origin-resource-policy": "same-origin",
+          "permissions-policy": "loopback-network=(self)",
+        },
+      });
+    };
+    await expect(verifyProofRelease({ baseURL: "https://proof-tool.example", fetchImpl })).resolves.toMatchObject({
+      ok: true,
+      mode: "live",
+      deployment_id: deployment.deployment_id,
+    });
+  });
+
   it("accepts the staged release and stable pointer", async () => {
     await expect(
       verifyProofRelease({
@@ -23,8 +52,34 @@ describe("proof release coherence verifier", () => {
     ).resolves.toMatchObject({
       ok: true,
       mode: "local",
-      release: "proof-assets-ownership-destination-v3-preprod-191ca93-opt-reclaim-07d48bc5-r1",
+      release: "proof-assets-ownership-v3-mainnet-8471106-6eff",
     });
+  });
+
+  it("rejects a corrupted operator approval signature in a staged Mainnet release", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "proof-release-test-"));
+    temporaryRoots.push(root);
+    await cp(publicRoot, root, { recursive: true });
+    const trust = JSON.parse(await readFile("lib/reclaim-server/operator-approval-pins.json", "utf8"));
+    const signaturePath = path.join(root, trust.signature_url.slice(1));
+    const signature = JSON.parse(await readFile(signaturePath, "utf8"));
+    signature.signature_hex = "00".repeat(64);
+    await writeFile(signaturePath, JSON.stringify(signature));
+    await expect(verifyProofRelease({ webRoot: root })).rejects.toThrow(/signature verification failed/u);
+  });
+
+  it("rejects changed evidence even when the operator approval signature remains valid", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "proof-release-test-"));
+    temporaryRoots.push(root);
+    await cp(publicRoot, root, { recursive: true });
+    const trust = JSON.parse(await readFile("lib/reclaim-server/operator-approval-pins.json", "utf8"));
+    const approval = JSON.parse(await readFile(path.join(root, trust.approval_url.slice(1)), "utf8"));
+    const evidence = approval.files.find((file) => file.path.endsWith("/evidence/source-release.json"));
+    const evidencePath = path.join(root, evidence.path.slice(1));
+    const bytes = await readFile(evidencePath);
+    bytes[0] ^= 1;
+    await writeFile(evidencePath, bytes);
+    await expect(verifyProofRelease({ webRoot: root })).rejects.toThrow(/operator approval file digest/u);
   });
 
   it("rejects a key manifest changed after signing", async () => {
