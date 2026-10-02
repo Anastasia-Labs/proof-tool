@@ -226,9 +226,10 @@ release with `RECLAIM_E2E_LOCAL_MANIFEST_PATH` pointing to its versioned
 `proof-assets-ownership-destination-v3-preprod-191ca93-opt-reclaim-07d48bc5-r1`.
 The server accepts only that committed release, only in localhost production
 emulation, and never when `VERCEL` identifies a hosted deployment.
-The build selects its matching compiled browser runtime pins and uses a
-separate `.next/preprod-claim` output. The browser additionally requires
-loopback; hosted builds compile the local runtime selector to zero.
+The build selects its matching compiled browser runtime pins. The browser
+additionally requires loopback; hosted builds compile the local runtime
+selector to zero. Both builds use Next's standard output directory so the
+guarded lane preserves the committed TypeScript configuration and type references.
 This is a Preprod transaction rehearsal of
 the exact app commit with Preprod keys and contracts; it does not establish a
 Mainnet claim using the new ceremony keys. Keep the Mainnet artifact and
