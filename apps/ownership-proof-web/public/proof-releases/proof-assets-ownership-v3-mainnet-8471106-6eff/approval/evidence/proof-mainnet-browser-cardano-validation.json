@@ -1,0 +1,7 @@
+{
+  "valid_browser_proof_accepted": true,
+  "tampered_proof_rejected": true,
+  "tampered_destination_rejected": true,
+  "cardano_proof_bytes": 336,
+  "cardano_vk_bytes": 672
+}

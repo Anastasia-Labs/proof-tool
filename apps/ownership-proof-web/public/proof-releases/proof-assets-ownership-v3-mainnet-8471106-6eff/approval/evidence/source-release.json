@@ -1,0 +1,17 @@
+{
+  "schema": "proof-tool-source-release-review-evidence-v1",
+  "status": "reproduced-binary",
+  "source_commit": "8471106bcb796b88302e898f30377c6dfe0161b8",
+  "binary": {
+    "sha256": "sha256:9000359564560e0dd5ea90046b0dedb6b0b5551735bf93da5a7c52c2acbd5cf1",
+    "blake2b256": "blake2b256:c1c8829b82189a6975d27c5180dd31a0d1beb28a5eb5e93286c8329c6cc4f069",
+    "size": 20849736
+  },
+  "signed_definition_binary": {
+    "sha256": "sha256:9000359564560e0dd5ea90046b0dedb6b0b5551735bf93da5a7c52c2acbd5cf1",
+    "blake2b256": "blake2b256:c1c8829b82189a6975d27c5180dd31a0d1beb28a5eb5e93286c8329c6cc4f069",
+    "size": 20849736
+  },
+  "rebuild_directory": "/tmp/proof-mainnet-mpc-rebuild",
+  "source_approval": "No independent source-approval signature inferred from reproducibility or CI. Enrolled decision signers must review source approval."
+}

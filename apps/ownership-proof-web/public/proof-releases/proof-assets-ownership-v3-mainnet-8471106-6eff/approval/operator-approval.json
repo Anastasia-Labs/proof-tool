@@ -1,0 +1,180 @@
+{
+  "schema": "proof-tool-operator-release-approval-v1",
+  "decision": "GO",
+  "scope": "adopt-existing-ceremony-assets-for-ownership-proof-web",
+  "created_at": "2026-10-02T02:49:49.444Z",
+  "authority": {
+    "model": "single-repository-operator",
+    "operator": "repository owner authorizing this Codex task",
+    "key_id": "ed25519:86f07a3b502a787cb41a989b4b1c752a72fb3abbf59b8d8c04b28ef24227969c",
+    "key_origin": "dedicated local Ed25519 release approval key generated under explicit owner authorization"
+  },
+  "authorization": {
+    "source": "owner instruction in Codex task",
+    "statement": "okay do that, just create one and sign it with our keys because I have reviewed it and I approve the ceremony result.",
+    "review": "Owner approves the supplied ceremony result and adoption of a new operator release authority. This is an operator approval, not an independent audit."
+  },
+  "release_id": "proof-assets-ownership-v3-mainnet-8471106-6eff",
+  "deployment_id": "mainnet:963e7ccb6af75e957ed1a56b8b5fd4927b0177ace9ddfd045175fa83:963360f6e4cf71046d40be50b1b923fc7f22c991",
+  "ceremony_id": "sha256:3214ca88b33f5f5d7f39a5e5d3fb5e781e68423eb91a74c46689ace4e779b8a7",
+  "candidate_id": "sha256:f3222cf2afd7a2bb19b27c7038220f4bc1402478f82582ca1202a17c6f25e980",
+  "mpc_release_id": "sha256:3ad48f806c2c5305f305e2377a18afe77645eabd6b911d553ee9d1d23cecc992",
+  "original_ceremony_approval": {
+    "status": "unavailable-not-authenticated",
+    "declared_decision_id": "sha256:2225f9b1e0a9186d2a6fea6b0c508e79af3f48be2d4fbfd653dcdd632c552768",
+    "missing": [
+      "original production decision and enrolled signer signatures",
+      "final release-recorded coordinator checkpoint and closed final/release tree"
+    ],
+    "policy_transition": "The repository operator adopts these exact supplied artifacts under this new authority. Original declarations and signatures remain unchanged; the missing original approval is not asserted to have verified."
+  },
+  "bindings": {
+    "deployment_json_sha256": "sha256:41060486dbb89d10ab0d01e51d0993eb142c4259eb658f5ebb902ee49a9f2428",
+    "runtime_pins_json_sha256": "sha256:4255718f110ac27ef72fbbc91e5336f0c7e2faac4ed14303939191c0503c87c9",
+    "supplied_archive": {
+      "sha256": "sha256:43a8b52d1c071396db7c524b82dbd77d24091a8a3342bcc7e350e1cb2e4085e2",
+      "size": 986569289
+    },
+    "ceremony_source_commit": "8471106bcb796b88302e898f30377c6dfe0161b8",
+    "application_rehearsal_commit": "9049b29aae7f24ac1161bc040cd2c056198fc820"
+  },
+  "permissions": {
+    "adopt_existing_assets": true,
+    "release_application_with_existing_deployment": true,
+    "deploy_new_mainnet_contracts": false
+  },
+  "evidence_limits": [
+    "Original public signing identities are adopted by the operator through the supplied artifact hashes, not independently authenticated out of band.",
+    "Authenticated participant declarations do not independently establish host integrity, entropy quality or actual erasure. No participant independence or external audit is claimed.",
+    "The Edge Lace transaction used the separate committed Preprod key set. Supplied Mainnet keys were tested separately through public-vector browser proving, native verification and compiled contract acceptance with negative cases.",
+    "No real Mainnet recovery transaction was performed; current ledger/provider state must be checked before production cutover.",
+    "This signed operator approval does not satisfy the original ceremony v5 decision verifier and is not a replacement MPC transcript."
+  ],
+  "files": [
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/assets/reclaim-deployment.json",
+      "size": 6714,
+      "sha256": "sha256:2f360931a2ef1ce72a0d0e0652b45828f41b99308f3b0a2b8b328e3a19b5e630"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/assets/manifest.json",
+      "size": 1161,
+      "sha256": "sha256:f8fbd655fafc371f7c431af93f7d76856998af9007e660c27856c1d5f0e34a02"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/assets/manifest.sig",
+      "size": 129,
+      "sha256": "sha256:bd391f48d8d8e10ea7ab5108981ac9a4d03e54f8bd3fae2f1c540ec7e5dc6335"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/assets/manifest-public-key.hex",
+      "size": 65,
+      "sha256": "sha256:117925002260bc3609fbf5bae1cf4e5224b4de07f1c00a95678e6c259ffa289f"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/assets/chunk-manifest.json",
+      "size": 26191,
+      "sha256": "sha256:f1cd2d1159dd56200815a43a2449d0deb5b65517842ae0f2c81b6b0b46d820db"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/assets/chunk-manifest.sig",
+      "size": 129,
+      "sha256": "sha256:49b6a6a8ec4a44ef324c84254652d0607c474dde5a75dcf781e378b6bbf85090"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/assets/chunk-manifest-public-key.hex",
+      "size": 65,
+      "sha256": "sha256:3f04e32cdc79041ef97e6975b33d080e140006c3c289825f251f301e0f094f8a"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/assets/ownership.vk",
+      "size": 784,
+      "sha256": "sha256:5e69f5519407d789c5bd9da6ec8b16cf00434df188f8a7162fa1363439631eb6"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/assets/ownership.pk.idx.json",
+      "size": 986,
+      "sha256": "sha256:4b964a12c597757ee58ebd9a8929effb9d2c4e83d59b470745b0ec5bf1667ee9"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/runtime/runtime-manifest.json",
+      "size": 1495,
+      "sha256": "sha256:18b9e2114c9d85b57b69f7ea59ab42ce17f0096aabacc3b76818f124e20058df"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/runtime/proof-destination.wasm",
+      "size": 22994596,
+      "sha256": "sha256:19179eb5b9a0c69350dc7453a93632dd6ffc3fe1dd74eb6b9ffc109acb56e7b7"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/runtime/msmworker.wasm",
+      "size": 11164800,
+      "sha256": "sha256:5500d98529f9a57ba3e5bc8e47c6d4adf1d5dfff2505ea24f8786a7664daf512"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/runtime/wasm_exec.js",
+      "size": 16992,
+      "sha256": "sha256:0c949f4996f9a89698e4b5c586de32249c3b69b7baadb64d220073cc04acba14"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/runtime/msm-worker.js",
+      "size": 22008,
+      "sha256": "sha256:743e73bfd3a2fa48301c5cd63a7e9e1c3258143041aad00a4d70e1787b78cee0"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/runtime/prover-worker.js",
+      "size": 18306,
+      "sha256": "sha256:c0dc56625cd93191afa3aa18f5205be061d88da1a5100b0f11364e37ff133027"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/evidence/source-release.json",
+      "size": 843,
+      "sha256": "sha256:1db9a3dd8f7b2e3eb13ab5579aa17ee84d21ee7089a0a50345c21c4c32a6a4a8"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/evidence/circuit-rehearsal.json",
+      "size": 2094,
+      "sha256": "sha256:ab74b04d4f21bc3332c1a7175dd365d4ffba4ec2d0b3b337e26e2a710755169e"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/evidence/proof-mainnet-browser-cardano-validation.json",
+      "size": 176,
+      "sha256": "sha256:88152be87a897c5df6ee31eecf98137688b1f7770d7edfad8b4de73a3ab0d529"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/evidence/ceremony-verification-report.json",
+      "size": 1295,
+      "sha256": "sha256:598c0165f662fc71700b2d489fc01b4eef2ee236c9e922e1068d23b9b68c4162"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/evidence/live-preprod-run.json",
+      "size": 5977,
+      "sha256": "sha256:14d7e3d339e827b6c3ff47549a5eca86aeb62530f579713bde35f80b91af2611"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/evidence/final-hosted-edge-validation.json",
+      "size": 1485,
+      "sha256": "sha256:195779bcd159d097b4d5ff265ca91298739f6c27fcd81e53f1e6b91ee3f68e63"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/evidence/ceremony.json",
+      "size": 5316,
+      "sha256": "sha256:64bec4df237f8448a5285cd4863b7e13111e1a829672e6f1c797bc0d4e283a75"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/evidence/ceremony.sig",
+      "size": 491,
+      "sha256": "sha256:95cafcb063a4e9ed854b14dbe038833a43506e722f4482f3f72054acdde695a6"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/evidence/operational-evidence-bundle.json",
+      "size": 15767,
+      "sha256": "sha256:48c61ba2e2163b527b992c46341179f5a72a654fa936c9c1e1ecc40e7b422849"
+    },
+    {
+      "path": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/evidence/operational-evidence-bundle.sig",
+      "size": 491,
+      "sha256": "sha256:7bc419374a01077e74c15483bb462c49e261a959deac85d0391b4867a85ae941"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "schema": "proof-tool-operator-release-signature-v1",
+  "algorithm": "ed25519",
+  "key_id": "ed25519:86f07a3b502a787cb41a989b4b1c752a72fb3abbf59b8d8c04b28ef24227969c",
+  "signature_hex": "e123dac93fc350beece83bdf0b71b4be802b187797da5f7d24d871ace613d4b5aaaae258c3f3002708ee8e696caf1a4bba5489c8ca44d99968e7bef570c04c09"
+}

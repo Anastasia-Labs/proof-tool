@@ -1,0 +1,8 @@
+{
+  "schema": "proof-tool-operator-release-trust-v1",
+  "approval_id": "sha256:7dab905ae06c37cf60a45a7bf65ad6bcd475d792af6aff5a688d22a58d757a6d",
+  "key_id": "ed25519:86f07a3b502a787cb41a989b4b1c752a72fb3abbf59b8d8c04b28ef24227969c",
+  "public_key_hex": "1b3646b4c34c056700bd4b2132cca7bc00f5a3fbc51a0fabd105b15fe28269d2",
+  "approval_url": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/operator-approval.json",
+  "signature_url": "/proof-releases/proof-assets-ownership-v3-mainnet-8471106-6eff/approval/operator-approval.sig.json"
+}

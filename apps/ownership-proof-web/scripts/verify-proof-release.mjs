@@ -6,6 +6,7 @@ import path from "node:path";
 import { pathToFileURL, URL as NodeURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { blake2b } from "@noble/hashes/blake2b";
+import { verifyOperatorApproval } from "../lib/reclaim-server/operator-approval.mjs";
 
 const RELEASE_ROOT = "/proof-releases/";
 const STABLE_DEPLOYMENT_PATH = "/proof-assets/reclaim-deployment.json";
@@ -205,6 +206,24 @@ export async function verifyProofRelease(options = {}) {
   deepEqual(pkIndex.sections, signedSections, "proving key index sections");
   verifySignedChunks(chunk);
 
+  let operatorApproval = null;
+  if (deployment.network === "Mainnet") {
+    // This trust root is part of the reviewed application, not fetched from the host.
+    const trust = JSON.parse(
+      await readFile(new NodeURL("../lib/reclaim-server/operator-approval-pins.json", import.meta.url), "utf8"),
+    );
+    const [{ value: approval }, { value: signature }] = await Promise.all([
+      loadJSON(trust.approval_url, "operator release approval"),
+      loadJSON(trust.signature_url, "operator release signature"),
+    ]);
+    operatorApproval = verifyOperatorApproval({ approval, signature, trust, deployment, runtimePins });
+    for (const file of approval.files) {
+      const resource = await load(file.path);
+      equal(resource.bytes.length, file.size, `operator approval file size ${file.path}`);
+      equal(digest(resource.bytes, "sha256"), file.sha256, `operator approval file digest ${file.path}`);
+    }
+  }
+
   if (live) {
     const { resource: runtimePointerResource, value: runtimePointer } = await loadJSON(
       "/claim-api/deployment",
@@ -243,6 +262,7 @@ export async function verifyProofRelease(options = {}) {
     deployment_id: deployment.deployment_id,
     verified_commit_sha: buildProvenance?.commitSha ?? null,
     checked_resources: fetched.size,
+    operator_release_approval: operatorApproval,
     bulk_assets: {
       proving_key_url: descriptor.pk_url,
       constraint_system_url: descriptor.ccs_url,

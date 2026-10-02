@@ -56,6 +56,32 @@ describe("proof release coherence verifier", () => {
     });
   });
 
+  it("rejects a corrupted operator approval signature in a staged Mainnet release", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "proof-release-test-"));
+    temporaryRoots.push(root);
+    await cp(publicRoot, root, { recursive: true });
+    const trust = JSON.parse(await readFile("lib/reclaim-server/operator-approval-pins.json", "utf8"));
+    const signaturePath = path.join(root, trust.signature_url.slice(1));
+    const signature = JSON.parse(await readFile(signaturePath, "utf8"));
+    signature.signature_hex = "00".repeat(64);
+    await writeFile(signaturePath, JSON.stringify(signature));
+    await expect(verifyProofRelease({ webRoot: root })).rejects.toThrow(/signature verification failed/u);
+  });
+
+  it("rejects changed evidence even when the operator approval signature remains valid", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "proof-release-test-"));
+    temporaryRoots.push(root);
+    await cp(publicRoot, root, { recursive: true });
+    const trust = JSON.parse(await readFile("lib/reclaim-server/operator-approval-pins.json", "utf8"));
+    const approval = JSON.parse(await readFile(path.join(root, trust.approval_url.slice(1)), "utf8"));
+    const evidence = approval.files.find((file) => file.path.endsWith("/evidence/source-release.json"));
+    const evidencePath = path.join(root, evidence.path.slice(1));
+    const bytes = await readFile(evidencePath);
+    bytes[0] ^= 1;
+    await writeFile(evidencePath, bytes);
+    await expect(verifyProofRelease({ webRoot: root })).rejects.toThrow(/operator approval file digest/u);
+  });
+
   it("rejects a key manifest changed after signing", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "proof-release-test-"));
     temporaryRoots.push(root);
